@@ -77,3 +77,8 @@
 - Liquidity grabs drawn like Milana Trades RJB/SFP: swept-level line, wick highlight, dotted confirmation level; RJB box of fixed length created on SFP confirmation (input).
 - Zones drawn like JP7FX S&D/OB: label inside box (TF + Demand/Supply + OB A+), 50% dashed line, Fresh-only / All-active view with shrinking boxes, removal on close or wick, statistics panel.
 - Reference scripts' code was not copied (two are protected source); behaviour based on their public descriptions and example images.
+
+### Code v1.5 — 2026-11-12
+- Removed SFP labels (confirmation line and RJB box remain).
+- IDM must lie inside the current structure (between protected level and leg extreme, after the phase start).
+- IDM is now required before CHoCH as well as BOS (same-candle take allowed; fallback when no IDM has formed in the phase).

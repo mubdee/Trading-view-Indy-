@@ -1,5 +1,5 @@
 //@version=6
-indicator("SMC Suite v1.4", shorttitle = "SMC Suite", overlay = true, max_boxes_count = 500, max_lines_count = 500, max_labels_count = 500, max_bars_back = 500)
+indicator("SMC Suite v1.5", shorttitle = "SMC Suite", overlay = true, max_boxes_count = 500, max_lines_count = 500, max_labels_count = 500, max_bars_back = 500)
 
 // ═══════════════════════════ INPUTS ═══════════════════════════
 G0 = "General / Entry"
@@ -70,7 +70,6 @@ sfpMax    = input.int(5, "SFP max bars after sweep", minval = 1, group = G6)
 volLen    = input.int(20, "Strong volume: SMA length", minval = 2, group = G6)
 volMult   = input.float(1.5, "Strong volume: >= x SMA", minval = 1.0, step = 0.1, group = G6)
 volDirReq = input.bool(true, "Strong-volume candle must close in SFP direction", group = G6)
-showSfp   = input.bool(true, "Show SFP", group = G6)
 rbMode    = input.string("Wick", "Rejection Block boundary", options = ["Wick", "Body", "Full"], group = G6)
 rbBufAtr  = input.float(0.0, "RB invalidation buffer (x ATR14)", minval = 0, step = 0.01, group = G6)
 rbAt      = input.string("SFP confirmed", "Create RJB when", options = ["SFP confirmed", "Liquidity sweep"], group = G6)
@@ -613,12 +612,6 @@ method adv(Sfp p) =>
                     p.wickBar := bar_index
     r
 
-drawSfp(int d, int how) =>
-    if showSfp
-        color c = d == 1 ? colBull : colBear
-        label.new(bar_index, d == 1 ? low : high, how == 2 ? "SFP (vol)" : "SFP", style = d == 1 ? label.style_label_up : label.style_label_down, color = c, textcolor = d == 1 ? color.black : color.white, size = size.small)
-    true
-
 dashRow(table tb, int r, string k, string v, color vc) =>
     tb.cell(0, r, k, text_color = color.silver, text_size = size.small, text_halign = text.align_left)
     tb.cell(1, r, v, text_color = vc, text_size = size.small, text_halign = text.align_left)
@@ -694,9 +687,16 @@ if barstate.isconfirmed and warm
                 evFake := true
                 drawBreak(nsLB, nsL, 3, -1, "Fake BOS")
     else if eng.trend == 1
-        bool choch = not na(eng.pLo) and close < eng.pLo - brkBuf
+        // IDM is required between structures: CHoCH only after IDM is taken (same candle allowed)
+        bool idmHitNow = not eng.idmTaken and not na(eng.idm) and low < eng.idm - sweepBuf
+        bool idmOk = eng.idmTaken or idmHitNow or na(eng.idm)
+        bool choch = idmOk and not na(eng.pLo) and close < eng.pLo - brkBuf
         bool bos = not choch and eng.idmTaken and close > eng.tMax + brkBuf
         if choch
+            if idmHitNow
+                evIdmSwept := true
+                drawIdm(eng, 1)
+                eng.idmTaken := true
             evBearCH := true
             eLvl := eng.pLo
             eLvlBar := eng.pLoBar
@@ -719,7 +719,8 @@ if barstate.isconfirmed and warm
                 eng.tMax := high
                 eng.tMaxBar := bar_index
             if not eng.idmTaken
-                if not na(intPL) and bar_index - idmLen > eng.phaseBar
+                // IDM must sit inside the current structure: above the protected low, below the leg high
+                if not na(intPL) and bar_index - idmLen > eng.phaseBar and (na(eng.pLo) or intPL > eng.pLo) and intPL < eng.tMax
                     if not na(eng.idmLn)
                         eng.idmLn.delete()
                     if not na(eng.idmLb)
@@ -743,9 +744,15 @@ if barstate.isconfirmed and warm
                 eng.pull := low
                 eng.pullBar := bar_index
     else
-        bool choch = not na(eng.pHi) and close > eng.pHi + brkBuf
+        bool idmHitNow = not eng.idmTaken and not na(eng.idm) and high > eng.idm + sweepBuf
+        bool idmOk = eng.idmTaken or idmHitNow or na(eng.idm)
+        bool choch = idmOk and not na(eng.pHi) and close > eng.pHi + brkBuf
         bool bos = not choch and eng.idmTaken and close < eng.tMin - brkBuf
         if choch
+            if idmHitNow
+                evIdmSwept := true
+                drawIdm(eng, -1)
+                eng.idmTaken := true
             evBullCH := true
             eLvl := eng.pHi
             eLvlBar := eng.pHiBar
@@ -768,7 +775,8 @@ if barstate.isconfirmed and warm
                 eng.tMin := low
                 eng.tMinBar := bar_index
             if not eng.idmTaken
-                if not na(intPH) and bar_index - idmLen > eng.phaseBar
+                // IDM must sit inside the current structure: below the protected high, above the leg low
+                if not na(intPH) and bar_index - idmLen > eng.phaseBar and (na(eng.pHi) or intPH < eng.pHi) and intPH > eng.tMin
                     if not na(eng.idmLn)
                         eng.idmLn.delete()
                     if not na(eng.idmLb)
@@ -1008,7 +1016,6 @@ if barstate.isconfirmed and warm
             evSfpBear := true
             sfpBearNow := true
             sfpBearExt := bearP.ext
-            drawSfp(-1, r)
             if not na(bearP.confLn)
                 bearP.confLn.set_x2(bar_index)
             if rbAt == "SFP confirmed" and bearP.rbTop > bearP.rbBot
@@ -1026,7 +1033,6 @@ if barstate.isconfirmed and warm
             evSfpBull := true
             sfpBullNow := true
             sfpBullExt := bullP.ext
-            drawSfp(1, r)
             if not na(bullP.confLn)
                 bullP.confLn.set_x2(bar_index)
             if rbAt == "SFP confirmed" and bullP.rbTop > bullP.rbBot
@@ -1052,7 +1058,6 @@ if barstate.isconfirmed and warm
                 evSfpBear := true
                 sfpBearNow := true
                 sfpBearExt := high
-                drawSfp(-1, 1)
                 if rbAt == "SFP confirmed" and rTop > rBot
                     newZone(K_RB, -1, rTop, rBot, bar_index, high, na, showRB)
                 bearP := na
@@ -1072,7 +1077,6 @@ if barstate.isconfirmed and warm
                 evSfpBull := true
                 sfpBullNow := true
                 sfpBullExt := low
-                drawSfp(1, 1)
                 if rbAt == "SFP confirmed" and rTop > rBot
                     newZone(K_RB, 1, rTop, rBot, bar_index, low, na, showRB)
                 bullP := na
@@ -1207,7 +1211,7 @@ if barstate.islast and showDash
     string smtTxt = not smtOn ? "Off" : not smtHasSym ? "N/A (no pair for " + root6 + ", use Manual)" : not smtAvail ? "N/A (" + cmpSym + " not found)" : cmpSym + (cmpInv ? " inverse" : " direct") + " | last: " + (lastSmtDir == 1 ? "bull" : lastSmtDir == -1 ? "bear" : "-")
     string idmTxt = na(eng.idm) ? "-" : str.tostring(eng.idm, format.mintick) + (eng.idmTaken ? " (taken, BOS allowed)" : " (waiting)")
     bool counter = htfActive and htfBias != 0 and eng.trend != 0 and htfBias != eng.trend
-    dashRow(dash, 0, "SMC Suite v1.4", profile, color.white)
+    dashRow(dash, 0, "SMC Suite v1.5", profile, color.white)
     dashRow(dash, 1, "Entry trigger / zone", trigMode + " / " + zoneMode, color.white)
     dashRow(dash, 2, "Detection TF", "Chart TF (" + timeframe.period + ")", color.white)
     dashRow(dash, 3, "HTF context", htfTxt, htfBias == 1 ? colBull : htfBias == -1 ? colBear : color.white)
