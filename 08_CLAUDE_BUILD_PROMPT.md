@@ -9,6 +9,8 @@ User-approved decisions:
 - Every module timeframe is user-adjustable; support Chart TF and selectable TFs.
 - OB zone = Hybrid: bullish `[source low, source open]`; bearish `[source open, source high]`.
 - Display all market structures and entry signals.
+- All items in `10_OPEN_ISSUES_FOR_USER.md` sections A–E are resolved (see `09_DECISIONS_AND_CHANGELOG.md`): SFP multi-candle definition, Fake BOS from Neutral, MSS level, displacement window, protected swing, lifecycle stages, RB wick default, Rejection Candle trigger, one entry per setup, Phase 1 TF rule, defaults, SMT auto map.
+- Pre-coding design: `11_PRECODING_DESIGN.md`.
 
 Modules: SMC Market Structure, Liquidity, OB + FVG, SFP + Rejection Block, MTF, SMT, IDM.
 
@@ -28,7 +30,7 @@ Before coding:
 2. Explain exact per-candle rules chronologically for each module.
 3. Identify any remaining ambiguity.
 4. Provide architecture, pseudocode and test cases.
-5. Do not write the full script until the user approves remaining unresolved definitions, especially Rejection Block boundaries and entry trigger.
+5. Do not write the full script until the user answers SFP follow-ups F1–F4 in file 10 and approves `11_PRECODING_DESIGN.md`.
 
 After approval:
 1. Implement module-by-module.
