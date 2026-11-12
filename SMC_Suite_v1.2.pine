@@ -1,5 +1,5 @@
 //@version=6
-indicator("SMC Suite v1.2", shorttitle = "SMC Suite", overlay = true, max_boxes_count = 500, max_lines_count = 500, max_labels_count = 500, max_bars_back = 500)
+indicator("SMC Suite v1.2.1", shorttitle = "SMC Suite", overlay = true, max_boxes_count = 500, max_lines_count = 500, max_labels_count = 500, max_bars_back = 500)
 
 // ═══════════════════════════ INPUTS ═══════════════════════════
 G0 = "General"
@@ -54,6 +54,7 @@ fvgDisp   = input.bool(false, "FVG: require displacement middle candle", group =
 invBufAtr = input.float(0.0, "OB/FVG invalidation buffer (x ATR14)", minval = 0, step = 0.01, group = G5)
 mitMode   = input.string("Touch", "Mitigation threshold", options = ["Touch", "50%", "Full"], group = G5)
 zoneMax   = input.int(300, "Zone max age (bars)", minval = 10, group = G5)
+delMit    = input.bool(true, "Remove zone from chart once mitigated", group = G5)
 keepInv   = input.bool(false, "Keep invalidated zones (greyed)", group = G5)
 showOB    = input.bool(true, "Show OB", group = G5)
 showFVG   = input.bool(true, "Show FVG", group = G5)
@@ -79,11 +80,11 @@ smtTol    = input.int(2, "Timestamp tolerance (bars)", minval = 0, group = G7)
 showSmt   = input.bool(true, "Show SMT", group = G7)
 
 G8 = "Colours"
-colBull   = input.color(color.new(#089981, 0), "Bullish", group = G8)
-colBear   = input.color(color.new(#f23645, 0), "Bearish", group = G8)
-colFake   = input.color(color.new(#9598a1, 0), "Fake / neutral", group = G8)
-colIdmC   = input.color(color.new(#b2b5be, 0), "IDM candidate", group = G8)
-colIdmS   = input.color(color.new(#ff9800, 0), "IDM swept", group = G8)
+colBull   = input.color(color.new(#b2b5be, 0), "Bullish", group = G8)
+colBear   = input.color(color.new(#5d606b, 0), "Bearish", group = G8)
+colFake   = input.color(color.new(#787b86, 0), "Fake / neutral", group = G8)
+colIdmC   = input.color(color.new(#868993, 0), "IDM candidate", group = G8)
+colIdmS   = input.color(color.new(#d1d4dc, 0), "IDM swept", group = G8)
 
 // ═══════════════════════════ CONSTANTS ═══════════════════════════
 S_NONE = 0
@@ -371,7 +372,7 @@ drawBreak(int fromBar, float lvl, int typ, int d, bool major) =>
     if show and not na(lvl) and not na(fromBar)
         color c = typ == 3 ? colFake : d == 1 ? colBull : colBear
         string t = (major ? "" : "i") + (typ == 1 ? "BOS" : typ == 2 ? "CHoCH" : "Fake BOS")
-        line.new(fromBar, lvl, bar_index, lvl, color = c, style = typ == 3 ? line.style_dotted : major ? line.style_solid : line.style_dashed, width = major ? 2 : 1)
+        line.new(fromBar, lvl, bar_index, lvl, color = c, style = typ == 3 ? line.style_dotted : major ? line.style_solid : line.style_dashed, width = 1)
         label.new(math.round((fromBar + bar_index) / 2), lvl, t, style = d == 1 ? label.style_label_down : label.style_label_up, color = color(na), textcolor = c, size = major ? size.small : size.tiny)
     true
 
@@ -392,10 +393,10 @@ addPool(float price, int d, string src, int pbar, float oL, float oH) =>
     if not merged
         line ln = na
         if showPools
-            color c = src == "SWING" ? color.new(d == 1 ? colBear : colBull, 55) : color.new(color.blue, 30)
+            color c = src == "SWING" ? color.new(colFake, 55) : color.new(colFake, 25)
             ln := line.new(pbar, price, bar_index, price, color = c, style = line.style_dotted)
             if src != "SWING"
-                label.new(bar_index, price, src, style = label.style_label_left, color = color(na), textcolor = color.blue, size = size.tiny)
+                label.new(bar_index, price, src, style = label.style_label_left, color = color(na), textcolor = colFake, size = size.tiny)
         pools.push(Pool.new(id = ctr.next(), price = price, dir = d, src = src, pbar = pbar, created = bar_index, oLow = oL, oHigh = oH, ln = ln))
         if pools.size() > 120
             pools.shift()
@@ -404,11 +405,11 @@ addPool(float price, int d, string src, int pbar, float oL, float oH) =>
 newZone(int kind, int d, float top, float bot, int left, float inv, int dispB, int midB) =>
     color base = d == 1 ? colBull : colBear
     string t = kind == K_OB ? "OB" : kind == K_FVG ? "FVG" : "RB"
-    int tr = kind == K_OB ? 75 : kind == K_FVG ? 85 : 80
+    int tr = kind == K_OB ? 85 : kind == K_FVG ? 90 : 88
     bool show = kind == K_OB ? showOB : kind == K_FVG ? showFVG : showRB
     box b = na
     if show
-        b := box.new(left, top, bar_index + 1, bot, border_color = color.new(base, 45), bgcolor = color.new(base, tr), text = t, text_size = size.tiny, text_color = color.new(base, 10), text_halign = text.align_left, text_valign = text.align_top)
+        b := box.new(left, top, bar_index + 1, bot, border_color = color.new(base, 60), border_width = 1, bgcolor = color.new(base, tr), text = t, text_size = size.tiny, text_color = color.new(base, 30), text_halign = text.align_left, text_valign = text.align_top)
     Zone z = Zone.new(id = ctr.next(), kind = kind, dir = d, top = top, bot = bot, invLvl = inv, createdBar = bar_index, dispBar = dispB, midBar = midB, bx = b)
     zones.push(z)
     if zones.size() > 200
@@ -416,8 +417,11 @@ newZone(int kind, int d, float top, float bot, int left, float inv, int dispB, i
     z
 
 method reset(Setup st, string why) =>
-    if st.stage >= S_CAND and st.stage <= S_SWEPT and not na(st.idmLn)
-        st.idmLn.set_color(color.new(colFake, 70))
+    if st.stage >= S_CAND and st.stage <= S_SWEPT
+        if not na(st.idmLn)
+            st.idmLn.delete()
+        if not na(st.idmLb)
+            st.idmLb.delete()
     st.stage := S_NONE
     st.reason := why
     if debugOn and why != "ENTRY_DONE"
@@ -439,8 +443,11 @@ method step(Setup st, float prot, int pBar, bool protBroken, float piv, int pivB
     if (st.stage == S_CTX or st.stage == S_CAND) and not na(piv) and not na(prot) and not protBroken
         bool side = d == 1 ? piv > prot : piv < prot
         if side
-            if st.stage == S_CAND and not na(st.idmLn)
-                st.idmLn.set_color(color.new(colFake, 70))
+            if st.stage == S_CAND
+                if not na(st.idmLn)
+                    st.idmLn.delete()
+                if not na(st.idmLb)
+                    st.idmLb.delete()
             st.idm := piv
             st.idmBar := pivBar
             st.idmCreated := bar_index
@@ -509,8 +516,8 @@ method step(Setup st, float prot, int pBar, bool protBroken, float piv, int pivB
                         st.dispBar := dispWin == 0 ? bar_index : lastDisp
                         st.zoneEnd := ""
                         if showIdm
-                            line.new(st.sweepBar, st.mssLvl, bar_index, st.mssLvl, color = dc, width = 2)
-                            label.new(bar_index, st.mssLvl, "MSS", style = d == 1 ? label.style_label_down : label.style_label_up, color = dc, textcolor = color.white, size = size.small)
+                            line.new(st.sweepBar, st.mssLvl, bar_index, st.mssLvl, color = dc, width = 1)
+                            label.new(bar_index, st.mssLvl, "MSS", style = d == 1 ? label.style_label_down : label.style_label_up, color = dc, textcolor = d == 1 ? color.black : color.white, size = size.small)
                         if not na(st.idmLn)
                             st.idmLn.set_color(dc)
     [evCand, evSwept, evMss]
@@ -586,7 +593,7 @@ method adv(Sfp p) =>
 drawSfp(int d, int how) =>
     if showSfp
         color c = d == 1 ? colBull : colBear
-        label.new(bar_index, d == 1 ? low : high, how == 2 ? "SFP (vol)" : "SFP", style = d == 1 ? label.style_label_up : label.style_label_down, color = c, textcolor = color.white, size = size.small)
+        label.new(bar_index, d == 1 ? low : high, how == 2 ? "SFP (vol)" : "SFP", style = d == 1 ? label.style_label_up : label.style_label_down, color = c, textcolor = d == 1 ? color.black : color.white, size = size.small)
     true
 
 dashRow(table tb, int r, string k, string v, color vc) =>
@@ -700,10 +707,12 @@ if barstate.isconfirmed and warm
                         rem := true
                 if not rem and bar_index - p.created > poolMax
                     rem := true
-            if not na(p.ln)
-                p.ln.set_x2(bar_index)
             if rem
+                if not na(p.ln)
+                    p.ln.delete()
                 pools.remove(i)
+            else if not na(p.ln)
+                p.ln.set_x2(bar_index)
     bool sweepAmb = not na(bslP) and not na(sslP)
     int bslSweepId = na
     int sslSweepId = na
@@ -711,12 +720,12 @@ if barstate.isconfirmed and warm
         bslSweepId := ctr.next()
         evSweep := true
         if showSwp
-            label.new(bar_index, high, "x", style = label.style_none, textcolor = colBear, size = size.normal)
+            label.new(bar_index, high, "x", style = label.style_none, textcolor = colFake, size = size.small)
     if not sweepAmb and not na(sslP)
         sslSweepId := ctr.next()
         evSweep := true
         if showSwp
-            label.new(bar_index, low, "x", style = label.style_none, textcolor = colBull, size = size.normal)
+            label.new(bar_index, low, "x", style = label.style_none, textcolor = colFake, size = size.small)
 
     // 6. displacement memory
     if dispBull
@@ -755,7 +764,11 @@ if barstate.isconfirmed and warm
                     if z.kind != K_RB
                         evMitig := true
                     if not na(z.bx)
-                        z.bx.set_bgcolor(color.new(z.dir == 1 ? colBull : colBear, 90))
+                        if delMit
+                            z.bx.delete()
+                            z.bx := na
+                        else
+                            z.bx.set_bgcolor(color.new(z.dir == 1 ? colBull : colBear, 94))
                 if inv or expd
                     string why = inv ? "ZONE_INVALIDATED" : "ZONE_EXPIRED"
                     if not na(z.srcId)
@@ -768,7 +781,7 @@ if barstate.isconfirmed and warm
                         if keepInv and inv
                             z.bx.set_bgcolor(color.new(colFake, 88))
                             z.bx.set_border_color(color.new(colFake, 60))
-                        else if inv
+                        else
                             z.bx.delete()
                     zones.remove(i)
                 else if not na(z.bx)
@@ -900,7 +913,7 @@ if barstate.isconfirmed and warm
                     lastSmtDir := 1
                     lastSmtBar := bar_index
                     if showSmt
-                        label.new(pendBullBar, pendBullPx, "SMT", style = label.style_label_up, color = color.new(color.purple, 10), textcolor = color.white, size = size.tiny)
+                        label.new(pendBullBar, pendBullPx, "SMT", style = label.style_label_up, color = color.new(colFake, 20), textcolor = color.white, size = size.tiny)
                 pendBullT := na
             else if bar_index > pendBullDl
                 pendBullT := na
@@ -914,7 +927,7 @@ if barstate.isconfirmed and warm
                     lastSmtDir := -1
                     lastSmtBar := bar_index
                     if showSmt
-                        label.new(pendBearBar, pendBearPx, "SMT", style = label.style_label_down, color = color.new(color.purple, 10), textcolor = color.white, size = size.tiny)
+                        label.new(pendBearBar, pendBearPx, "SMT", style = label.style_label_down, color = color.new(colFake, 20), textcolor = color.white, size = size.tiny)
                 pendBearT := na
             else if bar_index > pendBearDl
                 pendBearT := na
@@ -929,7 +942,7 @@ if barstate.isconfirmed and warm
     string smtS = not smtAvail ? "N/A" : lastSmtDir == -1 and bar_index - lastSmtBar <= 50 ? "yes (bear)" : "no"
     if fb and not conflict and profile != "Context-only"
         string ck = "HTF: " + (htfActive ? biasTxt(htfBias) + " - pass" : "N/A (off)") + "\nIDM swept: pass\nMSS + displacement: pass\nZone: " + (zb.kind == K_OB ? "OB" : "FVG") + " - pass\nTrigger: " + tb + " - pass\nSMT (info): " + smtB
-        label.new(bar_index, low, "BUY", style = label.style_label_up, color = colBull, textcolor = color.white, size = size.normal, tooltip = ck)
+        label.new(bar_index, low, "BUY", style = label.style_label_up, color = colBull, textcolor = color.black, size = size.normal, tooltip = ck)
         evEntryBull := true
         bullSt.reset("ENTRY_DONE")
     if fs and not conflict and profile != "Context-only"
@@ -974,12 +987,12 @@ alertcondition(evEntryBull, "BUY entry", "SMC {{ticker}} {{interval}}: confirmed
 alertcondition(evEntryBear, "SELL entry", "SMC {{ticker}} {{interval}}: confirmed SELL setup")
 
 // ═══════════════════════════ DASHBOARD ═══════════════════════════
-var table dash = table.new(position.top_right, 2, 14, bgcolor = color.new(color.black, 15), border_width = 1)
+var table dash = table.new(position.top_right, 2, 14, bgcolor = color.new(#131722, 10), border_color = color.new(#363a45, 0), border_width = 1)
 if barstate.islast and showDash
     string htfTxt = not htfOn ? "Off" : not htfTfOk ? "Disabled: TF lower than chart (Phase 2)" : htfTf + " " + biasTxt(htfBias)
     string smtTxt = not smtOn ? "Off" : not smtHasSym ? "N/A (no pair for " + root6 + ", use Manual)" : not smtAvail ? "N/A (" + cmpSym + " not found)" : cmpSym + (cmpInv ? " inverse" : " direct") + " | last: " + (lastSmtDir == 1 ? "bull" : lastSmtDir == -1 ? "bear" : "-")
     bool counter = htfActive and htfBias != 0 and majS.bias != 0 and htfBias != majS.bias
-    dashRow(dash, 0, "SMC Suite v1.2", profile, color.white)
+    dashRow(dash, 0, "SMC Suite v1.2.1", profile, color.white)
     dashRow(dash, 1, "Entry trigger", trigMode, color.white)
     dashRow(dash, 2, "Detection TF", "Chart TF (" + timeframe.period + ")", color.white)
     dashRow(dash, 3, "HTF context", htfTxt, htfBias == 1 ? colBull : htfBias == -1 ? colBear : color.white)
@@ -991,5 +1004,5 @@ if barstate.islast and showDash
     dashRow(dash, 9, "SMT", smtTxt, color.white)
     dashRow(dash, 10, "SFP volume", volAvail ? "OK (tick volume)" : "N/A - body break only", color.white)
     dashRow(dash, 11, "PDH/PDL | PWH/PWL", (pdOk ? "on" : "off") + " | " + (pwOk ? "on" : "off"), color.white)
-    dashRow(dash, 12, "Countertrend (HTF vs chart)", counter ? "YES" : "no", counter ? color.orange : color.white)
+    dashRow(dash, 12, "Countertrend (HTF vs chart)", counter ? "YES" : "no", counter ? colIdmS : color.white)
     dashRow(dash, 13, "Note", "Score/markers are a checklist, not a win rate", color.gray)
