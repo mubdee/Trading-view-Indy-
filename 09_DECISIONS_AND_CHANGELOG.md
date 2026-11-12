@@ -71,3 +71,9 @@
 - SMT draws a line between the two chart swings.
 - Entries drawn as a zone box instead of BUY/SELL labels.
 - Script renamed to `SMC_Suite.pine`. Not compiled yet.
+
+### Code v1.4 — 2026-11-12 (match the look of the 3 reference indicators)
+- Structure drawn like LuxAlgo MSI&S: BOS solid, CHoCH dashed, IDM dotted grey from swing to taking bar with centred label, sweeps dotted with "x".
+- Liquidity grabs drawn like Milana Trades RJB/SFP: swept-level line, wick highlight, dotted confirmation level; RJB box of fixed length created on SFP confirmation (input).
+- Zones drawn like JP7FX S&D/OB: label inside box (TF + Demand/Supply + OB A+), 50% dashed line, Fresh-only / All-active view with shrinking boxes, removal on close or wick, statistics panel.
+- Reference scripts' code was not copied (two are protected source); behaviour based on their public descriptions and example images.

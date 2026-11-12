@@ -1,5 +1,5 @@
 //@version=6
-indicator("SMC Suite v1.3", shorttitle = "SMC Suite", overlay = true, max_boxes_count = 500, max_lines_count = 500, max_labels_count = 500, max_bars_back = 500)
+indicator("SMC Suite v1.4", shorttitle = "SMC Suite", overlay = true, max_boxes_count = 500, max_lines_count = 500, max_labels_count = 500, max_bars_back = 500)
 
 // ═══════════════════════════ INPUTS ═══════════════════════════
 G0 = "General / Entry"
@@ -24,7 +24,8 @@ brkBufAtr = input.float(0.0, "Break buffer (x ATR14)", minval = 0, step = 0.01, 
 eqTolAtr  = input.float(0.05, "Equal-level tolerance (x ATR14)", minval = 0, step = 0.01, group = G2)
 showMajor = input.bool(true, "Show BOS / CHoCH", group = G2)
 showFake  = input.bool(true, "Show structure sweeps (wick only)", group = G2)
-showIdm   = input.bool(true, "Show IDM", group = G2)
+showIdm   = input.bool(true, "Show IDM (when taken)", group = G2)
+showIdmPend = input.bool(false, "Show IDM before it is taken", group = G2)
 showSw    = input.bool(true, "Show HH / HL / LH / LL / EQH / EQL", group = G2)
 
 G3 = "Liquidity"
@@ -34,7 +35,7 @@ usePW     = input.bool(true, "PWH / PWL", group = G3)
 swBufAtr  = input.float(0.0, "Sweep buffer (x ATR14)", minval = 0, step = 0.01, group = G3)
 poolMax   = input.int(500, "Pool max age (bars)", minval = 10, group = G3)
 showPools = input.bool(true, "Show liquidity lines", group = G3)
-showSwp   = input.bool(true, "Show liquidity sweeps", group = G3)
+showSwp   = input.bool(true, "Show liquidity grabs (swept level, wick, confirmation level)", group = G3)
 
 G4 = "MSS / Displacement"
 mssCh     = input.bool(true, "CHoCH can be MSS (reversal setups)", group = G4)
@@ -53,10 +54,13 @@ dsOn      = input.bool(true, "Demand / Supply zones", group = G5)
 dsMaxBase = input.int(3, "D/S: max base candles", minval = 1, maxval = 6, group = G5)
 dsBasePct = input.float(0.5, "D/S: base candle body <= % of range", minval = 0.1, maxval = 0.9, step = 0.05, group = G5)
 invBufAtr = input.float(0.0, "Zone invalidation buffer (x ATR14)", minval = 0, step = 0.01, group = G5)
-mitMode   = input.string("Touch", "Mitigation threshold", options = ["Touch", "50%", "Full"], group = G5)
+mitMode   = input.string("Touch", "Zone counts as mitigated at", options = ["Touch", "50%", "Full"], group = G5)
+zoneView  = input.string("Fresh only", "Zone display", options = ["Fresh only", "All active"], group = G5)
+zoneRemove = input.string("Close beyond", "Remove zone when price", options = ["Close beyond", "Wick through"], group = G5)
+showMid   = input.bool(true, "Show 50% line", group = G5)
+showStats = input.bool(true, "Show zone statistics panel", group = G5)
 zoneMax   = input.int(300, "Zone max age (bars)", minval = 10, group = G5)
 showAllZ  = input.bool(false, "Also draw zones not linked to an MSS", group = G5)
-delMit    = input.bool(true, "Remove zone from chart once mitigated", group = G5)
 keepInv   = input.bool(false, "Keep invalidated zones (greyed)", group = G5)
 
 G6 = "SFP / Rejection Block"
@@ -69,7 +73,9 @@ volDirReq = input.bool(true, "Strong-volume candle must close in SFP direction",
 showSfp   = input.bool(true, "Show SFP", group = G6)
 rbMode    = input.string("Wick", "Rejection Block boundary", options = ["Wick", "Body", "Full"], group = G6)
 rbBufAtr  = input.float(0.0, "RB invalidation buffer (x ATR14)", minval = 0, step = 0.01, group = G6)
-showRB    = input.bool(true, "Show Rejection Blocks", group = G6)
+rbAt      = input.string("SFP confirmed", "Create RJB when", options = ["SFP confirmed", "Liquidity sweep"], group = G6)
+rbLen     = input.int(10, "RJB box length (bars)", minval = 2, maxval = 200, group = G6)
+showRB    = input.bool(true, "Show Rejection Blocks (RJB)", group = G6)
 
 G7 = "SMT"
 smtOn     = input.bool(true, "SMT module", group = G7)
@@ -163,6 +169,7 @@ type Zone
     bool  sweep = false
     bool  imb = false
     box   bx
+    line  mid
 
 type Sfp
     int   id
@@ -171,6 +178,9 @@ type Sfp
     float ext
     int   sweepBar
     int   wickBar
+    float rbTop
+    float rbBot
+    line  confLn
 
 type Setup
     int   dir
@@ -371,7 +381,7 @@ drawBreak(int fromBar, float lvl, int typ, int d, string tag) =>
     if show and not na(lvl) and not na(fromBar)
         color c = typ == 3 ? colFake : d == 1 ? colBull : colBear
         string t = (typ == 1 ? "BOS" : typ == 2 ? "CHoCH" : tag) + (typ != 3 and tag != "" ? " · " + tag : "")
-        line.new(fromBar, lvl, bar_index, lvl, color = c, style = typ == 3 ? line.style_dotted : line.style_solid, width = 1)
+        line.new(fromBar, lvl, bar_index, lvl, color = c, style = typ == 1 ? line.style_solid : typ == 2 ? line.style_dashed : line.style_dotted, width = 1)
         label.new(math.round((fromBar + bar_index) / 2), lvl, t, style = d == 1 ? label.style_label_down : label.style_label_up, color = color(na), textcolor = c, size = typ == 3 ? size.tiny : size.small)
     true
 
@@ -447,6 +457,23 @@ method contPhase(Eng e) =>
     e.idmLb := na
     true
 
+// IDM drawn like the reference: dotted grey line from the IDM swing to the bar that takes it, label in the middle
+drawIdm(Eng e, int d) =>
+    if not na(e.idmLn)
+        e.idmLn.delete()
+    if not na(e.idmLb)
+        e.idmLb.delete()
+    e.idmLn := na
+    e.idmLb := na
+    if showIdm and not na(e.idmBar)
+        e.idmLn := line.new(e.idmBar, e.idm, bar_index, e.idm, color = colIdmC, style = line.style_dotted, width = 1)
+        e.idmLb := label.new(math.round((e.idmBar + bar_index) / 2), e.idm, "IDM", style = d == 1 ? label.style_label_up : label.style_label_down, color = color(na), textcolor = colIdmC, size = size.small)
+    true
+
+tfLabel() =>
+    int sec = timeframe.in_seconds()
+    sec < 3600 ? str.tostring(math.round(sec / 60)) + "M" : sec < 86400 ? str.tostring(math.round(sec / 3600)) + "H" : timeframe.period
+
 addPool(float price, int d, string src, int pbar, float oL, float oH) =>
     bool merged = false
     if src == "SWING" and pools.size() > 0
@@ -474,13 +501,17 @@ addPool(float price, int d, string src, int pbar, float oL, float oH) =>
     merged
 
 zoneText(Zone z) =>
-    z.kind == K_OB ? (z.sweep and z.imb ? "OB A+" : "OB") : z.kind == K_DS ? (z.dir == 1 ? "Demand" : "Supply") : "RB"
+    z.kind == K_RB ? "RJB" : tfLabel() + " " + (z.dir == 1 ? "Demand" : "Supply") + (z.kind == K_OB ? (z.sweep and z.imb ? " OB A+" : " OB") : "")
 
 drawZone(Zone z) =>
     if na(z.bx)
         color base = z.dir == 1 ? colBull : colBear
         int tr = z.kind == K_OB ? 85 : z.kind == K_DS ? 90 : 88
-        z.bx := box.new(z.leftBar, z.top, bar_index + 1, z.bot, border_color = color.new(base, 60), border_width = 1, bgcolor = color.new(base, tr), text = zoneText(z), text_size = size.tiny, text_color = color.new(base, 30), text_halign = text.align_left, text_valign = text.align_top)
+        int right = z.kind == K_RB ? z.leftBar + rbLen : bar_index + 1
+        z.bx := box.new(z.leftBar, z.top, right, z.bot, border_color = color.new(base, 50), border_width = 1, bgcolor = color.new(base, tr), text = zoneText(z), text_size = size.tiny, text_color = color.new(base, 20), text_halign = text.align_right, text_valign = text.align_top)
+        if showMid and z.kind != K_RB
+            float m = (z.top + z.bot) / 2
+            z.mid := line.new(z.leftBar, m, right, m, color = color.new(base, 30), style = line.style_dashed, width = 1)
     true
 
 newZone(int kind, int d, float top, float bot, int left, float inv, int dispB, bool show) =>
@@ -674,18 +705,16 @@ if barstate.isconfirmed and warm
             evBullBOS := true
             eLvl := eng.tMax
             eLvlBar := eng.tMaxBar
-            if not na(eng.idmLn)
-                eng.idmLn.set_color(colBull)
             eng.contPhase()
         else
             if not na(eng.pLo) and low < eng.pLo - brkBuf and (na(eng.sweptLo) or eng.sweptLo != eng.pLoBar)
                 eng.sweptLo := eng.pLoBar
                 evFake := true
-                drawBreak(eng.pLoBar, eng.pLo, 3, -1, "Sweep")
+                drawBreak(eng.pLoBar, eng.pLo, 3, -1, "x")
             if eng.idmTaken and high > eng.tMax + brkBuf and (na(eng.sweptHi) or eng.sweptHi != eng.tMaxBar)
                 eng.sweptHi := eng.tMaxBar
                 evFake := true
-                drawBreak(eng.tMaxBar, eng.tMax, 3, 1, "Sweep")
+                drawBreak(eng.tMaxBar, eng.tMax, 3, 1, "x")
             if high > eng.tMax
                 eng.tMax := high
                 eng.tMaxBar := bar_index
@@ -698,20 +727,16 @@ if barstate.isconfirmed and warm
                     eng.idm := intPL
                     eng.idmBar := bar_index - idmLen
                     evIdmCand := true
-                    if showIdm
+                    if showIdmPend
                         eng.idmLn := line.new(eng.idmBar, eng.idm, bar_index, eng.idm, color = colIdmC, style = line.style_dashed, width = 1)
-                        eng.idmLb := label.new(eng.idmBar, eng.idm, "IDM", style = label.style_label_up, color = color(na), textcolor = colIdmC, size = size.tiny)
+                        eng.idmLb := label.new(eng.idmBar, eng.idm, "IDM?", style = label.style_label_up, color = color(na), textcolor = colIdmC, size = size.tiny)
                 else if not na(eng.idm) and low < eng.idm - sweepBuf and (not idmReclaim or close > eng.idm)
                     eng.idmTaken := true
                     eng.idmTakenBar := bar_index
                     eng.pull := low
                     eng.pullBar := bar_index
                     evIdmSwept := true
-                    if not na(eng.idmLn)
-                        eng.idmLn.set_x2(bar_index)
-                        eng.idmLn.set_color(colIdmS)
-                    if not na(eng.idmLb)
-                        eng.idmLb.set_textcolor(colIdmS)
+                    drawIdm(eng, 1)
                 else if not na(eng.idmLn)
                     eng.idmLn.set_x2(bar_index)
             else if low < eng.pull
@@ -729,18 +754,16 @@ if barstate.isconfirmed and warm
             evBearBOS := true
             eLvl := eng.tMin
             eLvlBar := eng.tMinBar
-            if not na(eng.idmLn)
-                eng.idmLn.set_color(colBear)
             eng.contPhase()
         else
             if not na(eng.pHi) and high > eng.pHi + brkBuf and (na(eng.sweptHi) or eng.sweptHi != eng.pHiBar)
                 eng.sweptHi := eng.pHiBar
                 evFake := true
-                drawBreak(eng.pHiBar, eng.pHi, 3, 1, "Sweep")
+                drawBreak(eng.pHiBar, eng.pHi, 3, 1, "x")
             if eng.idmTaken and low < eng.tMin - brkBuf and (na(eng.sweptLo) or eng.sweptLo != eng.tMinBar)
                 eng.sweptLo := eng.tMinBar
                 evFake := true
-                drawBreak(eng.tMinBar, eng.tMin, 3, -1, "Sweep")
+                drawBreak(eng.tMinBar, eng.tMin, 3, -1, "x")
             if low < eng.tMin
                 eng.tMin := low
                 eng.tMinBar := bar_index
@@ -753,20 +776,16 @@ if barstate.isconfirmed and warm
                     eng.idm := intPH
                     eng.idmBar := bar_index - idmLen
                     evIdmCand := true
-                    if showIdm
+                    if showIdmPend
                         eng.idmLn := line.new(eng.idmBar, eng.idm, bar_index, eng.idm, color = colIdmC, style = line.style_dashed, width = 1)
-                        eng.idmLb := label.new(eng.idmBar, eng.idm, "IDM", style = label.style_label_down, color = color(na), textcolor = colIdmC, size = size.tiny)
+                        eng.idmLb := label.new(eng.idmBar, eng.idm, "IDM?", style = label.style_label_down, color = color(na), textcolor = colIdmC, size = size.tiny)
                 else if not na(eng.idm) and high > eng.idm + sweepBuf and (not idmReclaim or close < eng.idm)
                     eng.idmTaken := true
                     eng.idmTakenBar := bar_index
                     eng.pull := high
                     eng.pullBar := bar_index
                     evIdmSwept := true
-                    if not na(eng.idmLn)
-                        eng.idmLn.set_x2(bar_index)
-                        eng.idmLn.set_color(colIdmS)
-                    if not na(eng.idmLb)
-                        eng.idmLb.set_textcolor(colIdmS)
+                    drawIdm(eng, -1)
                 else if not na(eng.idmLn)
                     eng.idmLn.set_x2(bar_index)
             else if high > eng.pull
@@ -845,12 +864,14 @@ if barstate.isconfirmed and warm
         bslSweepId := ctr.next()
         evSweep := true
         if showSwp
-            label.new(bar_index, high, "x", style = label.style_none, textcolor = colFake, size = size.small)
+            line.new(bslP.pbar, bslP.price, bar_index, bslP.price, color = colBear, width = 1)
+            line.new(bar_index, math.max(open, close), bar_index, high, color = colBear, width = 3)
     if not sweepAmb and not na(sslP)
         sslSweepId := ctr.next()
         evSweep := true
         if showSwp
-            label.new(bar_index, low, "x", style = label.style_none, textcolor = colFake, size = size.small)
+            line.new(sslP.pbar, sslP.price, bar_index, sslP.price, color = colBull, width = 1)
+            line.new(bar_index, math.min(open, close), bar_index, low, color = colBull, width = 3)
 
     // 6. lifecycle of existing zones (before new zones are added)
     if zones.size() > 0
@@ -864,18 +885,28 @@ if barstate.isconfirmed and warm
                 float depth = h > 0 ? (z.dir == 1 ? (z.top - low) / h : (high - z.bot) / h) : (touched ? 1.0 : 0.0)
                 bool mit = mitMode == "Touch" ? touched : mitMode == "50%" ? depth >= 0.5 : depth >= 1.0
                 float buf = z.kind == K_RB ? rbBuf : invBuf
-                bool inv = z.dir == 1 ? close < z.invLvl - buf : close > z.invLvl + buf
+                bool wickRm = zoneRemove == "Wick through" and z.kind != K_RB
+                bool inv = z.dir == 1 ? (wickRm ? low : close) < z.invLvl - buf : (wickRm ? high : close) > z.invLvl + buf
                 bool expd = bar_index - z.createdBar > zoneMax
                 if z.state == 0 and mit and not inv
                     z.state := 1
                     if not na(z.srcId) and z.kind != K_RB
                         evMitig := true
                     if not na(z.bx)
-                        if delMit
+                        if zoneView == "Fresh only"
                             z.bx.delete()
                             z.bx := na
+                            if not na(z.mid)
+                                z.mid.delete()
+                                z.mid := na
                         else
                             z.bx.set_bgcolor(color.new(z.dir == 1 ? colBull : colBear, 94))
+                // All active: the box shrinks as price trades into it
+                if zoneView == "All active" and touched and not inv and not na(z.bx) and z.kind != K_RB
+                    if z.dir == 1
+                        z.bx.set_top(math.max(z.bot, math.min(z.bx.get_top(), low)))
+                    else
+                        z.bx.set_bottom(math.min(z.top, math.max(z.bx.get_bottom(), high)))
                 if inv or expd
                     string why = inv ? "ZONE_INVALIDATED" : "ZONE_EXPIRED"
                     if not na(z.srcId)
@@ -890,9 +921,13 @@ if barstate.isconfirmed and warm
                             z.bx.set_border_color(color.new(colFake, 60))
                         else
                             z.bx.delete()
+                    if not na(z.mid)
+                        z.mid.delete()
                     zones.remove(i)
-                else if not na(z.bx)
+                else if not na(z.bx) and z.kind != K_RB
                     z.bx.set_right(bar_index + 1)
+                    if not na(z.mid)
+                        z.mid.set_x2(bar_index + 1)
                 // imbalance can complete one bar after the displacement candle
                 if z.kind == K_OB and not z.imb and not na(z.dispBar) and z.dispBar == bar_index - 1
                     if z.dir == 1 ? (low > high[2] and low - high[2] >= atr * imbMinAtr) : (high < low[2] and low[2] - high >= atr * imbMinAtr)
@@ -974,9 +1009,17 @@ if barstate.isconfirmed and warm
             sfpBearNow := true
             sfpBearExt := bearP.ext
             drawSfp(-1, r)
+            if not na(bearP.confLn)
+                bearP.confLn.set_x2(bar_index)
+            if rbAt == "SFP confirmed" and bearP.rbTop > bearP.rbBot
+                newZone(K_RB, -1, bearP.rbTop, bearP.rbBot, bearP.sweepBar, bearP.ext, na, showRB)
             bearP := na
         else if r >= 3
+            if not na(bearP.confLn)
+                bearP.confLn.delete()
             bearP := na
+        else if not na(bearP.confLn)
+            bearP.confLn.set_x2(bar_index)
     if not na(bullP)
         int r = bullP.adv()
         if r == 1 or r == 2
@@ -984,36 +1027,56 @@ if barstate.isconfirmed and warm
             sfpBullNow := true
             sfpBullExt := bullP.ext
             drawSfp(1, r)
+            if not na(bullP.confLn)
+                bullP.confLn.set_x2(bar_index)
+            if rbAt == "SFP confirmed" and bullP.rbTop > bullP.rbBot
+                newZone(K_RB, 1, bullP.rbTop, bullP.rbBot, bullP.sweepBar, bullP.ext, na, showRB)
             bullP := na
         else if r >= 3
+            if not na(bullP.confLn)
+                bullP.confLn.delete()
             bullP := na
+        else if not na(bullP.confLn)
+            bullP.confLn.set_x2(bar_index)
     if not na(bslSweepId)
+        // bearish RJB = upper rejection wick of the sweep candle (Wick), its body (Body) or the whole candle (Full)
+        float rTop = rbMode == "Body" ? math.max(open, close) : high
+        float rBot = rbMode == "Full" ? low : rbMode == "Body" ? math.min(open, close) : math.max(open, close)
         if sfpOn
+            if not na(bearP) and not na(bearP.confLn)
+                bearP.confLn.delete()
             float trg = sfpTrig == "Sweep candle" ? low : nz(bslP.oLow, low)
-            bearP := Sfp.new(bslSweepId, -1, trg, high, bar_index, na)
+            line cl = showSwp ? line.new(bar_index, trg, bar_index + 1, trg, color = colBear, style = line.style_dotted, width = 1) : na
+            bearP := Sfp.new(bslSweepId, -1, trg, high, bar_index, na, rTop, rBot, cl)
             if sfpTrig != "Sweep candle" and close < trg
                 evSfpBear := true
                 sfpBearNow := true
                 sfpBearExt := high
                 drawSfp(-1, 1)
+                if rbAt == "SFP confirmed" and rTop > rBot
+                    newZone(K_RB, -1, rTop, rBot, bar_index, high, na, showRB)
                 bearP := na
-        float rTop = rbMode == "Body" ? math.max(open, close) : high
-        float rBot = rbMode == "Full" ? low : rbMode == "Body" ? math.min(open, close) : math.max(open, close)
-        if rTop > rBot
+        if rbAt == "Liquidity sweep" and rTop > rBot
             newZone(K_RB, -1, rTop, rBot, bar_index, high, na, showRB)
     if not na(sslSweepId)
+        // bullish RJB = lower rejection wick of the sweep candle (Wick), its body (Body) or the whole candle (Full)
+        float rTop = rbMode == "Full" ? high : rbMode == "Body" ? math.max(open, close) : math.min(open, close)
+        float rBot = rbMode == "Body" ? math.min(open, close) : low
         if sfpOn
+            if not na(bullP) and not na(bullP.confLn)
+                bullP.confLn.delete()
             float trg = sfpTrig == "Sweep candle" ? high : nz(sslP.oHigh, high)
-            bullP := Sfp.new(sslSweepId, 1, trg, low, bar_index, na)
+            line cl = showSwp ? line.new(bar_index, trg, bar_index + 1, trg, color = colBull, style = line.style_dotted, width = 1) : na
+            bullP := Sfp.new(sslSweepId, 1, trg, low, bar_index, na, rTop, rBot, cl)
             if sfpTrig != "Sweep candle" and close > trg
                 evSfpBull := true
                 sfpBullNow := true
                 sfpBullExt := low
                 drawSfp(1, 1)
+                if rbAt == "SFP confirmed" and rTop > rBot
+                    newZone(K_RB, 1, rTop, rBot, bar_index, low, na, showRB)
                 bullP := na
-        float rTop = rbMode == "Full" ? high : rbMode == "Body" ? math.max(open, close) : math.min(open, close)
-        float rBot = rbMode == "Body" ? math.min(open, close) : low
-        if rTop > rBot
+        if rbAt == "Liquidity sweep" and rTop > rBot
             newZone(K_RB, 1, rTop, rBot, bar_index, low, na, showRB)
 
     // 9. link OB A+ / D/S zones to the MSS leg
@@ -1144,7 +1207,7 @@ if barstate.islast and showDash
     string smtTxt = not smtOn ? "Off" : not smtHasSym ? "N/A (no pair for " + root6 + ", use Manual)" : not smtAvail ? "N/A (" + cmpSym + " not found)" : cmpSym + (cmpInv ? " inverse" : " direct") + " | last: " + (lastSmtDir == 1 ? "bull" : lastSmtDir == -1 ? "bear" : "-")
     string idmTxt = na(eng.idm) ? "-" : str.tostring(eng.idm, format.mintick) + (eng.idmTaken ? " (taken, BOS allowed)" : " (waiting)")
     bool counter = htfActive and htfBias != 0 and eng.trend != 0 and htfBias != eng.trend
-    dashRow(dash, 0, "SMC Suite v1.3", profile, color.white)
+    dashRow(dash, 0, "SMC Suite v1.4", profile, color.white)
     dashRow(dash, 1, "Entry trigger / zone", trigMode + " / " + zoneMode, color.white)
     dashRow(dash, 2, "Detection TF", "Chart TF (" + timeframe.period + ")", color.white)
     dashRow(dash, 3, "HTF context", htfTxt, htfBias == 1 ? colBull : htfBias == -1 ? colBear : color.white)
@@ -1158,3 +1221,37 @@ if barstate.islast and showDash
     dashRow(dash, 11, "SFP volume", volAvail ? "OK (tick volume)" : "N/A - body break only", color.white)
     dashRow(dash, 12, "Countertrend (HTF vs chart)", counter ? "YES" : "no", counter ? colIdmS : color.white)
     dashRow(dash, 13, "Note", "Zones/entries are a checklist, not a win rate", color.gray)
+
+// ═══════════════════════════ ZONE STATISTICS ═══════════════════════════
+var table stats = table.new(position.bottom_right, 4, 4, bgcolor = color.new(#131722, 10), border_color = color.new(#363a45, 0), border_width = 1)
+if barstate.islast and showStats
+    int dF = 0
+    int dM = 0
+    int sF = 0
+    int sM = 0
+    if zones.size() > 0
+        for i = 0 to zones.size() - 1
+            Zone z = zones.get(i)
+            if z.kind != K_RB and (showAllZ or not na(z.srcId))
+                if z.dir == 1
+                    dF += z.state == 0 ? 1 : 0
+                    dM += z.state == 1 ? 1 : 0
+                else
+                    sF += z.state == 0 ? 1 : 0
+                    sM += z.state == 1 ? 1 : 0
+    stats.cell(0, 0, "Zones · " + tfLabel(), text_color = color.silver, text_size = size.small)
+    stats.cell(1, 0, "Fresh", text_color = color.silver, text_size = size.small)
+    stats.cell(2, 0, "Mitigated", text_color = color.silver, text_size = size.small)
+    stats.cell(3, 0, "Active", text_color = color.silver, text_size = size.small)
+    stats.cell(0, 1, "Demand", text_color = colBull, text_size = size.small)
+    stats.cell(1, 1, str.tostring(dF), text_color = color.white, text_size = size.small)
+    stats.cell(2, 1, str.tostring(dM), text_color = color.white, text_size = size.small)
+    stats.cell(3, 1, str.tostring(dF + dM), text_color = color.white, text_size = size.small)
+    stats.cell(0, 2, "Supply", text_color = colBear, text_size = size.small)
+    stats.cell(1, 2, str.tostring(sF), text_color = color.white, text_size = size.small)
+    stats.cell(2, 2, str.tostring(sM), text_color = color.white, text_size = size.small)
+    stats.cell(3, 2, str.tostring(sF + sM), text_color = color.white, text_size = size.small)
+    stats.cell(0, 3, "TOTAL", text_color = color.silver, text_size = size.small)
+    stats.cell(1, 3, str.tostring(dF + sF), text_color = color.white, text_size = size.small)
+    stats.cell(2, 3, str.tostring(dM + sM), text_color = color.white, text_size = size.small)
+    stats.cell(3, 3, str.tostring(dF + dM + sF + sM), text_color = color.white, text_size = size.small)
