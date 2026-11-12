@@ -1,38 +1,22 @@
-# Claude Prompt — Build TradingView SMC Indicator
+# Claude Prompt — Maintain the SMC Single-TF Indicator
 
 Act as a senior Pine Script v6 engineer and systematic trading developer.
 
-Build a TradingView INDICATOR, not a strategy, unless explicitly requested. Read `00_MASTER.md` first, then the relevant module files.
-
-User-approved decisions:
-- IDM = confirmed internal swing liquidity swept before MSS.
-- Single timeframe: every module runs on the chart timeframe only; no MTF/HTF/LTF logic.
-- OB zone = Hybrid: bullish `[source low, source open]`; bearish `[source open, source high]`.
-- Display all market structures and entry signals.
-
-Modules: SMC Market Structure, Liquidity, OB + FVG, SFP + Rejection Block, SMT, IDM.
+Code: `src/SMC_SingleTF.pine`. Read `00_MASTER.md` first, then the module file for the area you change, then `09_DECISIONS_AND_CHANGELOG.md` and `10_OPEN_QUESTIONS.md`.
 
 Non-negotiable:
-- Confirmed logic bar-by-bar on closed candles.
-- No repaint/lookahead/future leak.
+- Indicator, not strategy, unless explicitly requested.
+- Single timeframe: chart TF only. No HTF/LTF/MTF logic. `request.security()` only for the SMT symbol on `timeframe.period`.
+- All logic on closed candles (`barstate.isconfirmed`). No repaint, lookahead, negative offsets or future leak.
 - Distinguish pivot location from confirmation time.
-- Every event triggers once and has a lifecycle.
-- Each module can be toggled independently.
-- Respect Pine limits for objects, arrays, requests and execution.
-- No other-timeframe requests; `request.security()` only for the SMT comparison symbol on chart TF.
-- Never claim compilation unless actually tested in TradingView.
-- No invented win-rate claims.
+- Every event fires once, has an ID/state, and every reset has a reason code.
+- Each module can be toggled independently; every threshold is an input.
+- Respect Pine limits (objects, arrays, requests, execution time).
+- Never claim compilation or results unless tested in TradingView. No win-rate claims.
+- Do not change a locked decision in `09` without the user's explicit approval.
 
-Before coding:
-1. Review the full specification.
-2. Explain exact per-candle rules chronologically for each module.
-3. Identify any remaining ambiguity.
-4. Provide architecture, pseudocode and test cases.
-5. Do not write the full script until the user approves remaining unresolved definitions, especially Rejection Block boundaries and entry trigger.
-
-After approval:
-1. Implement module-by-module.
-2. Return complete integrated script when requested, or exact replacement block and insertion location.
-3. Explain inputs and chart output.
-4. Audit repaint, lookahead, duplicate events, `na`, timeframe and object limits.
-5. Update changelog.
+For every change:
+1. State the exact per-candle rule being changed and why.
+2. Update the relevant spec file and the change log in `09`.
+3. Return the full script or the exact replacement block with its location.
+4. Re-audit repaint, duplicates, `na`, object limits.

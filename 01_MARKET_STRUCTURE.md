@@ -1,26 +1,31 @@
-# Module 01 — SMC Market Structure: bar-by-bar
+# Module 01 — Market Structure
+
+Timeframe: chart TF only.
 
 ## Inputs
-- Timeframe: chart TF only (no timeframe input)
-- Major pivot L/R: default 3/3
-- Internal pivot L/R: default 1/1
-- Break method: CLOSE or WICK
-- Break buffer: ticks or ATR fraction
-- Separate major/internal structure toggles
+Major pivot L/R (3/3) · internal pivot L/R (1/1) · break source CLOSE / WICK · break buffer (ticks + ATR×) · equal-level tolerance (ATR × 0.05) · show major / internal / swing labels / fake BOS.
 
-## Pivot confirmation
-A candidate pivot high/low becomes known only after the configured right-side bars close. Never treat it as available on its original candle. A high above prior confirmed high = HH; below = LH. A low above prior confirmed low = HL; below = LL. Within tolerance = EQH/EQL.
+## Pivots
+- `ta.pivothigh/low(L, R)`. The pivot candle is R bars back; the pivot becomes **known on the confirmation candle**. Labels are drawn on the pivot candle, but no logic uses the pivot before confirmation.
+- Classification against the previous confirmed pivot of the same layer: within tolerance = EQH / EQL; higher high = HH, lower high = LH; higher low = HL, lower low = LL.
+- Major and internal layers are fully independent (own levels, own bias).
 
-## Each closed candle
-1. Update ATR and candle metrics.
-2. Confirm pivots whose right-side window has now completed.
-3. Snapshot structure levels that existed before this candle.
-4. Test break using selected CLOSE/WICK mode and buffer.
-5. Classify using prior bias: continuation = BOS; break against prior bias = CHoCH. Define first break from neutral explicitly.
-6. Update bias after classification; mark level consumed to prevent duplicate events.
-7. If both sides break in one candle, mark ambiguous/expansion and do not issue arbitrary directional signal.
-8. Keep internal and major structure independent.
-9. MSS requires a qualifying liquidity/IDM event followed by displacement and structure break; it is not a label for every BOS/CHoCH.
+## Break test (each closed candle, per layer)
+1. Levels = last confirmed swing high / low that is not yet consumed.
+2. Break condition:
+   - If bias is **neutral**: real break needs a **body close** beyond level + buffer.
+   - If bias exists: selected mode — CLOSE (close beyond) or WICK (high/low beyond).
+3. Classification: break with prior bias = **BOS**; against prior bias = **CHoCH**; from neutral = BOS. Bias is set to the break direction and the level is consumed (one event per level).
+4. **Fake BOS** (user decision): bias neutral, wick beyond the level but close not beyond → marked `fake BOS` once per level; bias stays neutral; level stays active.
+5. Both levels broken on one candle → `AMB` (ambiguous), both consumed, no directional event.
+
+## Protected swings
+- Protected low = major swing low that was the latest confirmed major low when the latest bullish major BOS/CHoCH happened. If no bullish break since the last bearish break, protected low = latest confirmed major low.
+- Protected high mirrors.
+- A bearish major break clears the bullish "seen" flag (and vice versa), so protection falls back to the latest major swing.
+
+## MSS
+MSS is **not** a label for every BOS. It exists only inside the setup state machine (`02`): IDM sweep → break of the snapshotted level with displacement.
 
 ## Edge cases
-Gap beyond level; wick-only break; pivot confirmation and break same bar; equal levels; insufficient history.
+Gap beyond level (close test still applies) · wick-only break (mode / fake BOS) · pivot confirmation and break on the same bar (impossible by pivot definition) · equal levels · insufficient history (logic waits for ATR).

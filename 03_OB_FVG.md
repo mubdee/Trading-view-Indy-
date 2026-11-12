@@ -1,36 +1,33 @@
-# Module 03 — Order Block + Fair Value Gap
+# Module 03 — Displacement, Order Block, Fair Value Gap
 
-## Timeframe
-Chart TF only. OB/FVG detection and entry retest both use the chart timeframe.
+Timeframe: chart TF only (detection and retest).
 
-## Displacement
-Bullish proposal: range > 0; body/ATR(14) >= input (default 1.0); close in upper 25% of range; optionally require structure break. Bearish mirrored. Closed candle only.
+## Displacement (closed candle)
+Bullish: range > 0, close > open, body ≥ ATR(14) × 1.0, close in the upper 25 % of the range. Bearish mirrors.
 
-## OB creation
-After qualifying displacement, search backward from displacement candle for the most recent opposite-colour candle within N bars (default 5). Bullish OB = last bearish candle; bearish OB = last bullish candle. Store origin time, creation time, distal/proximal prices and source break ID.
+## Order Block — Hybrid (approved)
+- Search back from the displacement candle, up to 5 bars, for the most recent opposite-colour candle.
+- Bullish OB (source bearish): zone = `[source low, source open]` — lower wick + body, no upper wick.
+- Bearish OB (source bullish): zone = `[source open, source high]` — body + upper wick, no lower wick.
+- If the first non-same-colour candle found is a **doji** (open = close): skip the OB (default, reason `DOJI_SOURCE`) or use it (input).
+- Creation:
+  - **Setup OB**: on MSS, from the MSS displacement candle; linked to the setup by MSS ID (thicker border).
+  - **General OB**: on any displacement candle that also breaks structure (major or internal) — the break requirement is an input.
+  - The same source candle never creates two OBs.
+- Optional 50 % line.
 
-### Hybrid boundaries (approved)
-- Bullish OB source candle is bearish: zone bottom = source low; zone top = source open. This includes lower wick + body and excludes upper wick.
-- Bearish OB source candle is bullish: zone bottom = source open; zone top = source high. This includes body + upper wick and excludes lower wick.
-- Midpoint = (zone top + zone bottom) / 2.
-- If source candle is doji/open equals close, skip by default and log reason; optional doji handling must be an input.
-- Invalidation: candle close beyond distal boundary plus configured buffer.
+## FVG (three-candle, confirmed on the close of candle 3)
+- Bullish: `low > high[2]`, zone `[high[2], low]`. Bearish: `high < low[2]`, zone `[high, low[2]]`.
+- Size ≥ ATR × 0.05 (+ ticks). Optional: middle candle must be displacement.
+- An FVG is linked to a setup when its middle candle lies inside that setup's displacement leg (`dispBar … mssBar`).
 
-## FVG (three-candle)
-At close of current candle:
-- Bullish if current low > high[2]; zone = [high[2], current low].
-- Bearish if current high < low[2]; zone = [current high, low[2]].
-- Gap size must meet configurable ATR/tick minimum.
-- Optional displacement filter on middle candle.
-Do not confirm using unfinished bar.
+## Zone lifecycle (zones that existed before this candle are processed first)
+1. Overlap → first touch (once).
+2. Fill measured from the proximal edge (bull: top, bear: bottom).
+3. Mitigation threshold: Touch (default) / 50 % / Full → dashed border. A mitigated zone can still serve the entry until invalidated.
+4. Invalidation: close beyond the distal edge + buffer.
+5. Expiry: 300 bars.
+6. Invalidated / expired zones are kept faded (input) or deleted. Max 150 tracked zones.
+7. New zones are added after the lifecycle step, so a zone cannot be "retested" by its own creation candle.
 
-## Zone lifecycle per later candle
-1. Check overlap; set first-touch once.
-2. Track fill percentage consistently from proximal edge.
-3. Mark mitigation at selected threshold: touch / 50% / full fill.
-4. Invalidate on close beyond distal boundary + buffer.
-5. Expire after max age.
-6. Keep invalidated historical zones optionally with changed style.
-7. Process zones existing before current candle before adding new zones, preventing instant false retest on creation candle.
-
-OB/FVG presence is not an entry. Entry trigger must be separately selected (e.g. retest + rejection candle, internal MSS, or SFP — all on chart TF).
+OB / FVG presence is never an entry by itself.

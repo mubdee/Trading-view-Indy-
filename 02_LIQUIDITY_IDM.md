@@ -1,48 +1,42 @@
-# Module 02 — Liquidity, Sweeps and IDM
+# Module 02 — Liquidity, Sweeps, IDM and MSS
 
-## Timeframe
-Chart TF only. PDH/PDL/PWH/PWL are computed from chart-timeframe bars of the completed previous day/week (detected by day/week boundary on chart data, no `request.security()`); the current, still-forming day/week is never used. If chart TF ≥ D, PDH/PDL are disabled; if ≥ W, PWH/PWL are disabled, with a dashboard note.
+Timeframe: chart TF only.
 
-## Liquidity sources
-Independent toggles: confirmed major/internal swing highs/lows; EQH/EQL; previous day high/low; previous week high/low; optional session highs/lows.
+## Liquidity pools
+Sources (independent toggles): major swings (on), internal swings (off), EQH/EQL merge (on), PDH/PDL (on), PWH/PWL (on).
+- A confirmed swing high creates a **BSL** pool, swing low an **SSL** pool, stored from the confirmation candle.
+- A new swing within tolerance of an active swing pool merges into it → EQH / EQL with touch count.
+- PDH/PDL/PWH/PWL: running high/low of the current day/week from chart bars; published only when the day/week has **closed** (first partial period in history is skipped). Older PD/PW pools are replaced. Disabled when chart TF ≥ D / ≥ W.
+- Max 80 pools; pool expires after 500 bars.
 
-## Pool creation
-1. Confirmed swing high creates candidate BSL; swing low creates candidate SSL.
-2. Merge nearby highs/lows into equal-level pools within configurable tolerance.
-3. Store price, source, timestamps, touch count, active/taken state.
-4. Expire after configurable age or consumption.
+## Sweep vs breakout (closed candle, pools that existed before this candle)
+- BSL: high > level + buffer. Close back **below** level = **sweep** (bearish context). Close above = breakout / taken.
+- SSL mirrors.
+- Either way the pool is consumed. The penetrating candle is also handed to the SFP module (`04`).
 
-## Sweep (closed-bar default)
-Bullish reversal context: candle low penetrates active SSL by buffer and closes back above the liquidity level. Bearish: high penetrates BSL and closes back below. Store level ID, penetration, reclaim distance and timestamp. A close accepted beyond level is breakout/acceptance, not a sweep.
+## IDM — approved definition
+IDM = a confirmed internal swing liquidity point swept (with reclaim) before MSS.
 
-## IDM approved definition
-IDM = confirmed internal swing liquidity swept before MSS.
+Bullish sequence (bearish mirrors):
+1. **Context**: a protected low exists (and, in Strict, major bias is bullish).
+2. **Candidate**: on confirmation of an internal swing low that is **above** the protected low. Newest candidate replaces an older unswept one.
+3. **Sweep**: low < IDM − sweep buffer **and** the same candle closes back above IDM (default). Optional: reclaim within N later bars (input, off by default). A close below IDM with N = 0 = acceptance → reset `IDM_ACCEPTED_BEYOND`.
+4. On the sweep, snapshot the **MSS level** = latest confirmed internal swing high (input: Internal / Major).
+5. **MSS**: a later candle breaks the MSS level (break mode) **and** is a displacement candle (window N = 0; with N > 0 the displacement may be up to N bars earlier but not before the sweep).
+   - Break without displacement → reset `BREAK_NO_DISPLACEMENT`.
+   - Sweep and break on the same candle → reset `SAME_BAR_AMBIGUOUS` (unless the same-bar option is enabled).
+6. After MSS the setup moves to zone wait (`03`, `06`).
 
-Bullish sequence:
-1. Confirm an internal swing low using the configured internal pivot L/R.
-2. It must be above the active protected major swing low. If no protected major low exists, do not create a qualified IDM candidate.
-3. Mark candidate only at pivot confirmation time; do not backdate availability.
-4. Price low must trade below IDM level by at least sweep buffer.
-5. Default reclaim: the sweep candle closes back above IDM. Optional input may allow reclaim within N subsequent bars, but must be disabled by default.
-6. Mark `IDM_SWEPT` once; store level ID and sweep timestamp.
-7. Wait for bullish MSS after the sweep. MSS must break the relevant internal/major structure level using selected break mode and meet displacement filter.
-8. If price closes below protected major swing low before MSS, invalidate candidate/setup.
-9. Expire candidate after configurable max bars or when protected major swing low is replaced/invalidated.
+Invalidation / expiry (before MSS):
+- Close below protected low → `PROTECTED_BROKEN`
+- Candidate older than 100 bars → `EXPIRED_MAX_BARS`
+- Protected low changed → `PROTECTED_CHANGED`
+- No MSS level available → `NO_MSS_LEVEL`
 
-Bearish sequence mirrors:
-- internal swing high below protected major high;
-- wick trades above IDM and reclaim close below;
-- bearish MSS after sweep;
-- close above protected major high invalidates.
+MSS occurring before the IDM sweep never qualifies. IDM candidate / sweep is context, never an entry.
 
-## IDM state values
-`NONE`, `CANDIDATE`, `SWEPT`, `MSS_CONFIRMED`, `INVALIDATED`, `EXPIRED`.
-IDM candidate/sweep is context, never an entry by itself.
+## IDM disabled
+If IDM is off and "liquidity sweep → MSS path" is on, a reclaimed SSL/BSL sweep takes the place of the IDM sweep; the rest of the sequence is identical. It is never bypassed silently while IDM is on.
 
-## Per-bar order
-Update confirmed pivots -> create liquidity pools and IDM candidates -> snapshot prior active levels -> detect sweeps/reclaims -> update IDM state -> detect subsequent MSS -> pass qualified event to OB/FVG and entry modules.
-
-## Edge cases
-- If IDM sweep and MSS appear on same candle, default behavior is reject as sequence ambiguous; offer a separate same-bar option only if user approves.
-- If MSS occurs before IDM sweep, do not qualify the IDM sequence.
-- If multiple internal swings qualify, select the most recent unconsumed candidate by default and expose other candidates in debug.
+## Drawings
+`IDM?` dotted (candidate) → `IDM ✓` solid (swept) → `IDM → MSS` → `IDM ✕` grey dashed (invalidated / expired, reason in tooltip).

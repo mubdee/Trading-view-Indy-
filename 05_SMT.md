@@ -1,11 +1,17 @@
-# Module 05 — SMT (single timeframe)
+# Module 05 — SMT Divergence
 
-## Timeframe
-Chart TF only. Multi-timeframe context (HTF bias, Setup TF, Entry TF) has been removed from the specification in v1.2.
+Timeframe: chart TF only. The comparison symbol is requested on `timeframe.period`, lookahead off, `ignore_invalid_symbol = true`.
 
-## SMT
-User-selectable comparison symbol, requested on the chart timeframe (`request.security(symbol, timeframe.period, ...)`, lookahead off). SMT is relative non-confirmation, not standalone entry.
-Bullish proposal: chart symbol makes a lower low versus prior confirmed swing low while comparison symbol does not make a corresponding lower low within timestamp tolerance. Bearish mirrored at swing highs.
-Require confirmed pivots on both symbols; match timestamps within tolerance. If comparison data is `na`, show unavailable and do not count as failed confirmation.
+## Comparison symbol
+- Default: `OANDA:XAGUSD` (silver) for XAUUSD — direct correlation.
+- Forex / other: user selects the symbol in the input (e.g. EURUSD ↔ GBPUSD).
+- Inverse correlation input (e.g. DXY vs gold): compares the opposite extreme of the comparison symbol.
 
-Pine concerns: request limits, suffixes, different sessions, missing bars, pivot alignment and no lookahead.
+## Rule (major pivots, same L/R on both symbols)
+- **Bullish SMT**: chart confirms a major **lower low** (below previous major low − tolerance) while the comparison symbol's matching pivot low does **not** make a lower low (direct) / its matching pivot high does not make a higher high (inverse).
+- **Bearish SMT**: mirrors at highs.
+- Matching: the comparison pivot time must be within ± tolerance bars (default 2) of the chart pivot time. The check waits up to `tolerance` bars after the chart pivot is confirmed.
+- No matching pivot / comparison data `na` → **N/A**, never counted as failed confirmation.
+- Same symbol as chart → N/A.
+
+SMT is context only. It is shown in the dashboard and in the entry checklist; it is **not** a required entry condition in any profile.
