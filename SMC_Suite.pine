@@ -1,11 +1,14 @@
 //@version=6
-indicator("SMC Suite v1.2.1", shorttitle = "SMC Suite", overlay = true, max_boxes_count = 500, max_lines_count = 500, max_labels_count = 500, max_bars_back = 500)
+indicator("SMC Suite v1.3", shorttitle = "SMC Suite", overlay = true, max_boxes_count = 500, max_lines_count = 500, max_labels_count = 500, max_bars_back = 500)
 
 // ═══════════════════════════ INPUTS ═══════════════════════════
-G0 = "General"
+G0 = "General / Entry"
 profile   = input.string("Balanced", "Profile", options = ["Strict", "Balanced", "Context-only"], group = G0)
 trigMode  = input.string("Rejection Candle", "Entry trigger", options = ["Rejection Candle", "Internal MSS", "SFP", "Any enabled trigger"], group = G0)
+zoneMode  = input.string("OB A+ or D/S", "Entry zone", options = ["OB A+ or D/S", "OB A+ only", "D/S only", "OB A+ overlapping D/S"], group = G0)
 trigMax   = input.int(10, "Internal MSS trigger: max bars after first touch", minval = 1, group = G0)
+entryLen  = input.int(20, "Entry zone length (bars)", minval = 3, maxval = 300, group = G0)
+showCk    = input.bool(false, "Show entry checklist tooltip marker", group = G0)
 showDash  = input.bool(true, "Show dashboard", group = G0)
 debugOn   = input.bool(false, "Debug: show reset reasons", group = G0)
 
@@ -13,51 +16,48 @@ G1 = "Timeframes (Phase 1: detection modules run on Chart TF)"
 htfOn     = input.bool(false, "HTF context", inline = "htf", group = G1)
 htfTf     = input.timeframe("240", "", inline = "htf", group = G1)
 
-G2 = "Market structure"
-majL      = input.int(3, "Major pivot left", minval = 1, group = G2)
-majR      = input.int(3, "Major pivot right", minval = 1, group = G2)
-intL      = input.int(1, "Internal pivot left", minval = 1, group = G2)
-intR      = input.int(1, "Internal pivot right", minval = 1, group = G2)
-breakMode = input.string("CLOSE", "Break source", options = ["CLOSE", "WICK"], group = G2)
+G2 = "Market structure (CHoCH / BOS / IDM)"
+chochLen  = input.int(5, "CHoCH detection period (swing length)", minval = 1, group = G2)
+idmLen    = input.int(2, "IDM detection period (swing length)", minval = 1, group = G2)
+idmReclaim = input.bool(false, "IDM counts as taken only if the candle closes back", group = G2)
 brkBufAtr = input.float(0.0, "Break buffer (x ATR14)", minval = 0, step = 0.01, group = G2)
 eqTolAtr  = input.float(0.05, "Equal-level tolerance (x ATR14)", minval = 0, step = 0.01, group = G2)
-showMajor = input.bool(true, "Show major BOS / CHoCH", group = G2)
-showInt   = input.bool(false, "Show internal BOS / CHoCH", group = G2)
-showFake  = input.bool(true, "Show Fake BOS", group = G2)
+showMajor = input.bool(true, "Show BOS / CHoCH", group = G2)
+showFake  = input.bool(true, "Show structure sweeps (wick only)", group = G2)
+showIdm   = input.bool(true, "Show IDM", group = G2)
 showSw    = input.bool(true, "Show HH / HL / LH / LL / EQH / EQL", group = G2)
 
 G3 = "Liquidity"
-liqMajor  = input.bool(true, "Pools from major swings", group = G3)
-liqInt    = input.bool(false, "Pools from internal swings", group = G3)
+liqMajor  = input.bool(true, "Pools from CHoCH swings", group = G3)
 usePD     = input.bool(true, "PDH / PDL", group = G3)
 usePW     = input.bool(true, "PWH / PWL", group = G3)
 swBufAtr  = input.float(0.0, "Sweep buffer (x ATR14)", minval = 0, step = 0.01, group = G3)
 poolMax   = input.int(500, "Pool max age (bars)", minval = 10, group = G3)
 showPools = input.bool(true, "Show liquidity lines", group = G3)
-showSwp   = input.bool(true, "Show sweeps", group = G3)
+showSwp   = input.bool(true, "Show liquidity sweeps", group = G3)
 
-G4 = "IDM / MSS / Displacement"
-idmOn     = input.bool(true, "IDM module", group = G4)
-idmMax    = input.int(100, "IDM candidate max bars", minval = 5, group = G4)
-reclaimOn = input.bool(false, "Allow IDM reclaim within N bars", inline = "rc", group = G4)
-reclaimN  = input.int(3, "N", minval = 1, inline = "rc", group = G4)
-mssMode   = input.string("Internal", "MSS break level", options = ["Internal", "Major"], group = G4)
+G4 = "MSS / Displacement"
+mssCh     = input.bool(true, "CHoCH can be MSS (reversal setups)", group = G4)
 dispMult  = input.float(1.0, "Displacement body >= x ATR14", minval = 0.1, step = 0.1, group = G4)
 dispLoc   = input.float(0.25, "Displacement close in outer % of range", minval = 0.05, maxval = 0.5, step = 0.05, group = G4)
-dispWin   = input.int(0, "Displacement window (bars before MSS break)", minval = 0, group = G4)
-showIdm   = input.bool(true, "Show IDM / MSS", group = G4)
+dispWin   = input.int(0, "Displacement window (bars before break)", minval = 0, group = G4)
 
-G5 = "Order Block / FVG"
-obLook    = input.int(5, "OB search: last opposite candle within N bars", minval = 1, maxval = 20, group = G5)
-fvgMinAtr = input.float(0.05, "FVG minimum size (x ATR14)", minval = 0, step = 0.01, group = G5)
-fvgDisp   = input.bool(false, "FVG: require displacement middle candle", group = G5)
-invBufAtr = input.float(0.0, "OB/FVG invalidation buffer (x ATR14)", minval = 0, step = 0.01, group = G5)
+G5 = "Order Block A+ / Demand-Supply"
+obLook    = input.int(5, "OB: last opposite candle within N bars", minval = 1, maxval = 20, group = G5)
+obFilter  = input.string("A+ only", "OB filter", options = ["A+ only", "All"], group = G5)
+reqSweep  = input.bool(true, "A+: leg must sweep liquidity", group = G5)
+sweepLook = input.int(10, "A+: liquidity lookback before OB (bars)", minval = 2, maxval = 50, group = G5)
+reqImb    = input.bool(true, "A+: leg must leave an imbalance", group = G5)
+imbMinAtr = input.float(0.05, "A+: imbalance minimum size (x ATR14)", minval = 0, step = 0.01, group = G5)
+dsOn      = input.bool(true, "Demand / Supply zones", group = G5)
+dsMaxBase = input.int(3, "D/S: max base candles", minval = 1, maxval = 6, group = G5)
+dsBasePct = input.float(0.5, "D/S: base candle body <= % of range", minval = 0.1, maxval = 0.9, step = 0.05, group = G5)
+invBufAtr = input.float(0.0, "Zone invalidation buffer (x ATR14)", minval = 0, step = 0.01, group = G5)
 mitMode   = input.string("Touch", "Mitigation threshold", options = ["Touch", "50%", "Full"], group = G5)
 zoneMax   = input.int(300, "Zone max age (bars)", minval = 10, group = G5)
+showAllZ  = input.bool(false, "Also draw zones not linked to an MSS", group = G5)
 delMit    = input.bool(true, "Remove zone from chart once mitigated", group = G5)
 keepInv   = input.bool(false, "Keep invalidated zones (greyed)", group = G5)
-showOB    = input.bool(true, "Show OB", group = G5)
-showFVG   = input.bool(true, "Show FVG", group = G5)
 
 G6 = "SFP / Rejection Block"
 sfpOn     = input.bool(true, "SFP module", group = G6)
@@ -82,19 +82,16 @@ showSmt   = input.bool(true, "Show SMT", group = G7)
 G8 = "Colours"
 colBull   = input.color(color.new(#b2b5be, 0), "Bullish", group = G8)
 colBear   = input.color(color.new(#5d606b, 0), "Bearish", group = G8)
-colFake   = input.color(color.new(#787b86, 0), "Fake / neutral", group = G8)
-colIdmC   = input.color(color.new(#868993, 0), "IDM candidate", group = G8)
-colIdmS   = input.color(color.new(#d1d4dc, 0), "IDM swept", group = G8)
+colFake   = input.color(color.new(#787b86, 0), "Neutral / sweep", group = G8)
+colIdmC   = input.color(color.new(#868993, 0), "IDM waiting", group = G8)
+colIdmS   = input.color(color.new(#d1d4dc, 0), "IDM taken", group = G8)
 
 // ═══════════════════════════ CONSTANTS ═══════════════════════════
 S_NONE = 0
-S_CTX = 1
-S_CAND = 2
-S_SWEPT = 3
 S_MSS = 4
 S_ZONE = 5
 K_OB = 0
-K_FVG = 1
+K_DS = 1
 K_RB = 2
 
 // ═══════════════════════════ TYPES ═══════════════════════════
@@ -104,20 +101,44 @@ type Ctr
 type Struct
     float hi
     int   hiBar
-    int   hiState = 0   // 0 active, 1 fake-broken (still breakable), 2 consumed
+    int   hiState = 0   // 0 active, 1 wick-swept (still breakable), 2 consumed
     float lo
     int   loBar
     int   loState = 0
-    int   bias = 0      // 1 bull, -1 bear, 0 neutral
+    int   bias = 0
     float lastPH
     int   lastPHBar
     float lastPL
     int   lastPLBar
 
+// structure engine: CHoCH from swings, BOS from trailing extremes, IDM required between phases
+type Eng
+    int   trend = 0     // 1 bull, -1 bear, 0 neutral
+    float tMax
+    int   tMaxBar
+    float tMin
+    int   tMinBar
+    float pLo           // protected low (bearish CHoCH level)
+    int   pLoBar
+    float pHi           // protected high (bullish CHoCH level)
+    int   pHiBar
+    float idm
+    int   idmBar
+    bool  idmTaken = false
+    int   idmTakenBar
+    float pull          // pullback extreme after IDM taken
+    int   pullBar
+    int   phaseBar
+    int   legStart
+    int   sweptHi
+    int   sweptLo
+    line  idmLn
+    label idmLb
+
 type Pool
     int   id
     float price
-    int   dir           // 1 = BSL (highs), -1 = SSL (lows)
+    int   dir
     string src
     int   pbar
     int   created
@@ -133,17 +154,19 @@ type Zone
     float top
     float bot
     float invLvl
+    int   leftBar
     int   createdBar
     int   dispBar
-    int   midBar
     int   srcId
     int   firstTouch
-    int   state = 0     // 0 active, 1 mitigated
+    int   state = 0
+    bool  sweep = false
+    bool  imb = false
     box   bx
 
 type Sfp
     int   id
-    int   dir           // 1 bullish SFP (sweep of low), -1 bearish SFP (sweep of high)
+    int   dir
     float trig
     float ext
     int   sweepBar
@@ -152,20 +175,12 @@ type Sfp
 type Setup
     int   dir
     int   stage = 0
-    float idm
-    int   idmBar
-    int   idmCreated
-    int   protBar
-    int   sweepBar
-    int   reclaimBy
-    float mssLvl
+    int   legStart
     int   mssBar
     int   mssId
-    int   dispBar
+    string mssType = ""
     string reason = "-"
     string zoneEnd = ""
-    line  idmLn
-    label idmLb
 
 // ═══════════════════════════ SERIES ═══════════════════════════
 atr      = ta.atr(14)
@@ -176,13 +191,12 @@ eqTol    = atr * eqTolAtr
 sweepBuf = atr * swBufAtr
 invBuf   = atr * invBufAtr
 rbBuf    = atr * rbBufAtr
-wickMode = breakMode == "WICK"
 
-majPH = ta.pivothigh(high, majL, majR)
-majPL = ta.pivotlow(low, majL, majR)
-intPH = ta.pivothigh(high, intL, intR)
-intPL = ta.pivotlow(low, intL, intR)
-pivTimeMaj = time[majR]
+majPH = ta.pivothigh(high, chochLen, chochLen)
+majPL = ta.pivotlow(low, chochLen, chochLen)
+intPH = ta.pivothigh(high, idmLen, idmLen)
+intPL = ta.pivotlow(low, idmLen, idmLen)
+pivTimeMaj = time[chochLen]
 
 dispBull = rng > 0 and close > open and body >= atr * dispMult and close >= high - rng * dispLoc
 dispBear = rng > 0 and close < open and body >= atr * dispMult and close <= low + rng * dispLoc
@@ -191,15 +205,15 @@ volSma   = ta.sma(volume, volLen)
 volAvail = not na(volume) and volume > 0
 volOk    = volAvail and not na(volSma[1]) and volume >= volSma[1] * volMult
 
-warm = bar_index > math.max(majL + majR, intL + intR, 20)
+warm = bar_index > math.max(2 * chochLen, 2 * idmLen, sweepLook + obLook, 20)
 
 // ═══════════════════════════ REQUESTS ═══════════════════════════
-htfCalc(int L, int R) =>
+htfCalc(int L) =>
     var float h = na
     var float l = na
     var int b = 0
-    float ph = ta.pivothigh(high, L, R)
-    float pl = ta.pivotlow(low, L, R)
+    float ph = ta.pivothigh(high, L, L)
+    float pl = ta.pivotlow(low, L, L)
     if not na(ph)
         h := ph
     if not na(pl)
@@ -212,10 +226,10 @@ htfCalc(int L, int R) =>
         l := na
     b
 
-htfRaw = request.security(syminfo.tickerid, htfTf, htfCalc(majL, majR)[1], lookahead = barmerge.lookahead_on)
-bool htfTfOk  = timeframe.in_seconds(htfTf) >= timeframe.in_seconds()
+htfRaw = request.security(syminfo.tickerid, htfTf, htfCalc(chochLen)[1], lookahead = barmerge.lookahead_on)
+bool htfTfOk   = timeframe.in_seconds(htfTf) >= timeframe.in_seconds()
 bool htfActive = htfOn and htfTfOk
-int htfBias = htfActive ? nz(htfRaw, 0) : 0
+int htfBias    = htfActive ? nz(htfRaw, 0) : 0
 bool htfOkBull = not htfActive or (profile == "Strict" ? htfBias == 1 : htfBias != -1)
 bool htfOkBear = not htfActive or (profile == "Strict" ? htfBias == -1 : htfBias != 1)
 
@@ -243,7 +257,7 @@ string cmpSym  = smtMode == "Manual" ? smtManual : autoSym == "" ? "" : syminfo.
 bool cmpInv    = smtMode == "Manual" ? smtInvMan : root6 == "USDCHF"
 bool smtHasSym = smtOn and cmpSym != ""
 string reqSym  = smtHasSym ? cmpSym : syminfo.tickerid
-[cPH, cPL, cTm, cCl] = request.security(reqSym, timeframe.period, [ta.pivothigh(high, majL, majR), ta.pivotlow(low, majL, majR), time[majR], close], ignore_invalid_symbol = true)
+[cPH, cPL, cTm, cCl] = request.security(reqSym, timeframe.period, [ta.pivothigh(high, chochLen, chochLen), ta.pivotlow(low, chochLen, chochLen), time[chochLen], close], ignore_invalid_symbol = true)
 bool smtAvail = smtHasSym and not na(cCl)
 int tolMs = smtTol * timeframe.in_seconds() * 1000
 
@@ -251,22 +265,19 @@ int tolMs = smtTol * timeframe.in_seconds() * 1000
 var Ctr ctr = Ctr.new()
 var Struct majS = Struct.new()
 var Struct intS = Struct.new()
+var Eng eng = Eng.new()
 var array<Pool> pools = array.new<Pool>()
 var array<Zone> zones = array.new<Zone>()
 var Setup bullSt = Setup.new(1)
 var Setup bearSt = Setup.new(-1)
 var Sfp bullP = na
 var Sfp bearP = na
-var float protLo = na
-var int protLoBar = na
-var int bullBrkBar = na
-var float protHi = na
-var int protHiBar = na
-var int bearBrkBar = na
 var int lastDispBull = na
 var int lastDispBear = na
 var int lastObBullLeft = na
 var int lastObBearLeft = na
+var int lastDsBull = na
+var int lastDsBear = na
 var float cHi = na
 var float cHiPrev = na
 var int cHiT = na
@@ -277,10 +288,14 @@ var int pendBullT = na
 var int pendBullBar = na
 var int pendBullDl = na
 var float pendBullPx = na
+var int pendBullPrevBar = na
+var float pendBullPrevPx = na
 var int pendBearT = na
 var int pendBearBar = na
 var int pendBearDl = na
 var float pendBearPx = na
+var int pendBearPrevBar = na
+var float pendBearPrevPx = na
 var int lastSmtDir = 0
 var int lastSmtBar = na
 
@@ -292,9 +307,6 @@ method next(Ctr c) =>
 stageName(int s) =>
     switch s
         0 => "NONE"
-        1 => "CONTEXT_FOUND"
-        2 => "IDM_CANDIDATE"
-        3 => "IDM_SWEPT"
         4 => "MSS_CONFIRMED"
         5 => "ZONE_WAIT"
         => "?"
@@ -323,8 +335,8 @@ method onPivots(Struct s, float ph, float pl, int R, bool showLbl) =>
         s.loState := 0
     true
 
-// returns [bullType, bearType, bullLvl, bullLvlBar, bearLvl, bearLvlBar]; type 1 BOS, 2 CHoCH, 3 Fake BOS
-method breaks(Struct s, float buf, bool wm) =>
+// simple swing-break structure (neutral start + internal trigger). type 1 BOS, 2 CHoCH, 3 wick-only
+method breaks(Struct s, float buf) =>
     int bullT = 0
     int bearT = 0
     float bL = s.hi
@@ -337,43 +349,102 @@ method breaks(Struct s, float buf, bool wm) =>
     bool upB = hiOk and close > s.hi + buf
     bool dnW = loOk and low < s.lo - buf
     bool dnB = loOk and close < s.lo - buf
-    if s.bias == 0
-        // first break from Neutral: body = real BOS, wick only = Fake BOS
-        if upB and not dnB and not dnW
-            bullT := 1
-            s.bias := 1
-            s.hiState := 2
-        else if dnB and not upB and not upW
-            bearT := 1
-            s.bias := -1
-            s.loState := 2
-        else if not upB and not dnB
-            if upW and not dnW and s.hiState == 0
-                bullT := 3
-                s.hiState := 1
-            if dnW and not upW and s.loState == 0
-                bearT := 3
-                s.loState := 1
-    else
-        bool up = wm ? upW : upB
-        bool dn = wm ? dnW : dnB
-        if up and not dn
-            bullT := s.bias == 1 ? 1 : 2
-            s.bias := 1
-            s.hiState := 2
-        else if dn and not up
-            bearT := s.bias == -1 ? 1 : 2
-            s.bias := -1
-            s.loState := 2
+    if upB and not dnB and not dnW
+        bullT := s.bias == -1 ? 2 : 1
+        s.bias := 1
+        s.hiState := 2
+    else if dnB and not upB and not upW
+        bearT := s.bias == 1 ? 2 : 1
+        s.bias := -1
+        s.loState := 2
+    else if not upB and not dnB
+        if upW and not dnW and s.hiState == 0
+            bullT := 3
+            s.hiState := 1
+        if dnW and not upW and s.loState == 0
+            bearT := 3
+            s.loState := 1
     [bullT, bearT, bL, bLB, sL, sLB]
 
-drawBreak(int fromBar, float lvl, int typ, int d, bool major) =>
-    bool show = major ? (typ == 3 ? showFake : showMajor) : (showInt and (typ != 3 or showFake))
+drawBreak(int fromBar, float lvl, int typ, int d, string tag) =>
+    bool show = typ == 3 ? showFake : showMajor
     if show and not na(lvl) and not na(fromBar)
         color c = typ == 3 ? colFake : d == 1 ? colBull : colBear
-        string t = (major ? "" : "i") + (typ == 1 ? "BOS" : typ == 2 ? "CHoCH" : "Fake BOS")
-        line.new(fromBar, lvl, bar_index, lvl, color = c, style = typ == 3 ? line.style_dotted : major ? line.style_solid : line.style_dashed, width = 1)
-        label.new(math.round((fromBar + bar_index) / 2), lvl, t, style = d == 1 ? label.style_label_down : label.style_label_up, color = color(na), textcolor = c, size = major ? size.small : size.tiny)
+        string t = (typ == 1 ? "BOS" : typ == 2 ? "CHoCH" : tag) + (typ != 3 and tag != "" ? " · " + tag : "")
+        line.new(fromBar, lvl, bar_index, lvl, color = c, style = typ == 3 ? line.style_dotted : line.style_solid, width = 1)
+        label.new(math.round((fromBar + bar_index) / 2), lvl, t, style = d == 1 ? label.style_label_down : label.style_label_up, color = color(na), textcolor = c, size = typ == 3 ? size.tiny : size.small)
+    true
+
+// start a new trend phase (after CHoCH or first break). fromBar = bar of the broken level
+method startPhase(Eng e, int d, int fromBar) =>
+    if not na(e.idmLn) and not e.idmTaken
+        e.idmLn.delete()
+        if not na(e.idmLb)
+            e.idmLb.delete()
+    e.trend := d
+    e.phaseBar := bar_index
+    e.idm := na
+    e.idmBar := na
+    e.idmTaken := false
+    e.idmTakenBar := na
+    e.pull := na
+    e.pullBar := na
+    e.idmLn := na
+    e.idmLb := na
+    int n = na(fromBar) ? 0 : math.min(math.max(bar_index - fromBar, 0), 300)
+    if d == 1
+        float lo = low
+        int lb = bar_index
+        for i = 0 to n
+            if low[i] < lo
+                lo := low[i]
+                lb := bar_index - i
+        e.pLo := lo
+        e.pLoBar := lb
+        e.pHi := na
+        e.pHiBar := na
+        e.tMax := high
+        e.tMaxBar := bar_index
+        e.legStart := lb
+    else
+        float hi = high
+        int hb = bar_index
+        for i = 0 to n
+            if high[i] > hi
+                hi := high[i]
+                hb := bar_index - i
+        e.pHi := hi
+        e.pHiBar := hb
+        e.pLo := na
+        e.pLoBar := na
+        e.tMin := low
+        e.tMinBar := bar_index
+        e.legStart := hb
+    true
+
+// continuation BOS: protected level moves to the pullback extreme made after IDM was taken
+method contPhase(Eng e) =>
+    if e.trend == 1
+        e.pLo := e.pull
+        e.pLoBar := e.pullBar
+        e.legStart := e.pullBar
+        e.tMax := high
+        e.tMaxBar := bar_index
+    else
+        e.pHi := e.pull
+        e.pHiBar := e.pullBar
+        e.legStart := e.pullBar
+        e.tMin := low
+        e.tMinBar := bar_index
+    e.phaseBar := bar_index
+    e.idm := na
+    e.idmBar := na
+    e.idmTaken := false
+    e.idmTakenBar := na
+    e.pull := na
+    e.pullBar := na
+    e.idmLn := na
+    e.idmLb := na
     true
 
 addPool(float price, int d, string src, int pbar, float oL, float oH) =>
@@ -402,149 +473,69 @@ addPool(float price, int d, string src, int pbar, float oL, float oH) =>
             pools.shift()
     merged
 
-newZone(int kind, int d, float top, float bot, int left, float inv, int dispB, int midB) =>
-    color base = d == 1 ? colBull : colBear
-    string t = kind == K_OB ? "OB" : kind == K_FVG ? "FVG" : "RB"
-    int tr = kind == K_OB ? 85 : kind == K_FVG ? 90 : 88
-    bool show = kind == K_OB ? showOB : kind == K_FVG ? showFVG : showRB
-    box b = na
+zoneText(Zone z) =>
+    z.kind == K_OB ? (z.sweep and z.imb ? "OB A+" : "OB") : z.kind == K_DS ? (z.dir == 1 ? "Demand" : "Supply") : "RB"
+
+drawZone(Zone z) =>
+    if na(z.bx)
+        color base = z.dir == 1 ? colBull : colBear
+        int tr = z.kind == K_OB ? 85 : z.kind == K_DS ? 90 : 88
+        z.bx := box.new(z.leftBar, z.top, bar_index + 1, z.bot, border_color = color.new(base, 60), border_width = 1, bgcolor = color.new(base, tr), text = zoneText(z), text_size = size.tiny, text_color = color.new(base, 30), text_halign = text.align_left, text_valign = text.align_top)
+    true
+
+newZone(int kind, int d, float top, float bot, int left, float inv, int dispB, bool show) =>
+    Zone z = Zone.new(id = ctr.next(), kind = kind, dir = d, top = top, bot = bot, invLvl = inv, leftBar = left, createdBar = bar_index, dispBar = dispB)
     if show
-        b := box.new(left, top, bar_index + 1, bot, border_color = color.new(base, 60), border_width = 1, bgcolor = color.new(base, tr), text = t, text_size = size.tiny, text_color = color.new(base, 30), text_halign = text.align_left, text_valign = text.align_top)
-    Zone z = Zone.new(id = ctr.next(), kind = kind, dir = d, top = top, bot = bot, invLvl = inv, createdBar = bar_index, dispBar = dispB, midBar = midB, bx = b)
+        drawZone(z)
     zones.push(z)
     if zones.size() > 200
         zones.shift()
     z
 
 method reset(Setup st, string why) =>
-    if st.stage >= S_CAND and st.stage <= S_SWEPT
-        if not na(st.idmLn)
-            st.idmLn.delete()
-        if not na(st.idmLb)
-            st.idmLb.delete()
     st.stage := S_NONE
     st.reason := why
     if debugOn and why != "ENTRY_DONE"
         label.new(bar_index, st.dir == 1 ? low : high, (st.dir == 1 ? "Bull: " : "Bear: ") + why, style = st.dir == 1 ? label.style_label_up : label.style_label_down, color = color.new(colFake, 30), textcolor = color.white, size = size.tiny)
     true
 
-// IDM -> sweep -> MSS. returns [newCandidate, idmSwept, mss]
-method step(Setup st, float prot, int pBar, bool protBroken, float piv, int pivBar, float mssRef, bool dispNow, int lastDisp, bool ctxOk) =>
-    bool evCand = false
-    bool evSwept = false
-    bool evMss = false
-    int d = st.dir
-    color dc = d == 1 ? colBull : colBear
-    if st.stage == S_CTX and (not ctxOk or na(prot) or protBroken)
-        st.reset(not ctxOk ? "CONTEXT_LOST" : "PROTECTED_BROKEN")
-    if st.stage == S_NONE and not na(prot) and ctxOk and not protBroken
-        st.stage := S_CTX
-    // new IDM candidate (most recent qualifying internal swing replaces an older unswept one)
-    if (st.stage == S_CTX or st.stage == S_CAND) and not na(piv) and not na(prot) and not protBroken
-        bool side = d == 1 ? piv > prot : piv < prot
-        if side
-            if st.stage == S_CAND
-                if not na(st.idmLn)
-                    st.idmLn.delete()
-                if not na(st.idmLb)
-                    st.idmLb.delete()
-            st.idm := piv
-            st.idmBar := pivBar
-            st.idmCreated := bar_index
-            st.protBar := pBar
-            st.reclaimBy := na
-            st.stage := S_CAND
-            evCand := true
-            if showIdm
-                st.idmLn := line.new(pivBar, piv, bar_index, piv, color = colIdmC, style = line.style_dashed)
-                st.idmLb := label.new(pivBar, piv, "IDM", style = d == 1 ? label.style_label_up : label.style_label_down, color = color(na), textcolor = colIdmC, size = size.tiny)
-    // candidate -> swept
-    if st.stage == S_CAND and not evCand
-        bool protChanged = (na(pBar) != na(st.protBar)) or (not na(pBar) and pBar != st.protBar)
-        if protBroken
-            st.reset("PROTECTED_BROKEN")
-        else if protChanged
-            st.reset("PROTECTED_CHANGED")
-        else if bar_index - st.idmCreated > idmMax
-            st.reset("IDM_EXPIRED")
-        else
-            bool reclaimed = d == 1 ? close > st.idm : close < st.idm
-            if na(st.reclaimBy)
-                bool swept = d == 1 ? low < st.idm - sweepBuf : high > st.idm + sweepBuf
-                if swept
-                    if reclaimed
-                        evSwept := true
-                    else if reclaimOn
-                        st.reclaimBy := bar_index + reclaimN
-                    else
-                        st.reset("IDM_EXPIRED")
-            else
-                if reclaimed
-                    evSwept := true
-                else if bar_index >= st.reclaimBy
-                    st.reset("IDM_EXPIRED")
-            if evSwept
-                st.stage := S_SWEPT
-                st.sweepBar := bar_index
-                st.mssLvl := mssRef
-                if not na(st.idmLn)
-                    st.idmLn.set_x2(bar_index)
-                    st.idmLn.set_color(colIdmS)
-                if not na(st.idmLb)
-                    st.idmLb.set_text("IDM swept")
-                    st.idmLb.set_textcolor(colIdmS)
-    else if st.stage == S_CAND and not na(st.idmLn)
-        st.idmLn.set_x2(bar_index)
-    // swept -> MSS
-    if st.stage == S_SWEPT
-        if protBroken
-            st.reset("PROTECTED_BROKEN")
-        else if bar_index - st.sweepBar > idmMax
-            st.reset("IDM_EXPIRED")
-        else if not na(st.mssLvl)
-            bool brk = d == 1 ? (wickMode ? high : close) > st.mssLvl + brkBuf : (wickMode ? low : close) < st.mssLvl - brkBuf
-            if brk
-                if bar_index == st.sweepBar
-                    st.reset("SAME_BAR_AMBIGUOUS")
-                else
-                    bool ok = dispWin == 0 ? dispNow : (not na(lastDisp) and lastDisp > st.sweepBar and bar_index - lastDisp <= dispWin)
-                    if ok
-                        evMss := true
-                        st.stage := S_MSS
-                        st.mssBar := bar_index
-                        st.mssId := ctr.next()
-                        st.dispBar := dispWin == 0 ? bar_index : lastDisp
-                        st.zoneEnd := ""
-                        if showIdm
-                            line.new(st.sweepBar, st.mssLvl, bar_index, st.mssLvl, color = dc, width = 1)
-                            label.new(bar_index, st.mssLvl, "MSS", style = d == 1 ? label.style_label_down : label.style_label_up, color = dc, textcolor = d == 1 ? color.black : color.white, size = size.small)
-                        if not na(st.idmLn)
-                            st.idmLn.set_color(dc)
-    [evCand, evSwept, evMss]
-
-// link OB/FVG created by this MSS displacement leg
+// link OB A+ / Demand-Supply created inside this MSS leg. returns [linked, newOB, newDS]
 method link(Setup st) =>
     int n = 0
+    bool nOb = false
+    bool nDs = false
     if zones.size() > 0
         for i = 0 to zones.size() - 1
             Zone z = zones.get(i)
             if z.dir == st.dir and z.kind != K_RB
-                if na(z.srcId)
-                    bool okOB = z.kind == K_OB and not na(z.dispBar) and z.dispBar == st.dispBar
-                    bool okFVG = z.kind == K_FVG and not na(z.midBar) and z.midBar >= st.sweepBar + 1 and z.midBar <= st.mssBar
-                    if okOB or okFVG
+                if na(z.srcId) and not na(z.dispBar) and z.dispBar > st.legStart and z.dispBar <= st.mssBar
+                    bool ok = z.kind == K_DS or obFilter == "All" or ((not reqSweep or z.sweep) and (not reqImb or z.imb))
+                    if ok
                         z.srcId := st.mssId
+                        drawZone(z)
+                        if z.kind == K_OB
+                            nOb := true
+                        else
+                            nDs := true
                 if not na(z.srcId) and z.srcId == st.mssId
                     n += 1
-    n
+    [n, nOb, nDs]
+
+dsOverlap(Zone z, int mid) =>
+    bool ov = false
+    if zones.size() > 0
+        for i = 0 to zones.size() - 1
+            Zone y = zones.get(i)
+            if y.kind == K_DS and y.dir == z.dir and not na(y.srcId) and y.srcId == mid and y.top >= z.bot and y.bot <= z.top
+                ov := true
+                break
+    ov
 
 // zone wait -> entry. returns [fire, zone, triggerName]
-method entry(Setup st, bool protBroken, bool intBrk, bool sfpNow, float sfpExt) =>
+method entry(Setup st, bool intBrk, bool sfpNow, float sfpExt) =>
     bool fire = false
     string trig = ""
     Zone hit = na
-    if (st.stage == S_ZONE or st.stage == S_MSS) and protBroken
-        st.reset("PROTECTED_BROKEN")
     if st.stage == S_ZONE
         int live = 0
         if zones.size() > 0
@@ -552,10 +543,11 @@ method entry(Setup st, bool protBroken, bool intBrk, bool sfpNow, float sfpExt) 
                 Zone z = zones.get(i)
                 if z.dir == st.dir and not na(z.srcId) and z.srcId == st.mssId
                     live += 1
-                    if not fire and z.createdBar < bar_index
+                    bool allowed = zoneMode == "OB A+ or D/S" or (zoneMode == "OB A+ only" and z.kind == K_OB) or (zoneMode == "D/S only" and z.kind == K_DS) or (zoneMode == "OB A+ overlapping D/S" and z.kind == K_OB and dsOverlap(z, st.mssId))
+                    if allowed and not fire and z.createdBar < bar_index
                         bool rc = rng > 0 and (st.dir == 1 ? (low <= z.top and close > z.top and close >= low + 0.5 * rng) : (high >= z.bot and close < z.bot and close <= high - 0.5 * rng))
                         bool im = intBrk and not na(z.firstTouch) and z.firstTouch < bar_index and bar_index - z.firstTouch <= trigMax
-                        bool sf = sfpNow and not na(sfpExt) and (st.dir == 1 ? (sfpExt <= z.top and sfpExt >= z.bot) : (sfpExt >= z.bot and sfpExt <= z.top))
+                        bool sf = sfpNow and not na(sfpExt) and sfpExt <= z.top and sfpExt >= z.bot
                         bool t = trigMode == "Rejection Candle" ? rc : trigMode == "Internal MSS" ? im : trigMode == "SFP" ? sf : (rc or im or sf)
                         if t
                             fire := true
@@ -615,7 +607,7 @@ bool evIdmSwept = false
 bool evSfpBull = false
 bool evSfpBear = false
 bool evNewOB = false
-bool evNewFVG = false
+bool evNewDS = false
 bool evMitig = false
 bool evSmtBull = false
 bool evSmtBear = false
@@ -624,29 +616,17 @@ bool evEntryBear = false
 string msg = ""
 
 if barstate.isconfirmed and warm
-    // 1-2. confirmed pivots, swing labels, protected swings, liquidity pools
+    // 1. confirmed swings + liquidity pools
     float prevMajPL = majS.lastPL
     float prevMajPH = majS.lastPH
-    majS.onPivots(majPH, majPL, majR, showSw)
-    intS.onPivots(intPH, intPL, intR, false)
-    if not na(majPL)
-        int pb = bar_index - majR
-        if na(protLo) or na(bullBrkBar) or (pb < bullBrkBar and pb > protLoBar)
-            protLo := majPL
-            protLoBar := pb
-    if not na(majPH)
-        int pb = bar_index - majR
-        if na(protHi) or na(bearBrkBar) or (pb < bearBrkBar and pb > protHiBar)
-            protHi := majPH
-            protHiBar := pb
+    int prevMajPLBar = majS.lastPLBar
+    int prevMajPHBar = majS.lastPHBar
+    majS.onPivots(majPH, majPL, chochLen, showSw)
+    intS.onPivots(intPH, intPL, idmLen, false)
     if liqMajor and not na(majPH)
-        addPool(majPH, 1, "SWING", bar_index - majR, low[majR], high[majR])
+        addPool(majPH, 1, "SWING", bar_index - chochLen, low[chochLen], high[chochLen])
     if liqMajor and not na(majPL)
-        addPool(majPL, -1, "SWING", bar_index - majR, low[majR], high[majR])
-    if liqInt and not na(intPH)
-        addPool(intPH, 1, "SWING", bar_index - intR, low[intR], high[intR])
-    if liqInt and not na(intPL)
-        addPool(intPL, -1, "SWING", bar_index - intR, low[intR], high[intR])
+        addPool(majPL, -1, "SWING", bar_index - chochLen, low[chochLen], high[chochLen])
     if pdOk and not na(pdh) and pdh != pdh[1]
         addPool(pdh, 1, "PDH", bar_index, na, na)
         addPool(pdl, -1, "PDL", bar_index, na, na)
@@ -654,32 +634,177 @@ if barstate.isconfirmed and warm
         addPool(pwh, 1, "PWH", bar_index, na, na)
         addPool(pwl, -1, "PWL", bar_index, na, na)
 
-    // 3-4. structure breaks
-    [mbT, msT, mbL, mbLB, msL, msLB] = majS.breaks(brkBuf, wickMode)
-    [ibT, isT, ibL, ibLB, isL, isLB] = intS.breaks(brkBuf, wickMode)
-    if mbT > 0
-        drawBreak(mbLB, mbL, mbT, 1, true)
-        if mbT < 3
-            if not na(majS.lastPL)
-                protLo := majS.lastPL
-                protLoBar := majS.lastPLBar
-            bullBrkBar := bar_index
-    if msT > 0
-        drawBreak(msLB, msL, msT, -1, true)
-        if msT < 3
-            if not na(majS.lastPH)
-                protHi := majS.lastPH
-                protHiBar := majS.lastPHBar
-            bearBrkBar := bar_index
-    if ibT > 0
-        drawBreak(ibLB, ibL, ibT, 1, false)
-    if isT > 0
-        drawBreak(isLB, isL, isT, -1, false)
-    evBullBOS := mbT == 1
-    evBearBOS := msT == 1
-    evBullCH := mbT == 2
-    evBearCH := msT == 2
-    evFake := mbT == 3 or msT == 3
+    if dispBull
+        lastDispBull := bar_index
+    if dispBear
+        lastDispBear := bar_index
+
+    // 2. structure engine: CHoCH / BOS / IDM
+    float eLvl = na
+    int eLvlBar = na
+    if eng.trend == 0
+        // first break from neutral: body close = BOS, wick only = Fake BOS
+        [nbT, nsT, nbL, nbLB, nsL, nsLB] = majS.breaks(brkBuf)
+        if nbT == 1
+            evBullBOS := true
+            eLvl := nbL
+            eLvlBar := nbLB
+            eng.startPhase(1, nbLB)
+        else if nsT == 1
+            evBearBOS := true
+            eLvl := nsL
+            eLvlBar := nsLB
+            eng.startPhase(-1, nsLB)
+        else
+            if nbT == 3
+                evFake := true
+                drawBreak(nbLB, nbL, 3, 1, "Fake BOS")
+            if nsT == 3
+                evFake := true
+                drawBreak(nsLB, nsL, 3, -1, "Fake BOS")
+    else if eng.trend == 1
+        bool choch = not na(eng.pLo) and close < eng.pLo - brkBuf
+        bool bos = not choch and eng.idmTaken and close > eng.tMax + brkBuf
+        if choch
+            evBearCH := true
+            eLvl := eng.pLo
+            eLvlBar := eng.pLoBar
+            eng.startPhase(-1, eng.tMaxBar)
+        else if bos
+            evBullBOS := true
+            eLvl := eng.tMax
+            eLvlBar := eng.tMaxBar
+            if not na(eng.idmLn)
+                eng.idmLn.set_color(colBull)
+            eng.contPhase()
+        else
+            if not na(eng.pLo) and low < eng.pLo - brkBuf and (na(eng.sweptLo) or eng.sweptLo != eng.pLoBar)
+                eng.sweptLo := eng.pLoBar
+                evFake := true
+                drawBreak(eng.pLoBar, eng.pLo, 3, -1, "Sweep")
+            if eng.idmTaken and high > eng.tMax + brkBuf and (na(eng.sweptHi) or eng.sweptHi != eng.tMaxBar)
+                eng.sweptHi := eng.tMaxBar
+                evFake := true
+                drawBreak(eng.tMaxBar, eng.tMax, 3, 1, "Sweep")
+            if high > eng.tMax
+                eng.tMax := high
+                eng.tMaxBar := bar_index
+            if not eng.idmTaken
+                if not na(intPL) and bar_index - idmLen > eng.phaseBar
+                    if not na(eng.idmLn)
+                        eng.idmLn.delete()
+                    if not na(eng.idmLb)
+                        eng.idmLb.delete()
+                    eng.idm := intPL
+                    eng.idmBar := bar_index - idmLen
+                    evIdmCand := true
+                    if showIdm
+                        eng.idmLn := line.new(eng.idmBar, eng.idm, bar_index, eng.idm, color = colIdmC, style = line.style_dashed, width = 1)
+                        eng.idmLb := label.new(eng.idmBar, eng.idm, "IDM", style = label.style_label_up, color = color(na), textcolor = colIdmC, size = size.tiny)
+                else if not na(eng.idm) and low < eng.idm - sweepBuf and (not idmReclaim or close > eng.idm)
+                    eng.idmTaken := true
+                    eng.idmTakenBar := bar_index
+                    eng.pull := low
+                    eng.pullBar := bar_index
+                    evIdmSwept := true
+                    if not na(eng.idmLn)
+                        eng.idmLn.set_x2(bar_index)
+                        eng.idmLn.set_color(colIdmS)
+                    if not na(eng.idmLb)
+                        eng.idmLb.set_textcolor(colIdmS)
+                else if not na(eng.idmLn)
+                    eng.idmLn.set_x2(bar_index)
+            else if low < eng.pull
+                eng.pull := low
+                eng.pullBar := bar_index
+    else
+        bool choch = not na(eng.pHi) and close > eng.pHi + brkBuf
+        bool bos = not choch and eng.idmTaken and close < eng.tMin - brkBuf
+        if choch
+            evBullCH := true
+            eLvl := eng.pHi
+            eLvlBar := eng.pHiBar
+            eng.startPhase(1, eng.tMinBar)
+        else if bos
+            evBearBOS := true
+            eLvl := eng.tMin
+            eLvlBar := eng.tMinBar
+            if not na(eng.idmLn)
+                eng.idmLn.set_color(colBear)
+            eng.contPhase()
+        else
+            if not na(eng.pHi) and high > eng.pHi + brkBuf and (na(eng.sweptHi) or eng.sweptHi != eng.pHiBar)
+                eng.sweptHi := eng.pHiBar
+                evFake := true
+                drawBreak(eng.pHiBar, eng.pHi, 3, 1, "Sweep")
+            if eng.idmTaken and low < eng.tMin - brkBuf and (na(eng.sweptLo) or eng.sweptLo != eng.tMinBar)
+                eng.sweptLo := eng.tMinBar
+                evFake := true
+                drawBreak(eng.tMinBar, eng.tMin, 3, -1, "Sweep")
+            if low < eng.tMin
+                eng.tMin := low
+                eng.tMinBar := bar_index
+            if not eng.idmTaken
+                if not na(intPH) and bar_index - idmLen > eng.phaseBar
+                    if not na(eng.idmLn)
+                        eng.idmLn.delete()
+                    if not na(eng.idmLb)
+                        eng.idmLb.delete()
+                    eng.idm := intPH
+                    eng.idmBar := bar_index - idmLen
+                    evIdmCand := true
+                    if showIdm
+                        eng.idmLn := line.new(eng.idmBar, eng.idm, bar_index, eng.idm, color = colIdmC, style = line.style_dashed, width = 1)
+                        eng.idmLb := label.new(eng.idmBar, eng.idm, "IDM", style = label.style_label_down, color = color(na), textcolor = colIdmC, size = size.tiny)
+                else if not na(eng.idm) and high > eng.idm + sweepBuf and (not idmReclaim or close < eng.idm)
+                    eng.idmTaken := true
+                    eng.idmTakenBar := bar_index
+                    eng.pull := high
+                    eng.pullBar := bar_index
+                    evIdmSwept := true
+                    if not na(eng.idmLn)
+                        eng.idmLn.set_x2(bar_index)
+                        eng.idmLn.set_color(colIdmS)
+                    if not na(eng.idmLb)
+                        eng.idmLb.set_textcolor(colIdmS)
+                else if not na(eng.idmLn)
+                    eng.idmLn.set_x2(bar_index)
+            else if high > eng.pull
+                eng.pull := high
+                eng.pullBar := bar_index
+
+    // 3. MSS = BOS (after IDM) or CHoCH, with displacement -> setup
+    bool bullBrk = evBullBOS or (mssCh and evBullCH)
+    bool bearBrk = evBearBOS or (mssCh and evBearCH)
+    bool bullDispOk = dispWin == 0 ? dispBull : (not na(lastDispBull) and lastDispBull > eng.legStart and bar_index - lastDispBull <= dispWin)
+    bool bearDispOk = dispWin == 0 ? dispBear : (not na(lastDispBear) and lastDispBear > eng.legStart and bar_index - lastDispBear <= dispWin)
+    evMssBull := bullBrk and bullDispOk and htfOkBull
+    evMssBear := bearBrk and bearDispOk and htfOkBear
+    if evBullBOS or evBullCH
+        drawBreak(eLvlBar, eLvl, evBullBOS ? 1 : 2, 1, evMssBull ? "MSS" : "")
+    if evBearBOS or evBearCH
+        drawBreak(eLvlBar, eLvl, evBearBOS ? 1 : 2, -1, evMssBear ? "MSS" : "")
+    if evBearCH and bullSt.stage != S_NONE
+        bullSt.reset("PROTECTED_BROKEN")
+    if evBullCH and bearSt.stage != S_NONE
+        bearSt.reset("PROTECTED_BROKEN")
+    if evMssBull
+        bullSt.stage := S_MSS
+        bullSt.legStart := eng.legStart
+        bullSt.mssBar := bar_index
+        bullSt.mssId := ctr.next()
+        bullSt.mssType := evBullBOS ? "BOS" : "CHoCH"
+        bullSt.zoneEnd := ""
+    if evMssBear
+        bearSt.stage := S_MSS
+        bearSt.legStart := eng.legStart
+        bearSt.mssBar := bar_index
+        bearSt.mssId := ctr.next()
+        bearSt.mssType := evBearBOS ? "BOS" : "CHoCH"
+        bearSt.zoneEnd := ""
+
+    // 4. internal structure (for the Internal MSS trigger)
+    [ibT, isT, ibL, ibLB, isL, isLB] = intS.breaks(brkBuf)
     bool intBullBrk = ibT == 1 or ibT == 2
     bool intBearBrk = isT == 1 or isT == 2
 
@@ -727,25 +852,7 @@ if barstate.isconfirmed and warm
         if showSwp
             label.new(bar_index, low, "x", style = label.style_none, textcolor = colFake, size = size.small)
 
-    // 6. displacement memory
-    if dispBull
-        lastDispBull := bar_index
-    if dispBear
-        lastDispBear := bar_index
-
-    // 7. IDM -> MSS
-    bool pLoBroken = not na(protLo) and close < protLo
-    bool pHiBroken = not na(protHi) and close > protHi
-    float mssRefBull = mssMode == "Internal" ? intS.lastPH : majS.lastPH
-    float mssRefBear = mssMode == "Internal" ? intS.lastPL : majS.lastPL
-    [bc, bsw, bm] = bullSt.step(protLo, protLoBar, pLoBroken, idmOn ? intPL : na, bar_index - intR, mssRefBull, dispBull, lastDispBull, htfOkBull)
-    [sc, ssw, sm] = bearSt.step(protHi, protHiBar, pHiBroken, idmOn ? intPH : na, bar_index - intR, mssRefBear, dispBear, lastDispBear, htfOkBear)
-    evIdmCand := bc or sc
-    evIdmSwept := bsw or ssw
-    evMssBull := bm
-    evMssBear := sm
-
-    // 8a. lifecycle of existing zones (before new zones are added)
+    // 6. lifecycle of existing zones (before new zones are added)
     if zones.size() > 0
         for i = zones.size() - 1 to 0
             Zone z = zones.get(i)
@@ -761,7 +868,7 @@ if barstate.isconfirmed and warm
                 bool expd = bar_index - z.createdBar > zoneMax
                 if z.state == 0 and mit and not inv
                     z.state := 1
-                    if z.kind != K_RB
+                    if not na(z.srcId) and z.kind != K_RB
                         evMitig := true
                     if not na(z.bx)
                         if delMit
@@ -786,8 +893,12 @@ if barstate.isconfirmed and warm
                     zones.remove(i)
                 else if not na(z.bx)
                     z.bx.set_right(bar_index + 1)
+                // imbalance can complete one bar after the displacement candle
+                if z.kind == K_OB and not z.imb and not na(z.dispBar) and z.dispBar == bar_index - 1
+                    if z.dir == 1 ? (low > high[2] and low - high[2] >= atr * imbMinAtr) : (high < low[2] and low[2] - high >= atr * imbMinAtr)
+                        z.imb := true
 
-    // 8b. new OB / FVG
+    // 7. new Order Blocks (graded) and Demand / Supply zones
     if dispBull
         int src = na
         for i = 1 to obLook
@@ -796,8 +907,15 @@ if barstate.isconfirmed and warm
                 break
         if not na(src) and bar_index - src != lastObBullLeft
             lastObBullLeft := bar_index - src
-            newZone(K_OB, 1, open[src], low[src], bar_index - src, low[src], bar_index, na)
-            evNewOB := true
+            float legLow = low
+            for j = 0 to src
+                legLow := math.min(legLow, low[j])
+            float prior = low[src + 1]
+            for j = src + 1 to src + sweepLook
+                prior := math.min(prior, low[j])
+            Zone z = newZone(K_OB, 1, open[src], low[src], bar_index - src, low[src], bar_index, showAllZ)
+            z.sweep := legLow < prior
+            z.imb := low > high[2] and low - high[2] >= atr * imbMinAtr
     if dispBear
         int src = na
         for i = 1 to obLook
@@ -806,16 +924,45 @@ if barstate.isconfirmed and warm
                 break
         if not na(src) and bar_index - src != lastObBearLeft
             lastObBearLeft := bar_index - src
-            newZone(K_OB, -1, high[src], open[src], bar_index - src, high[src], bar_index, na)
-            evNewOB := true
-    if low > high[2] and low - high[2] >= atr * fvgMinAtr and (not fvgDisp or dispBull[1])
-        newZone(K_FVG, 1, low, high[2], bar_index - 2, high[2], na, bar_index - 1)
-        evNewFVG := true
-    if high < low[2] and low[2] - high >= atr * fvgMinAtr and (not fvgDisp or dispBear[1])
-        newZone(K_FVG, -1, low[2], high, bar_index - 2, low[2], na, bar_index - 1)
-        evNewFVG := true
+            float legHigh = high
+            for j = 0 to src
+                legHigh := math.max(legHigh, high[j])
+            float prior = high[src + 1]
+            for j = src + 1 to src + sweepLook
+                prior := math.max(prior, high[j])
+            Zone z = newZone(K_OB, -1, high[src], open[src], bar_index - src, high[src], bar_index, showAllZ)
+            z.sweep := legHigh > prior
+            z.imb := high < low[2] and low[2] - high >= atr * imbMinAtr
+    if dsOn and dispBull
+        int nb = 0
+        float top = na
+        float bot = na
+        for i = 1 to dsMaxBase
+            if rng[i] > 0 and math.abs(close[i] - open[i]) <= rng[i] * dsBasePct
+                nb += 1
+                top := na(top) ? math.max(open[i], close[i]) : math.max(top, math.max(open[i], close[i]))
+                bot := na(bot) ? low[i] : math.min(bot, low[i])
+            else
+                break
+        if nb > 0 and top > bot and (na(lastDsBull) or bar_index - 1 != lastDsBull)
+            lastDsBull := bar_index
+            newZone(K_DS, 1, top, bot, bar_index - nb, bot, bar_index, showAllZ)
+    if dsOn and dispBear
+        int nb = 0
+        float top = na
+        float bot = na
+        for i = 1 to dsMaxBase
+            if rng[i] > 0 and math.abs(close[i] - open[i]) <= rng[i] * dsBasePct
+                nb += 1
+                top := na(top) ? high[i] : math.max(top, high[i])
+                bot := na(bot) ? math.min(open[i], close[i]) : math.min(bot, math.min(open[i], close[i]))
+            else
+                break
+        if nb > 0 and top > bot and (na(lastDsBear) or bar_index - 1 != lastDsBear)
+            lastDsBear := bar_index
+            newZone(K_DS, -1, top, bot, bar_index - nb, top, bar_index, showAllZ)
 
-    // 9. SFP (advance pending first, then register new sweeps) + Rejection Blocks
+    // 8. SFP (advance pending first, then register new sweeps) + Rejection Blocks
     bool sfpBullNow = false
     bool sfpBearNow = false
     float sfpBullExt = na
@@ -853,7 +1000,7 @@ if barstate.isconfirmed and warm
         float rTop = rbMode == "Body" ? math.max(open, close) : high
         float rBot = rbMode == "Full" ? low : rbMode == "Body" ? math.min(open, close) : math.max(open, close)
         if rTop > rBot
-            newZone(K_RB, -1, rTop, rBot, bar_index, high, na, na)
+            newZone(K_RB, -1, rTop, rBot, bar_index, high, na, showRB)
     if not na(sslSweepId)
         if sfpOn
             float trg = sfpTrig == "Sweep candle" ? high : nz(sslP.oHigh, high)
@@ -867,23 +1014,27 @@ if barstate.isconfirmed and warm
         float rTop = rbMode == "Full" ? high : rbMode == "Body" ? math.max(open, close) : math.min(open, close)
         float rBot = rbMode == "Body" ? math.min(open, close) : low
         if rTop > rBot
-            newZone(K_RB, 1, rTop, rBot, bar_index, low, na, na)
+            newZone(K_RB, 1, rTop, rBot, bar_index, low, na, showRB)
 
-    // 10. link zones to MSS
+    // 9. link OB A+ / D/S zones to the MSS leg
     if (bullSt.stage == S_MSS or bullSt.stage == S_ZONE) and bar_index <= bullSt.mssBar + 1
-        int n = bullSt.link()
+        [n, nOb, nDs] = bullSt.link()
+        evNewOB := evNewOB or nOb
+        evNewDS := evNewDS or nDs
         if n > 0 and bullSt.stage == S_MSS
             bullSt.stage := S_ZONE
         else if n == 0 and bullSt.stage == S_MSS and bar_index == bullSt.mssBar + 1
             bullSt.reset("NO_LINKED_ZONE")
     if (bearSt.stage == S_MSS or bearSt.stage == S_ZONE) and bar_index <= bearSt.mssBar + 1
-        int n = bearSt.link()
+        [n, nOb, nDs] = bearSt.link()
+        evNewOB := evNewOB or nOb
+        evNewDS := evNewDS or nDs
         if n > 0 and bearSt.stage == S_MSS
             bearSt.stage := S_ZONE
         else if n == 0 and bearSt.stage == S_MSS and bar_index == bearSt.mssBar + 1
             bearSt.reset("NO_LINKED_ZONE")
 
-    // 11. SMT
+    // 10. SMT (line drawn between the two chart swings)
     if smtAvail
         if not na(cPH)
             cHiPrev := cHi
@@ -895,14 +1046,18 @@ if barstate.isconfirmed and warm
             cLoT := cTm
         if not na(majPL) and not na(prevMajPL) and majPL < prevMajPL
             pendBullT := pivTimeMaj
-            pendBullBar := bar_index - majR
+            pendBullBar := bar_index - chochLen
             pendBullDl := bar_index + smtTol
             pendBullPx := majPL
+            pendBullPrevBar := prevMajPLBar
+            pendBullPrevPx := prevMajPL
         if not na(majPH) and not na(prevMajPH) and majPH > prevMajPH
             pendBearT := pivTimeMaj
-            pendBearBar := bar_index - majR
+            pendBearBar := bar_index - chochLen
             pendBearDl := bar_index + smtTol
             pendBearPx := majPH
+            pendBearPrevBar := prevMajPHBar
+            pendBearPrevPx := prevMajPH
         if not na(pendBullT)
             float cn = cmpInv ? cHi : cLo
             float cp = cmpInv ? cHiPrev : cLoPrev
@@ -913,7 +1068,8 @@ if barstate.isconfirmed and warm
                     lastSmtDir := 1
                     lastSmtBar := bar_index
                     if showSmt
-                        label.new(pendBullBar, pendBullPx, "SMT", style = label.style_label_up, color = color.new(colFake, 20), textcolor = color.white, size = size.tiny)
+                        line.new(pendBullPrevBar, pendBullPrevPx, pendBullBar, pendBullPx, color = colBull, style = line.style_solid, width = 1)
+                        label.new(pendBullBar, pendBullPx, "SMT", style = label.style_label_up, color = color(na), textcolor = colBull, size = size.tiny)
                 pendBullT := na
             else if bar_index > pendBullDl
                 pendBullT := na
@@ -927,39 +1083,34 @@ if barstate.isconfirmed and warm
                     lastSmtDir := -1
                     lastSmtBar := bar_index
                     if showSmt
-                        label.new(pendBearBar, pendBearPx, "SMT", style = label.style_label_down, color = color.new(colFake, 20), textcolor = color.white, size = size.tiny)
+                        line.new(pendBearPrevBar, pendBearPrevPx, pendBearBar, pendBearPx, color = colBear, style = line.style_solid, width = 1)
+                        label.new(pendBearBar, pendBearPx, "SMT", style = label.style_label_down, color = color(na), textcolor = colBear, size = size.tiny)
                 pendBearT := na
             else if bar_index > pendBearDl
                 pendBearT := na
 
-    // 12. entries
-    [fb, zb, tb] = bullSt.entry(pLoBroken, intBullBrk, sfpBullNow, sfpBullExt)
-    [fs, zs, ts] = bearSt.entry(pHiBroken, intBearBrk, sfpBearNow, sfpBearExt)
+    // 11. entries (drawn as a zone)
+    [fb, zb, tb] = bullSt.entry(intBullBrk, sfpBullNow, sfpBullExt)
+    [fs, zs, ts] = bearSt.entry(intBearBrk, sfpBearNow, sfpBearExt)
     bool conflict = fb and fs
     if conflict and debugOn
         label.new(bar_index, high, "CONFLICT: both directions", style = label.style_label_down, color = colFake, textcolor = color.white, size = size.tiny)
     string smtB = not smtAvail ? "N/A" : lastSmtDir == 1 and bar_index - lastSmtBar <= 50 ? "yes (bull)" : "no"
     string smtS = not smtAvail ? "N/A" : lastSmtDir == -1 and bar_index - lastSmtBar <= 50 ? "yes (bear)" : "no"
     if fb and not conflict and profile != "Context-only"
-        string ck = "HTF: " + (htfActive ? biasTxt(htfBias) + " - pass" : "N/A (off)") + "\nIDM swept: pass\nMSS + displacement: pass\nZone: " + (zb.kind == K_OB ? "OB" : "FVG") + " - pass\nTrigger: " + tb + " - pass\nSMT (info): " + smtB
-        label.new(bar_index, low, "BUY", style = label.style_label_up, color = colBull, textcolor = color.black, size = size.normal, tooltip = ck)
+        box.new(bar_index, zb.top, bar_index + entryLen, zb.bot, border_color = colBull, border_width = 1, bgcolor = color.new(colBull, 75), text = "BUY · " + zoneText(zb), text_size = size.tiny, text_color = color.black, text_halign = text.align_left, text_valign = text.align_center)
+        if showCk
+            string ck = "HTF: " + (htfActive ? biasTxt(htfBias) : "N/A (off)") + "\nMSS: " + bullSt.mssType + " + displacement\nZone: " + zoneText(zb) + "\nTrigger: " + tb + "\nSMT (info): " + smtB
+            label.new(bar_index, zb.bot, "i", style = label.style_circle, color = colBull, textcolor = color.black, size = size.tiny, tooltip = ck)
         evEntryBull := true
         bullSt.reset("ENTRY_DONE")
     if fs and not conflict and profile != "Context-only"
-        string ck = "HTF: " + (htfActive ? biasTxt(htfBias) + " - pass" : "N/A (off)") + "\nIDM swept: pass\nMSS + displacement: pass\nZone: " + (zs.kind == K_OB ? "OB" : "FVG") + " - pass\nTrigger: " + ts + " - pass\nSMT (info): " + smtS
-        label.new(bar_index, high, "SELL", style = label.style_label_down, color = colBear, textcolor = color.white, size = size.normal, tooltip = ck)
+        box.new(bar_index, zs.top, bar_index + entryLen, zs.bot, border_color = colBear, border_width = 1, bgcolor = color.new(colBear, 70), text = "SELL · " + zoneText(zs), text_size = size.tiny, text_color = color.white, text_halign = text.align_left, text_valign = text.align_center)
+        if showCk
+            string ck = "HTF: " + (htfActive ? biasTxt(htfBias) : "N/A (off)") + "\nMSS: " + bearSt.mssType + " + displacement\nZone: " + zoneText(zs) + "\nTrigger: " + ts + "\nSMT (info): " + smtS
+            label.new(bar_index, zs.top, "i", style = label.style_circle, color = colBear, textcolor = color.white, size = size.tiny, tooltip = ck)
         evEntryBear := true
         bearSt.reset("ENTRY_DONE")
-
-    // 13. protected swing broken -> clear
-    if pLoBroken
-        protLo := na
-        protLoBar := na
-        bullBrkBar := na
-    if pHiBroken
-        protHi := na
-        protHiBar := na
-        bearBrkBar := na
 
     msg := (evEntryBull ? "BUY entry. " : "") + (evEntryBear ? "SELL entry. " : "") + (evMssBull ? "Bull MSS. " : "") + (evMssBear ? "Bear MSS. " : "") + (evSfpBull ? "Bull SFP. " : "") + (evSfpBear ? "Bear SFP. " : "") + (evBullCH ? "Bull CHoCH. " : "") + (evBearCH ? "Bear CHoCH. " : "") + (evBullBOS ? "Bull BOS. " : "") + (evBearBOS ? "Bear BOS. " : "") + (evSmtBull ? "Bull SMT. " : "") + (evSmtBear ? "Bear SMT. " : "")
 
@@ -967,21 +1118,21 @@ if msg != ""
     alert(syminfo.ticker + " " + timeframe.period + ": " + msg + "Close " + str.tostring(close, format.mintick), alert.freq_once_per_bar_close)
 
 // ═══════════════════════════ ALERT CONDITIONS ═══════════════════════════
-alertcondition(evBullBOS, "Bullish BOS (major)", "SMC {{ticker}} {{interval}}: bullish BOS")
-alertcondition(evBearBOS, "Bearish BOS (major)", "SMC {{ticker}} {{interval}}: bearish BOS")
-alertcondition(evBullCH, "Bullish CHoCH (major)", "SMC {{ticker}} {{interval}}: bullish CHoCH")
-alertcondition(evBearCH, "Bearish CHoCH (major)", "SMC {{ticker}} {{interval}}: bearish CHoCH")
-alertcondition(evFake, "Fake BOS", "SMC {{ticker}} {{interval}}: Fake BOS (wick-only break from neutral)")
-alertcondition(evMssBull, "Bullish MSS", "SMC {{ticker}} {{interval}}: bullish MSS after IDM sweep")
-alertcondition(evMssBear, "Bearish MSS", "SMC {{ticker}} {{interval}}: bearish MSS after IDM sweep")
+alertcondition(evBullBOS, "Bullish BOS", "SMC {{ticker}} {{interval}}: bullish BOS")
+alertcondition(evBearBOS, "Bearish BOS", "SMC {{ticker}} {{interval}}: bearish BOS")
+alertcondition(evBullCH, "Bullish CHoCH", "SMC {{ticker}} {{interval}}: bullish CHoCH")
+alertcondition(evBearCH, "Bearish CHoCH", "SMC {{ticker}} {{interval}}: bearish CHoCH")
+alertcondition(evFake, "Structure sweep / Fake BOS", "SMC {{ticker}} {{interval}}: wick-only structure sweep")
+alertcondition(evMssBull, "Bullish MSS", "SMC {{ticker}} {{interval}}: bullish MSS")
+alertcondition(evMssBear, "Bearish MSS", "SMC {{ticker}} {{interval}}: bearish MSS")
 alertcondition(evSweep, "Liquidity sweep", "SMC {{ticker}} {{interval}}: liquidity sweep")
-alertcondition(evIdmCand, "IDM candidate", "SMC {{ticker}} {{interval}}: new IDM candidate")
-alertcondition(evIdmSwept, "IDM swept", "SMC {{ticker}} {{interval}}: IDM swept")
+alertcondition(evIdmCand, "New IDM", "SMC {{ticker}} {{interval}}: new IDM")
+alertcondition(evIdmSwept, "IDM taken", "SMC {{ticker}} {{interval}}: IDM taken")
 alertcondition(evSfpBull, "Bullish SFP", "SMC {{ticker}} {{interval}}: bullish SFP")
 alertcondition(evSfpBear, "Bearish SFP", "SMC {{ticker}} {{interval}}: bearish SFP")
-alertcondition(evNewOB, "New OB", "SMC {{ticker}} {{interval}}: new order block")
-alertcondition(evNewFVG, "New FVG", "SMC {{ticker}} {{interval}}: new FVG")
-alertcondition(evMitig, "Zone mitigation", "SMC {{ticker}} {{interval}}: OB/FVG mitigated")
+alertcondition(evNewOB, "New OB A+", "SMC {{ticker}} {{interval}}: new OB A+ linked to MSS")
+alertcondition(evNewDS, "New Demand / Supply", "SMC {{ticker}} {{interval}}: new Demand/Supply linked to MSS")
+alertcondition(evMitig, "Zone mitigation", "SMC {{ticker}} {{interval}}: entry zone touched")
 alertcondition(evSmtBull or evSmtBear, "SMT divergence", "SMC {{ticker}} {{interval}}: SMT divergence")
 alertcondition(evEntryBull, "BUY entry", "SMC {{ticker}} {{interval}}: confirmed BUY setup")
 alertcondition(evEntryBear, "SELL entry", "SMC {{ticker}} {{interval}}: confirmed SELL setup")
@@ -991,18 +1142,19 @@ var table dash = table.new(position.top_right, 2, 14, bgcolor = color.new(#13172
 if barstate.islast and showDash
     string htfTxt = not htfOn ? "Off" : not htfTfOk ? "Disabled: TF lower than chart (Phase 2)" : htfTf + " " + biasTxt(htfBias)
     string smtTxt = not smtOn ? "Off" : not smtHasSym ? "N/A (no pair for " + root6 + ", use Manual)" : not smtAvail ? "N/A (" + cmpSym + " not found)" : cmpSym + (cmpInv ? " inverse" : " direct") + " | last: " + (lastSmtDir == 1 ? "bull" : lastSmtDir == -1 ? "bear" : "-")
-    bool counter = htfActive and htfBias != 0 and majS.bias != 0 and htfBias != majS.bias
-    dashRow(dash, 0, "SMC Suite v1.2.1", profile, color.white)
-    dashRow(dash, 1, "Entry trigger", trigMode, color.white)
+    string idmTxt = na(eng.idm) ? "-" : str.tostring(eng.idm, format.mintick) + (eng.idmTaken ? " (taken, BOS allowed)" : " (waiting)")
+    bool counter = htfActive and htfBias != 0 and eng.trend != 0 and htfBias != eng.trend
+    dashRow(dash, 0, "SMC Suite v1.3", profile, color.white)
+    dashRow(dash, 1, "Entry trigger / zone", trigMode + " / " + zoneMode, color.white)
     dashRow(dash, 2, "Detection TF", "Chart TF (" + timeframe.period + ")", color.white)
     dashRow(dash, 3, "HTF context", htfTxt, htfBias == 1 ? colBull : htfBias == -1 ? colBear : color.white)
-    dashRow(dash, 4, "Bias major / internal", biasTxt(majS.bias) + " / " + biasTxt(intS.bias), majS.bias == 1 ? colBull : majS.bias == -1 ? colBear : color.white)
-    dashRow(dash, 5, "Protected low / high", (na(protLo) ? "-" : str.tostring(protLo, format.mintick)) + " / " + (na(protHi) ? "-" : str.tostring(protHi, format.mintick)), color.white)
-    dashRow(dash, 6, "Bull setup", stageName(bullSt.stage) + " (last: " + bullSt.reason + ")", colBull)
-    dashRow(dash, 7, "Bear setup", stageName(bearSt.stage) + " (last: " + bearSt.reason + ")", colBear)
-    dashRow(dash, 8, "Active pools / zones", str.tostring(pools.size()) + " / " + str.tostring(zones.size()), color.white)
-    dashRow(dash, 9, "SMT", smtTxt, color.white)
-    dashRow(dash, 10, "SFP volume", volAvail ? "OK (tick volume)" : "N/A - body break only", color.white)
-    dashRow(dash, 11, "PDH/PDL | PWH/PWL", (pdOk ? "on" : "off") + " | " + (pwOk ? "on" : "off"), color.white)
+    dashRow(dash, 4, "Trend (CHoCH/BOS)", biasTxt(eng.trend), eng.trend == 1 ? colBull : eng.trend == -1 ? colBear : color.white)
+    dashRow(dash, 5, "IDM", idmTxt, eng.idmTaken ? colIdmS : color.white)
+    dashRow(dash, 6, "Protected low / high", (na(eng.pLo) ? "-" : str.tostring(eng.pLo, format.mintick)) + " / " + (na(eng.pHi) ? "-" : str.tostring(eng.pHi, format.mintick)), color.white)
+    dashRow(dash, 7, "Bull setup", stageName(bullSt.stage) + " (last: " + bullSt.reason + ")", colBull)
+    dashRow(dash, 8, "Bear setup", stageName(bearSt.stage) + " (last: " + bearSt.reason + ")", colBear)
+    dashRow(dash, 9, "Active pools / zones", str.tostring(pools.size()) + " / " + str.tostring(zones.size()), color.white)
+    dashRow(dash, 10, "SMT", smtTxt, color.white)
+    dashRow(dash, 11, "SFP volume", volAvail ? "OK (tick volume)" : "N/A - body break only", color.white)
     dashRow(dash, 12, "Countertrend (HTF vs chart)", counter ? "YES" : "no", counter ? colIdmS : color.white)
-    dashRow(dash, 13, "Note", "Score/markers are a checklist, not a win rate", color.gray)
+    dashRow(dash, 13, "Note", "Zones/entries are a checklist, not a win rate", color.gray)

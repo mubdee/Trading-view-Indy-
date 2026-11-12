@@ -62,3 +62,12 @@
 ### Code v1.2.1 — 2026-11-12
 - Grey/black theme, all lines width 1, lighter zone fills.
 - Zones removed from chart once mitigated (input), and always on invalidation/expiry unless "Keep invalidated" is on. Swept/broken liquidity lines and reset IDM lines are deleted.
+
+### Code v1.3 — 2026-11-12 (from user edits in file 12)
+- Market structure rebuilt on the published concept of LuxAlgo "Market Structure with Inducements": CHoCH from swings, BOS from trailing extremes and only after IDM is taken, wick-only = sweep. Own implementation, no code copied.
+- MSS = BOS (after IDM) or CHoCH with displacement. Protected level moves to the post-IDM pullback extreme after BOS.
+- FVG zones removed. OB filtered to A+ (displacement + liquidity sweep + imbalance + MSS leg). Demand/Supply (base + leg-out) added as an entry zone.
+- Only zones linked to an MSS are drawn by default.
+- SMT draws a line between the two chart swings.
+- Entries drawn as a zone box instead of BUY/SELL labels.
+- Script renamed to `SMC_Suite.pine`. Not compiled yet.
