@@ -1,7 +1,7 @@
 # Module 03 — Order Block + Fair Value Gap
 
 ## Timeframe
-OB and FVG detection timeframe is independently selectable: Chart TF or user-selected timeframe. Entry retest timeframe is separately configurable.
+Chart TF only. OB/FVG detection and entry retest both use the chart timeframe.
 
 ## Displacement
 Bullish proposal: range > 0; body/ATR(14) >= input (default 1.0); close in upper 25% of range; optionally require structure break. Bearish mirrored. Closed candle only.
@@ -33,4 +33,4 @@ Do not confirm using unfinished bar.
 6. Keep invalidated historical zones optionally with changed style.
 7. Process zones existing before current candle before adding new zones, preventing instant false retest on creation candle.
 
-OB/FVG presence is not an entry. Entry trigger must be separately selected (e.g. retest + LTF rejection, internal MSS, or SFP).
+OB/FVG presence is not an entry. Entry trigger must be separately selected (e.g. retest + rejection candle, internal MSS, or SFP — all on chart TF).

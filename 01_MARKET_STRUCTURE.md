@@ -1,7 +1,7 @@
 # Module 01 — SMC Market Structure: bar-by-bar
 
 ## Inputs
-- Structure timeframe: Chart TF or user-selected timeframe
+- Timeframe: chart TF only (no timeframe input)
 - Major pivot L/R: default 3/3
 - Internal pivot L/R: default 1/1
 - Break method: CLOSE or WICK
@@ -23,4 +23,4 @@ A candidate pivot high/low becomes known only after the configured right-side ba
 9. MSS requires a qualifying liquidity/IDM event followed by displacement and structure break; it is not a label for every BOS/CHoCH.
 
 ## Edge cases
-Gap beyond level; wick-only break; pivot confirmation and break same bar; equal levels; insufficient history; selected structure timeframe lower than chart timeframe.
+Gap beyond level; wick-only break; pivot confirmation and break same bar; equal levels; insufficient history.

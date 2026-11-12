@@ -1,5 +1,5 @@
 # TradingView SMC Indicator — Master Specification
-Version: 1.1 — User decisions incorporated | Target: TradingView Pine Script v6
+Version: 1.2 — Single-timeframe (chart TF only) | Target: TradingView Pine Script v6
 
 ## 1. Project objective
 Build one configurable TradingView indicator for XAUUSD and Forex that displays:
@@ -7,14 +7,14 @@ Build one configurable TradingView indicator for XAUUSD and Forex that displays:
 - OB + FVG zones
 - SFP + Rejection Blocks
 - IDM / Inducement
-- MTF context and SMT divergence
+- SMT divergence (comparison symbol on the same chart timeframe)
 - Confirmed setup / entry markers
 
 The indicator is an analytical indicator, not an auto-trading strategy. It must explain which conditions passed and why a setup was or was not confirmed.
 
 ## 2. User-approved decisions
 - IDM: Inducement = a confirmed internal swing liquidity point that is swept before MSS.
-- Timeframes: all timeframes must be configurable by the user; no fixed timeframe stack.
+- Timeframe: single timeframe only. Every module runs on the active chart timeframe; no multi-timeframe (HTF/LTF) analysis.
 - OB boundaries: Hybrid.
 - Display: show all structures AND entry signals.
 
@@ -23,22 +23,18 @@ The indicator is an analytical indicator, not an auto-trading strategy. It must 
 - Confirmed events use closed candles. Optional intrabar preview, if implemented, must be off by default and visually distinct.
 - No future leak, no repainting confirmed events, no misleading negative offsets.
 - A pivot requiring right-side bars becomes known only after those bars close. Distinguish pivot's historical candle from its confirmation candle.
-- Use safe `request.security()` patterns. Never present incomplete HTF values as confirmed.
+- `request.security()` is used only to fetch the SMT comparison symbol on the chart timeframe (`timeframe.period`, lookahead off). No other-timeframe requests.
 - Every event has a unique ID/state and triggers once.
 - Handle `na`, insufficient history, tick size, price precision, missing comparison data, symbol suffixes and object limits.
 - All thresholds are inputs. No hidden assumptions.
 - Do not claim win rate or compile success without reproducible tests / actual TradingView compilation.
 
-## 4. Timeframe configuration
-All timeframe inputs must be user-adjustable:
-- Structure timeframe: chart timeframe by default, or selectable timeframe.
-- Context/HTF timeframe: selectable, with option Off.
-- Setup/MTF timeframe: selectable, with option Off.
-- Entry/LTF timeframe: chart timeframe by default, with optional selectable lower timeframe only if Pine data/request behavior supports it safely.
-- Each module must state which timeframe it reads.
-- Provide a mode `Chart TF` so a module can run directly on the active chart timeframe.
-- If selected timeframe is lower than chart timeframe, do not pretend ordinary `request.security()` returns every intrabar. Either use `request.security_lower_tf()` with documented array handling or reject/disable that configuration with a clear dashboard warning.
-- Do not hard-code H4/H1/M15/M5/M1.
+## 4. Timeframe
+Single-timeframe design:
+- All modules (structure, liquidity, IDM, OB/FVG, SFP/RB, SMT, entry trigger) read the active chart timeframe only.
+- No timeframe inputs, no HTF context, no Setup/MTF timeframe, no LTF entry timeframe.
+- No `request.security()` for other timeframes and no `request.security_lower_tf()`.
+- To analyse another timeframe, the user switches the chart timeframe.
 
 ## 5. Starting inputs (configurable proposals)
 - Major pivot L/R: 3/3
@@ -92,10 +88,9 @@ A zone alone is not an entry signal.
 6. Displacement
 7. OB / FVG zones
 8. SFP / Rejection Block
-9. MTF context
-10. SMT divergence
-11. Confluence / entry triggers / alerts
-12. Rendering / dashboard / debug / performance
+9. SMT divergence
+10. Confluence / entry triggers / alerts
+11. Rendering / dashboard / debug / performance
 
 ## 10. Chart output
 Show all structures plus entry signals:
@@ -105,7 +100,7 @@ Show all structures plus entry signals:
 - IDM candidate, swept, confirmed, invalidated
 - Bullish / bearish OB and FVG zones with lifecycle
 - SFP and Rejection Block markers/zones
-- MTF bias and timeframe status
+- Structure bias (chart timeframe)
 - SMT divergence markers
 - Entry signal markers with passed/failed condition checklist
 - Dashboard and confirmed-event alerts

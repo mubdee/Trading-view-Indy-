@@ -1,7 +1,7 @@
 # Module 02 — Liquidity, Sweeps and IDM
 
 ## Timeframe
-Liquidity source timeframe is independently selectable: Chart TF or any supported user-selected timeframe. Prior-day/week levels use their native daily/weekly reference and must not be fabricated from partial sessions.
+Chart TF only. PDH/PDL/PWH/PWL are computed from chart-timeframe bars of the completed previous day/week (detected by day/week boundary on chart data, no `request.security()`); the current, still-forming day/week is never used. If chart TF ≥ D, PDH/PDL are disabled; if ≥ W, PWH/PWL are disabled, with a dashboard note.
 
 ## Liquidity sources
 Independent toggles: confirmed major/internal swing highs/lows; EQH/EQL; previous day high/low; previous week high/low; optional session highs/lows.

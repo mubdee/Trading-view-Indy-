@@ -1,7 +1,7 @@
 # Module 04 — SFP + Rejection Block
 
 ## Timeframe
-SFP reference level timeframe and confirmation timeframe are configurable independently.
+Chart TF only. SFP reference levels and confirmation both use the chart timeframe.
 
 ## SFP
 Bearish SFP: active reference BSL/swing high existed before current candle; current high exceeds it by buffer; candle closes back below it. Bullish is mirrored below SSL and closes back above. Optional filters: close in outer half of range, wick/body ratio, volume (off by default). Confirm at close. Store level ID, penetration, reclaim and timestamp. If close remains beyond level, classify breakout, not SFP.

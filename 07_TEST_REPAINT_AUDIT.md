@@ -18,16 +18,16 @@
 15. Zone lifecycle persists correctly.
 16. SFP requires close reclaim.
 17. RB forms only after rejection confirmation.
-18. MTF uses completed HTF data.
+18. Every module reads chart TF only; no other-timeframe `request.security()` calls.
 19. SMT matches confirmed pivots by time; missing data handled.
 20. Alerts do not duplicate on realtime updates.
 21. Reload and Bar Replay produce same confirmed historical events.
 22. Different tick sizes/digits/symbol suffixes supported.
-23. Lower-TF selection is handled safely or rejected with warning.
+23. PDH/PDL/PWH/PWL use only completed previous day/week built from chart bars; auto-disabled on chart TF ≥ D / ≥ W.
 24. Object limits respected; no signal on insufficient data.
 
 ## Repaint audit
-- No unoffset `lookahead_on`.
+- No `lookahead_on` (SMT request uses chart TF with lookahead off).
 - No negative offset to imply early signal.
 - Distinguish pivot location from confirmation time.
 - Intrabar preview separate from confirmed signals.

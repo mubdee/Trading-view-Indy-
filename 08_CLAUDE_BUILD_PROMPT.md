@@ -6,11 +6,11 @@ Build a TradingView INDICATOR, not a strategy, unless explicitly requested. Read
 
 User-approved decisions:
 - IDM = confirmed internal swing liquidity swept before MSS.
-- Every module timeframe is user-adjustable; support Chart TF and selectable TFs.
+- Single timeframe: every module runs on the chart timeframe only; no MTF/HTF/LTF logic.
 - OB zone = Hybrid: bullish `[source low, source open]`; bearish `[source open, source high]`.
 - Display all market structures and entry signals.
 
-Modules: SMC Market Structure, Liquidity, OB + FVG, SFP + Rejection Block, MTF, SMT, IDM.
+Modules: SMC Market Structure, Liquidity, OB + FVG, SFP + Rejection Block, SMT, IDM.
 
 Non-negotiable:
 - Confirmed logic bar-by-bar on closed candles.
@@ -19,7 +19,7 @@ Non-negotiable:
 - Every event triggers once and has a lifecycle.
 - Each module can be toggled independently.
 - Respect Pine limits for objects, arrays, requests and execution.
-- Handle lower-timeframe requests explicitly; never imply `request.security()` returns all intrabars.
+- No other-timeframe requests; `request.security()` only for the SMT comparison symbol on chart TF.
 - Never claim compilation unless actually tested in TradingView.
 - No invented win-rate claims.
 

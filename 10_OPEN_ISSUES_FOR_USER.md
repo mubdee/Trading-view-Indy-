@@ -51,6 +51,7 @@ Version: 1.0 | Date: 2026-11-12 | Source: review of 00–09 spec files
 - คำตอบ:
 
 ### B4. ขั้น `CONTEXT_FOUND` เกิดขึ้นเมื่อไร
+> **อัปเดต v1.2:** ตัดเงื่อนไข HTF bias ออก เหลือแค่ "มี protected major swing ที่ใช้ได้ฝั่งนั้น" (และ major bias ไม่ขัดตามโปรไฟล์)
 - ปัญหา: Master §8 มีสถานะนี้ แต่ไม่มีนิยาม
 - ค่าที่แนะนำ: เกิดเมื่อมี protected major swing ที่ใช้ได้ฝั่งนั้น และ HTF bias ไม่ขัดตามโปรไฟล์ (ถ้าปิด HTF ให้ข้ามเงื่อนไขนี้)
 - [ x] ตามที่แนะนำ
@@ -89,6 +90,7 @@ Version: 1.0 | Date: 2026-11-12 | Source: review of 00–09 spec files
 - คำตอบ:
 
 ### B10. โปรไฟล์ Strict ยอมให้ HTF เป็น Neutral หรือไม่
+> **อัปเดต v1.2:** HTF ถูกตัดออก ใช้ major structure bias ของ Chart TF แทน (Strict: neutral = ไม่ผ่าน / Balanced: ยอม neutral)
 - ค่าที่แนะนำ: Strict ต้องตรงทิศ (neutral ถือว่าไม่ผ่าน) ส่วน Balanced ยอมให้เป็น neutral ได้
 - [ x] ตามที่แนะนำ
 - คำตอบ:
@@ -103,6 +105,7 @@ Version: 1.0 | Date: 2026-11-12 | Source: review of 00–09 spec files
 ## C. ขอบเขตด้านเทคนิคของ Pine
 
 ### C1. Timeframe แยกรายโมดูล 8 ตัว
+> **อัปเดต v1.2:** ยกเลิกแล้ว — ทุกโมดูลใช้ Chart TF เดียว ไม่มี MTF
 - ปัญหา: การรันตรรกะที่มีสถานะ (pivot / zone / state machine) บน TF อื่นผ่าน `request.security()` ทำได้แต่หนักมาก และ TF ที่ต่ำกว่ากราฟใช้กับตรรกะโครงสร้างไม่ได้จริง
 - ค่าที่แนะนำ (เฟส 1):
   - ทุกโมดูลรองรับ `Chart TF` และ TF ที่ **สูงกว่าหรือเท่ากับ** กราฟ
@@ -146,6 +149,7 @@ Version: 1.0 | Date: 2026-11-12 | Source: review of 00–09 spec files
 - เพิ่ม input Inverse correlation: [ ] ใช่ [ ] ไม่
 
 ### E2. ชุด Timeframe เริ่มต้น (ค้างจาก 09 ข้อ 4)
+> **อัปเดต v1.2:** ยกเลิกแล้ว — ไม่มี input timeframe ใช้ Chart TF เท่านั้น
 - ค่าที่แนะนำ: ไม่ hard-code โดยค่าเริ่มต้นทุกตัว = `Chart TF` ยกเว้น HTF Context = `Off` และ Setup TF = `Off`
 - [ x] ตามที่แนะนำ
 - คำตอบ:

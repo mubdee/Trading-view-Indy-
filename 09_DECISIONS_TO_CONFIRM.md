@@ -8,7 +8,7 @@
 6. FVG: classic 3-candle imbalance; ATR-based minimum?
 7. Rejection Block: rejection wick area, full candle or body only?
 8. SFP: confirmed swing and EQH/EQL levels with close reclaim?
-9. MTF: suggested H4/H1 context, M15 setup, M5/M1 trigger?
+9. ~~MTF: suggested H4/H1 context, M15 setup, M5/M1 trigger?~~ — cancelled (v1.2: single timeframe).
 10. SMT: which comparison symbol(s)? Must validate feed and correlation; no universal proxy assumed.
 11. IDM: line or zone; expiry after N bars, sweep, or protected swing change?
 12. Output: context drawings, confluence setup markers, or both?
