@@ -53,3 +53,8 @@
 - Locked OB Hybrid boundary formula.
 - Specified all-structure plus entry-signal display.
 - Added bar-by-bar tests for IDM sequencing and Hybrid OB boundaries.
+
+### Code v1.2.0 — 2026-11-12
+- Added `SMC_Suite_v1.2.pine` (Pine Script v6), written to spec v1.2 with the recommended answers to F1–F6.
+- Phase 1 limitation: detection modules run on Chart TF only; HTF context and SMT use `request.security()`. Per-module TF inputs and the IDM-off alternate path are not implemented yet.
+- Not compiled yet: compile status unknown until tested in TradingView.
