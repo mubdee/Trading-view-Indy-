@@ -1,0 +1,1109 @@
+//@version=6
+// =============================================================================
+//  SMC Single-TF — Structure · Liquidity · IDM · OB/FVG · SFP/RB · SMT · Entry
+//  Spec: 00_MASTER.md (v2.0) + module files 01–07 in this repository.
+//
+//  * Single timeframe: every module reads the CHART timeframe only.
+//    The only request.security() call fetches the SMT comparison symbol on the
+//    chart timeframe (lookahead off).
+//  * Every event is evaluated on CLOSED bars only (barstate.isconfirmed).
+//    No intrabar preview, no negative offsets, no lookahead.
+//  * Pivots are drawn on their pivot candle but only become known R bars later.
+//
+//  STATUS: NOT compiled / NOT tested in TradingView yet — see 07_TEST_REPAINT_AUDIT.md
+// =============================================================================
+indicator("SMC Single-TF", shorttitle = "SMC-1TF", overlay = true, max_boxes_count = 500, max_lines_count = 500, max_labels_count = 500, max_bars_back = 500)
+
+// ================================================================== INPUTS ===
+const string G1 = "1 · Market structure"
+const string G2 = "2 · Liquidity"
+const string G3 = "3 · IDM / MSS"
+const string G4 = "4 · Displacement · OB · FVG"
+const string G5 = "5 · SFP · Rejection Block"
+const string G6 = "6 · SMT"
+const string G7 = "7 · Entry"
+const string G8 = "8 · Display"
+
+int    majL       = input.int(3, "Major pivot  L", minval = 1, inline = "maj", group = G1)
+int    majR       = input.int(3, "R", minval = 1, inline = "maj", group = G1)
+int    intL       = input.int(1, "Internal pivot  L", minval = 1, inline = "int", group = G1)
+int    intR       = input.int(1, "R", minval = 1, inline = "int", group = G1)
+string breakMode  = input.string("CLOSE", "Break source", options = ["CLOSE", "WICK"], group = G1, tooltip = "Used once a bias exists. From NEUTRAL a real BOS always needs a body close; a wick-only break from neutral is marked as a fake BOS.")
+int    brkTicks   = input.int(0, "Break buffer  ticks", minval = 0, inline = "bb", group = G1)
+float  brkAtr     = input.float(0.0, "+ ATR×", minval = 0, step = 0.01, inline = "bb", group = G1)
+float  eqTolAtr   = input.float(0.05, "Equal-level tolerance (ATR×)", minval = 0, step = 0.01, group = G1)
+bool   showMajor  = input.bool(true, "Show major BOS / CHoCH", group = G1)
+bool   showInt    = input.bool(true, "Show internal BOS / CHoCH", group = G1)
+bool   showSwings = input.bool(true, "Show HH / HL / LH / LL / EQH / EQL", group = G1)
+bool   showFake   = input.bool(true, "Show fake BOS (wick break from neutral)", group = G1)
+
+bool   liqMajor   = input.bool(true, "Pools from major swings", group = G2)
+bool   liqInt     = input.bool(false, "Pools from internal swings", group = G2)
+bool   liqEq      = input.bool(true, "Merge equal highs / lows (EQH / EQL)", group = G2)
+bool   pdOn       = input.bool(true, "Previous day high / low", group = G2)
+bool   pwOn       = input.bool(true, "Previous week high / low", group = G2)
+int    swpTicks   = input.int(0, "Sweep buffer  ticks", minval = 0, inline = "sb", group = G2)
+float  swpAtr     = input.float(0.0, "+ ATR×", minval = 0, step = 0.01, inline = "sb", group = G2)
+int    poolMaxAge = input.int(500, "Pool max age (bars)", minval = 10, group = G2)
+bool   showLiq    = input.bool(true, "Show liquidity pools / sweeps", group = G2)
+
+bool   idmOn      = input.bool(true, "Enable IDM", group = G3)
+int    reclaimN   = input.int(0, "IDM reclaim within N bars (0 = sweep candle itself)", minval = 0, group = G3)
+int    idmMaxBars = input.int(100, "IDM candidate max bars", minval = 1, group = G3)
+string mssMode    = input.string("Internal", "MSS level", options = ["Internal", "Major"], group = G3)
+int    dispWin    = input.int(0, "Displacement window N bars (0 = MSS candle itself)", minval = 0, group = G3)
+bool   sameBarOk  = input.bool(false, "Allow IDM sweep + MSS on the same candle", group = G3)
+bool   altPath    = input.bool(true, "If IDM is off: use liquidity sweep → MSS path", group = G3)
+bool   showIdm    = input.bool(true, "Show IDM / MSS", group = G3)
+
+float  dispBody   = input.float(1.0, "Displacement body ≥ ATR×", minval = 0, step = 0.05, group = G4)
+float  dispClose  = input.float(0.25, "Close in outer fraction of range", minval = 0.01, maxval = 1, step = 0.05, group = G4)
+int    obLook     = input.int(5, "OB search (bars back)", minval = 1, maxval = 50, group = G4)
+bool   obNeedBrk  = input.bool(true, "OB requires structure break on displacement candle", group = G4)
+string dojiMode   = input.string("Skip", "Doji source candle", options = ["Skip", "Use as source"], group = G4)
+float  fvgAtr     = input.float(0.05, "FVG min size  ATR×", minval = 0, step = 0.01, inline = "fv", group = G4)
+int    fvgTicks   = input.int(0, "+ ticks", minval = 0, inline = "fv", group = G4)
+bool   fvgDisp    = input.bool(false, "FVG requires displacement middle candle", group = G4)
+string mitMode    = input.string("Touch", "Mitigation", options = ["Touch", "50%", "Full"], group = G4)
+int    invTicks   = input.int(0, "Invalidation buffer  ticks", minval = 0, inline = "ib", group = G4)
+float  invAtr     = input.float(0.0, "+ ATR×", minval = 0, step = 0.01, inline = "ib", group = G4)
+int    zoneMaxAge = input.int(300, "Zone max age (bars)", minval = 10, group = G4)
+bool   keepHist   = input.bool(true, "Keep invalidated / expired zones (faded)", group = G4)
+bool   showOB     = input.bool(true, "Show OB", group = G4)
+bool   showFVG    = input.bool(true, "Show FVG", group = G4)
+bool   showMid    = input.bool(false, "Show OB 50% line", group = G4)
+
+bool   sfpOn      = input.bool(true, "Enable SFP", group = G5)
+int    sfpWin     = input.int(5, "SFP confirm window (bars after sweep candle)", minval = 1, group = G5)
+int    volLen     = input.int(20, "Volume average length", minval = 1, group = G5)
+float  volMult    = input.float(1.5, "High volume ≥ average ×", minval = 1, step = 0.1, group = G5)
+bool   rbOn       = input.bool(true, "Rejection Block on confirmed SFP", group = G5)
+string rbMode     = input.string("Wick", "RB boundary", options = ["Wick", "Body", "Full"], group = G5)
+
+bool   smtOn      = input.bool(true, "Enable SMT", group = G6)
+string smtSym     = input.symbol("OANDA:XAGUSD", "Comparison symbol", group = G6)
+bool   smtInv     = input.bool(false, "Inverse correlation (e.g. DXY vs gold)", group = G6)
+int    smtTol     = input.int(2, "Timestamp tolerance (bars)", minval = 0, group = G6)
+
+string profile    = input.string("Balanced", "Profile", options = ["Strict", "Balanced", "Context-only"], group = G7)
+string trigMode   = input.string("Rejection Candle", "Entry trigger", options = ["Rejection Candle", "Internal MSS", "SFP", "Any enabled trigger"], group = G7)
+
+color  cBull      = input.color(#089981, "Bull", inline = "c1", group = G8)
+color  cBear      = input.color(#F23645, "Bear", inline = "c1", group = G8)
+color  cIdm       = input.color(#FF9800, "IDM", inline = "c1", group = G8)
+color  cFvgB      = input.color(#2962FF, "FVG bull", inline = "c2", group = G8)
+color  cFvgS      = input.color(#9C27B0, "FVG bear", inline = "c2", group = G8)
+color  cRB        = input.color(#FFB300, "RB", inline = "c2", group = G8)
+bool   showDash   = input.bool(true, "Dashboard", group = G8)
+bool   debug      = input.bool(false, "Debug: show rejection reasons", group = G8)
+
+// =================================================================== TYPES ===
+const int ST_NONE    = 0
+const int ST_CONTEXT = 1
+const int ST_CAND    = 2
+const int ST_SWEPT   = 3
+const int ST_MSS     = 4
+const int ST_ZONE    = 5
+
+// One structure layer (major or internal). Levels are the last CONFIRMED pivots.
+type Struct
+    float hi     = na
+    int   hiBar  = na
+    bool  hiUsed = true
+    bool  hiFake = false
+    float lo     = na
+    int   loBar  = na
+    bool  loUsed = true
+    bool  loFake = false
+    int   bias   = 0
+
+type Pool
+    float  price
+    int    dir        // 1 = buy-side (above), -1 = sell-side (below)
+    int    origin
+    int    created
+    string src
+    int    touches = 1
+    line   ln
+    label  lb
+
+type Zone
+    string kind       // "OB" | "FVG" | "RB"
+    int    dir        // 1 = bullish (support), -1 = bearish (resistance)
+    float  top
+    float  bot
+    float  inv        // distal invalidation price
+    int    origin
+    int    created
+    int    setupId   = 0
+    bool   touched   = false
+    bool   mitigated = false
+    box    bx
+    line   mid
+
+type Setup
+    int    dir
+    int    state     = 0
+    float  idm       = na
+    int    idmBar    = na
+    int    candBar   = na
+    float  prot      = na
+    int    pendBar   = na
+    int    sweepBar  = na
+    float  mssLvl    = na
+    int    mssLvlBar = na
+    int    mssBar    = na
+    int    dispBar   = na
+    int    mssId     = 0
+    string reason    = "-"
+    string path      = "IDM"
+    line   ln
+    label  lb
+
+type Sfp
+    int   dir         // 1 = bullish SFP (after sell-side sweep), -1 = bearish
+    bool  pend    = false
+    int   bar     = na
+    float o       = na
+    float h       = na
+    float l       = na
+    float c       = na
+    float lvl     = na
+    int   wickBar = na
+
+type SmtPend
+    int   dir
+    bool  pend      = false
+    int   t         = na
+    int   confBar   = na
+    int   pivBar    = na
+    float price     = na
+    int   prevBar   = na
+    float prevPrice = na
+
+// ============================================================ GLOBAL STATE ===
+var Struct      maj   = Struct.new()
+var Struct      itn   = Struct.new()
+var array<Pool> pools = array.new<Pool>()
+var array<Zone> zones = array.new<Zone>()
+var Setup       bull  = Setup.new(1)
+var Setup       bear  = Setup.new(-1)
+var Sfp         sfpB  = Sfp.new(1)
+var Sfp         sfpS  = Sfp.new(-1)
+var SmtPend     smtB  = SmtPend.new(1)
+var SmtPend     smtS  = SmtPend.new(-1)
+var array<int>  dirs  = array.from(1, -1)
+
+var int    uid          = 0
+var float  protLow      = na
+var float  protHigh     = na
+var bool   bullSeen     = false
+var bool   bearSeen     = false
+var int    lastBullDisp = na
+var int    lastBearDisp = na
+var float  dHi          = na
+var float  dLo          = na
+var int    dStart       = na
+var float  wHi          = na
+var float  wLo          = na
+var int    wStart       = na
+var float  cHi          = na
+var float  cHiPrev      = na
+var int    cHiT         = na
+var float  cLo          = na
+var float  cLoPrev      = na
+var int    cLoT         = na
+var string lastLiq      = "-"
+var string lastEntry    = "-"
+var string smtStatus    = "waiting"
+
+// ================================================================== SERIES ===
+float atr      = ta.atr(14)
+float tick     = syminfo.mintick
+float rng      = high - low
+float body     = math.abs(close - open)
+bool  bullDisp = not na(atr) and rng > 0 and close > open and body >= atr * dispBody and close >= high - rng * dispClose
+bool  bearDisp = not na(atr) and rng > 0 and close < open and body >= atr * dispBody and close <= low + rng * dispClose
+float volSma   = ta.sma(volume, volLen)
+float majPH    = ta.pivothigh(high, majL, majR)
+float majPL    = ta.pivotlow(low, majL, majR)
+float intPH    = ta.pivothigh(high, intL, intR)
+float intPL    = ta.pivotlow(low, intL, intR)
+int   majPT    = time[majR]
+bool  newDay   = timeframe.change("D")
+bool  newWeek  = timeframe.change("W")
+float atrZ     = na(atr) ? 0.0 : atr
+float brkBuf   = brkTicks * tick + atrZ * brkAtr
+float swpBuf   = swpTicks * tick + atrZ * swpAtr
+float invBuf   = invTicks * tick + atrZ * invAtr
+float eqTol    = atrZ * eqTolAtr
+float fvgMin   = fvgTicks * tick + atrZ * fvgAtr
+int   tfSec    = timeframe.in_seconds()
+bool  pdOk     = pdOn and tfSec < 86400
+bool  pwOk     = pwOn and tfSec < 604800
+
+// SMT comparison symbol on the SAME (chart) timeframe, lookahead off.
+string smtTicker = smtOn ? smtSym : syminfo.tickerid
+bool   smtSame   = smtTicker == syminfo.tickerid
+[cPH, cPL, cPT, cC] = request.security(smtTicker, timeframe.period, [ta.pivothigh(high, majL, majR), ta.pivotlow(low, majL, majR), time[majR], close], ignore_invalid_symbol = true)
+
+// =============================================================== FUNCTIONS ===
+f_px(float v) =>
+    na(v) ? "—" : str.tostring(v, format.mintick)
+
+f_bias(int b) =>
+    b == 1 ? "Bullish" : b == -1 ? "Bearish" : "Neutral"
+
+f_stName(int st) =>
+    switch st
+        0 => "NONE"
+        1 => "CONTEXT_FOUND"
+        2 => "IDM_CANDIDATE"
+        3 => "IDM_SWEPT"
+        4 => "MSS_CONFIRMED"
+        5 => "ZONE_WAIT"
+        => "?"
+
+// Text label. below = true puts the text under the price point.
+f_txt(int x, float y, string t, color col, bool below, string sz, string tip) =>
+    label.new(math.max(x, bar_index - 4999), y, t, xloc = xloc.bar_index, color = color.new(col, 100), style = below ? label.style_label_up : label.style_label_down, textcolor = col, size = sz, tooltip = tip)
+
+f_drawBreak(int fromBar, float lvl, string t, color col, bool major, bool fake, bool up) =>
+    int   x1 = math.max(fromBar, bar_index - 4999)
+    color c  = fake ? color.gray : col
+    line.new(x1, lvl, bar_index, lvl, color = c, style = fake ? line.style_dotted : major ? line.style_solid : line.style_dashed, width = 1)
+    f_txt(int((x1 + bar_index) / 2), lvl, t, c, not up, major ? size.small : size.tiny, t + " · level " + str.tostring(lvl, format.mintick) + " · confirmed on bar close")
+
+// Confirm a pivot high / low into a structure layer and classify it.
+f_pivHi(Struct s, float p, int pb) =>
+    string tag = na(s.hi) ? "H" : math.abs(p - s.hi) <= eqTol ? "EQH" : p > s.hi ? "HH" : "LH"
+    s.hi     := p
+    s.hiBar  := pb
+    s.hiUsed := false
+    s.hiFake := false
+    tag
+
+f_pivLo(Struct s, float p, int pb) =>
+    string tag = na(s.lo) ? "L" : math.abs(p - s.lo) <= eqTol ? "EQL" : p < s.lo ? "LL" : "HL"
+    s.lo     := p
+    s.loBar  := pb
+    s.loUsed := false
+    s.loFake := false
+    tag
+
+// Break test on the current closed candle. Returns [bullEv, bearEv, fakeUp, fakeDn, ambiguous]
+// ev: 0 none, 1 BOS, 2 CHoCH. From NEUTRAL: body close = real BOS, wick only = fake BOS.
+f_break(Struct s, float buf) =>
+    int  pb   = s.bias
+    bool upOk = not na(s.hi) and not s.hiUsed
+    bool dnOk = not na(s.lo) and not s.loUsed
+    bool upC  = upOk and close > s.hi + buf
+    bool dnC  = dnOk and close < s.lo - buf
+    bool upW  = upOk and high > s.hi + buf
+    bool dnW  = dnOk and low < s.lo - buf
+    bool upB  = (pb == 0 or breakMode == "CLOSE") ? upC : upW
+    bool dnB  = (pb == 0 or breakMode == "CLOSE") ? dnC : dnW
+    int  bullEv = 0
+    int  bearEv = 0
+    bool amb    = false
+    if upB and dnB
+        amb      := true
+        s.hiUsed := true
+        s.loUsed := true
+    else if upB
+        bullEv   := pb == -1 ? 2 : 1
+        s.bias   := 1
+        s.hiUsed := true
+    else if dnB
+        bearEv   := pb == 1 ? 2 : 1
+        s.bias   := -1
+        s.loUsed := true
+    bool fakeU = pb == 0 and not upB and upW and not s.hiFake
+    bool fakeD = pb == 0 and not dnB and dnW and not s.loFake
+    if fakeU
+        s.hiFake := true
+    if fakeD
+        s.loFake := true
+    [bullEv, bearEv, fakeU, fakeD, amb]
+
+f_mssBreak(int d, float lvl) =>
+    bool r = false
+    if not na(lvl)
+        r := d == 1 ? (breakMode == "CLOSE" ? close > lvl + brkBuf : high > lvl + brkBuf) : (breakMode == "CLOSE" ? close < lvl - brkBuf : low < lvl - brkBuf)
+    r
+
+// ---- liquidity pools
+f_poolEnd(Pool p, int how) =>
+    // how: 1 swept (reclaimed), 2 taken (accepted beyond), 3 expired / dropped
+    if not na(p.ln)
+        line.set_x2(p.ln, bar_index)
+        if how == 1
+            line.set_style(p.ln, line.style_solid)
+        else
+            line.set_color(p.ln, color.new(color.gray, 60))
+    if not na(p.lb)
+        if how == 3
+            label.delete(p.lb)
+        else
+            label.set_x(p.lb, bar_index)
+            label.set_text(p.lb, p.src + (how == 1 ? " ✕ swept" : " taken"))
+
+f_poolExtend(Pool p) =>
+    if not na(p.ln)
+        line.set_x2(p.ln, bar_index)
+    if not na(p.lb)
+        label.set_x(p.lb, bar_index)
+
+f_addPool(float p, int d, int origin, int created, string src, bool canMerge) =>
+    bool merged = false
+    int  n      = pools.size()
+    if canMerge and liqEq and n > 0
+        for i = n - 1 to 0
+            Pool q = pools.get(i)
+            bool swingSrc = q.src == "BSL" or q.src == "SSL" or q.src == "EQH" or q.src == "EQL"
+            if q.dir == d and swingSrc and math.abs(q.price - p) <= eqTol
+                q.touches := q.touches + 1
+                q.price   := d == 1 ? math.max(q.price, p) : math.min(q.price, p)
+                q.src     := d == 1 ? "EQH" : "EQL"
+                if not na(q.ln)
+                    line.set_y1(q.ln, q.price)
+                    line.set_y2(q.ln, q.price)
+                if not na(q.lb)
+                    label.set_y(q.lb, q.price)
+                    label.set_text(q.lb, q.src + " ×" + str.tostring(q.touches))
+                merged := true
+                break
+    if not merged
+        line  ln = na
+        label lb = na
+        if showLiq
+            int   x1  = math.max(origin, bar_index - 4999)
+            color col = d == 1 ? cBear : cBull
+            ln := line.new(x1, p, bar_index, p, color = color.new(col, 30), style = line.style_dotted, width = 1)
+            lb := label.new(bar_index, p, src, color = color.new(col, 100), style = label.style_label_left, textcolor = color.new(col, 20), size = size.tiny)
+        pools.push(Pool.new(p, d, origin, created, src, 1, ln, lb))
+        if pools.size() > 80
+            Pool old = pools.shift()
+            f_poolEnd(old, 3)
+    merged
+
+f_dropSrc(string src) =>
+    int n = pools.size()
+    if n > 0
+        for i = n - 1 to 0
+            Pool q = pools.get(i)
+            if q.src == src
+                f_poolEnd(q, 3)
+                pools.remove(i)
+
+// ---- zones
+f_newZone(string kind, int d, float top, float bot, float inv, int origin, int setupId) =>
+    bool  vis  = kind == "OB" ? showOB : kind == "FVG" ? showFVG : rbOn
+    color base = kind == "FVG" ? (d == 1 ? cFvgB : cFvgS) : kind == "RB" ? cRB : (d == 1 ? cBull : cBear)
+    int   x1   = math.max(origin, bar_index - 4999)
+    box   bx   = na
+    line  md   = na
+    if vis
+        bx := box.new(x1, top, bar_index, bot, border_color = color.new(base, 40), bgcolor = color.new(base, 85), border_width = setupId > 0 ? 2 : 1, text = (d == 1 ? "▲ " : "▼ ") + kind, text_size = size.tiny, text_color = color.new(base, 10), text_halign = text.align_right)
+        if showMid and kind == "OB"
+            md := line.new(x1, (top + bot) / 2, bar_index, (top + bot) / 2, color = color.new(base, 30), style = line.style_dotted)
+    Zone.new(kind, d, top, bot, inv, origin, bar_index, setupId, false, false, bx, md)
+
+f_zoneExtend(Zone z) =>
+    if not na(z.bx)
+        box.set_right(z.bx, bar_index)
+    if not na(z.mid)
+        line.set_x2(z.mid, bar_index)
+
+f_zoneEnd(Zone z, bool invalid) =>
+    if not na(z.bx)
+        if keepHist
+            box.set_right(z.bx, bar_index)
+            box.set_bgcolor(z.bx, color.new(color.gray, 92))
+            box.set_border_color(z.bx, color.new(color.gray, 60))
+            box.set_text_color(z.bx, color.gray)
+            box.set_text(z.bx, z.kind + (invalid ? " ✕" : " ⌛"))
+        else
+            box.delete(z.bx)
+    if not na(z.mid)
+        if keepHist
+            line.set_x2(z.mid, bar_index)
+        else
+            line.delete(z.mid)
+
+f_findZoneIdx(string kind, int d, int origin) =>
+    int idx = -1
+    int n   = zones.size()
+    if n > 0
+        for i = 0 to n - 1
+            Zone z = zones.get(i)
+            if z.kind == kind and z.dir == d and z.origin == origin
+                idx := i
+                break
+    idx
+
+// Most recent opposite-colour candle within obLook bars before fromBar.
+// Hybrid boundary: bull [low, open] of bearish candle; bear [open, high] of bullish candle.
+f_findOB(int d, int fromBar) =>
+    int    src  = na
+    float  zt   = na
+    float  zb   = na
+    string why  = "NO_OPPOSITE_CANDLE"
+    int    base = bar_index - fromBar
+    for k = 1 to obLook
+        int   off = base + k
+        float o   = open[off]
+        float c   = close[off]
+        if na(o) or na(c)
+            why := "INSUFFICIENT_HISTORY"
+            break
+        bool doji = c == o
+        bool opp  = d == 1 ? c < o : c > o
+        if doji and dojiMode == "Skip"
+            why := "DOJI_SOURCE"
+            break
+        if opp or doji
+            src := bar_index - off
+            zt  := d == 1 ? o : high[off]
+            zb  := d == 1 ? low[off] : o
+            why := "OK"
+            break
+    [src, zt, zb, why]
+
+// FVG belongs to a setup when its middle candle lies in that setup's displacement leg.
+f_fvgTag(Setup s) =>
+    int r = 0
+    if (s.state == ST_MSS or s.state == ST_ZONE) and not na(s.dispBar) and bar_index - 1 >= s.dispBar and bar_index - 1 <= s.mssBar
+        r := s.mssId
+    r
+
+// ---- setups
+f_kill(Setup s, string why) =>
+    bool early = s.state == ST_CAND or s.state == ST_SWEPT
+    if early and not na(s.ln)
+        line.set_x2(s.ln, bar_index)
+        line.set_color(s.ln, color.new(color.gray, 30))
+        line.set_style(s.ln, line.style_dashed)
+    if early and not na(s.lb)
+        label.set_text(s.lb, "IDM ✕")
+        label.set_textcolor(s.lb, color.gray)
+        label.set_tooltip(s.lb, "IDM reset: " + why)
+    if debug and why != "ENTRY_DONE"
+        f_txt(bar_index, s.dir == 1 ? low : high, why, color.gray, s.dir == 1, size.tiny, "Setup reset: " + why)
+    s.state    := ST_NONE
+    s.reason   := why
+    s.idm      := na
+    s.pendBar  := na
+    s.sweepBar := na
+    s.mssLvl   := na
+    s.ln       := na
+    s.lb       := na
+
+f_dropCand(Setup s) =>
+    if debug
+        if not na(s.ln)
+            line.set_color(s.ln, color.new(color.gray, 50))
+        if not na(s.lb)
+            label.set_text(s.lb, "IDM (replaced)")
+            label.set_textcolor(s.lb, color.gray)
+    else
+        if not na(s.ln)
+            line.delete(s.ln)
+        if not na(s.lb)
+            label.delete(s.lb)
+
+f_smtArm(SmtPend p, int t, int pb, float pr, int prevBar, float prevPr) =>
+    p.pend      := true
+    p.t         := t
+    p.confBar   := bar_index
+    p.pivBar    := pb
+    p.price     := pr
+    p.prevBar   := prevBar
+    p.prevPrice := prevPr
+
+f_row(table t, int r, string a, string b, color c) =>
+    table.cell(t, 0, r, a, text_color = color.silver, text_size = size.small, text_halign = text.align_left)
+    table.cell(t, 1, r, b, text_color = c, text_size = size.small, text_halign = text.align_left)
+
+// ============================================================ EVENT FLAGS ===
+bool evBosBull   = false
+bool evBosBear   = false
+bool evChochBull = false
+bool evChochBear = false
+bool evMssBull   = false
+bool evMssBear   = false
+bool evSweepBull = false
+bool evSweepBear = false
+bool evIdmCand   = false
+bool evIdmSwept  = false
+bool evSfpBull   = false
+bool evSfpBear   = false
+bool evNewOB     = false
+bool evNewFVG    = false
+bool evMitig     = false
+bool evSmtBull   = false
+bool evSmtBear   = false
+bool evLong      = false
+bool evShort     = false
+
+// ============================================================== MAIN LOGIC ===
+// Runs once per CLOSED candle. Order follows 00_MASTER.md §9.
+if barstate.isconfirmed and not na(atr)
+
+    // ---- A. Confirmed pivots (located R bars back, known only now) ----------
+    if not na(majPH)
+        int    pb      = bar_index - majR
+        float  prevHi  = maj.hi
+        int    prevHiB = maj.hiBar
+        string tagH    = f_pivHi(maj, majPH, pb)
+        if showSwings
+            f_txt(pb, majPH, tagH, color.gray, false, size.tiny, "Major swing high — pivot candle; confirmed " + str.tostring(majR) + " bars later")
+        if liqMajor
+            f_addPool(majPH, 1, pb, bar_index, "BSL", true)
+        if smtOn and not smtSame and not na(prevHi) and majPH > prevHi + eqTol
+            f_smtArm(smtS, majPT, pb, majPH, prevHiB, prevHi)
+    if not na(majPL)
+        int    pb      = bar_index - majR
+        float  prevLo  = maj.lo
+        int    prevLoB = maj.loBar
+        string tagL    = f_pivLo(maj, majPL, pb)
+        if showSwings
+            f_txt(pb, majPL, tagL, color.gray, true, size.tiny, "Major swing low — pivot candle; confirmed " + str.tostring(majR) + " bars later")
+        if liqMajor
+            f_addPool(majPL, -1, pb, bar_index, "SSL", true)
+        if smtOn and not smtSame and not na(prevLo) and majPL < prevLo - eqTol
+            f_smtArm(smtB, majPT, pb, majPL, prevLoB, prevLo)
+    if not na(intPH)
+        f_pivHi(itn, intPH, bar_index - intR)
+        if liqInt
+            f_addPool(intPH, 1, bar_index - intR, bar_index, "BSL", true)
+    if not na(intPL)
+        f_pivLo(itn, intPL, bar_index - intR)
+        if liqInt
+            f_addPool(intPL, -1, bar_index - intR, bar_index, "SSL", true)
+
+    // ---- B. Previous day / week levels built from chart bars ----------------
+    // A level is published only after its day/week has fully closed.
+    if newDay and bar_index > 0
+        if pdOk and not na(dHi)
+            f_dropSrc("PDH")
+            f_dropSrc("PDL")
+            f_addPool(dHi, 1, dStart, bar_index - 1, "PDH", false)
+            f_addPool(dLo, -1, dStart, bar_index - 1, "PDL", false)
+        dHi    := high
+        dLo    := low
+        dStart := bar_index
+    else if not na(dHi)
+        dHi := math.max(dHi, high)
+        dLo := math.min(dLo, low)
+    if newWeek and bar_index > 0
+        if pwOk and not na(wHi)
+            f_dropSrc("PWH")
+            f_dropSrc("PWL")
+            f_addPool(wHi, 1, wStart, bar_index - 1, "PWH", false)
+            f_addPool(wLo, -1, wStart, bar_index - 1, "PWL", false)
+        wHi    := high
+        wLo    := low
+        wStart := bar_index
+    else if not na(wHi)
+        wHi := math.max(wHi, high)
+        wLo := math.min(wLo, low)
+
+    // ---- C. Structure breaks (major and internal are independent) -----------
+    [mUp, mDn, mFU, mFD, mAmb] = f_break(maj, brkBuf)
+    [iUp, iDn, iFU, iFD, iAmb] = f_break(itn, brkBuf)
+
+    if mUp > 0
+        evBosBull   := mUp == 1
+        evChochBull := mUp == 2
+        if showMajor
+            f_drawBreak(maj.hiBar, maj.hi, mUp == 1 ? "BOS" : "CHoCH", cBull, true, false, true)
+    if mDn > 0
+        evBosBear   := mDn == 1
+        evChochBear := mDn == 2
+        if showMajor
+            f_drawBreak(maj.loBar, maj.lo, mDn == 1 ? "BOS" : "CHoCH", cBear, true, false, false)
+    if showMajor and showFake and mFU
+        f_drawBreak(maj.hiBar, maj.hi, "fake BOS", cBull, true, true, true)
+    if showMajor and showFake and mFD
+        f_drawBreak(maj.loBar, maj.lo, "fake BOS", cBear, true, true, false)
+    if showMajor and mAmb
+        f_txt(bar_index, high, "AMB", color.gray, false, size.tiny, "Both major levels broken on one candle — ambiguous, no directional signal")
+    if showInt
+        if iUp > 0
+            f_drawBreak(itn.hiBar, itn.hi, iUp == 1 ? "iBOS" : "iCHoCH", cBull, false, false, true)
+        if iDn > 0
+            f_drawBreak(itn.loBar, itn.lo, iDn == 1 ? "iBOS" : "iCHoCH", cBear, false, false, false)
+        if showFake and iFU
+            f_drawBreak(itn.hiBar, itn.hi, "i fake", cBull, false, true, true)
+        if showFake and iFD
+            f_drawBreak(itn.loBar, itn.lo, "i fake", cBear, false, true, false)
+
+    // Protected swings: origin swing of the latest major break; else the latest major swing.
+    if mUp > 0
+        protLow  := maj.lo
+        bullSeen := true
+        bearSeen := false
+    if mDn > 0
+        protHigh := maj.hi
+        bearSeen := true
+        bullSeen := false
+    if not bullSeen
+        protLow := maj.lo
+    if not bearSeen
+        protHigh := maj.hi
+
+    if bullDisp
+        lastBullDisp := bar_index
+    if bearDisp
+        lastBearDisp := bar_index
+
+    // ---- D. Liquidity sweeps (pools that existed before this candle) --------
+    float recBsl = na   // BSL wicked AND closed back below  -> bearish sweep
+    float recSsl = na   // SSL wicked AND closed back above  -> bullish sweep
+    float penBsl = na   // any BSL penetration (SFP sweep candle)
+    float penSsl = na
+    int np = pools.size()
+    if np > 0
+        for i = np - 1 to 0
+            Pool p    = pools.get(i)
+            bool done = false
+            if p.created < bar_index
+                if p.dir == 1 and high > p.price + swpBuf
+                    penBsl := na(penBsl) ? p.price : math.max(penBsl, p.price)
+                    if close < p.price
+                        recBsl := na(recBsl) ? p.price : math.max(recBsl, p.price)
+                        f_poolEnd(p, 1)
+                    else
+                        f_poolEnd(p, 2)
+                    done := true
+                else if p.dir == -1 and low < p.price - swpBuf
+                    penSsl := na(penSsl) ? p.price : math.min(penSsl, p.price)
+                    if close > p.price
+                        recSsl := na(recSsl) ? p.price : math.min(recSsl, p.price)
+                        f_poolEnd(p, 1)
+                    else
+                        f_poolEnd(p, 2)
+                    done := true
+            if not done and bar_index - p.created > poolMaxAge
+                f_poolEnd(p, 3)
+                done := true
+            if done
+                pools.remove(i)
+            else
+                f_poolExtend(p)
+    evSweepBull := not na(recSsl)
+    evSweepBear := not na(recBsl)
+    if evSweepBull
+        lastLiq := "SSL swept " + f_px(recSsl)
+        if showLiq
+            f_txt(bar_index, low, "SSL ✕", cBull, true, size.tiny, "Sell-side liquidity swept and reclaimed (bullish context)")
+    if evSweepBear
+        lastLiq := "BSL swept " + f_px(recBsl)
+        if showLiq
+            f_txt(bar_index, high, "BSL ✕", cBear, false, size.tiny, "Buy-side liquidity swept and reclaimed (bearish context)")
+
+    // ---- D2. SFP (user definition) + Rejection Block -------------------------
+    // Bearish: a candle sweeps a high; a LATER candle closes (body) below that sweep
+    // candle's low  -> SFP. A wick-only break counts only if the NEXT candle has high volume.
+    if sfpOn
+        for d in dirs
+            Sfp    sp   = d == 1 ? sfpB : sfpS
+            bool   conf = false
+            string how  = ""
+            if sp.pend
+                if bar_index - sp.bar > sfpWin
+                    sp.pend := false
+                else if d == 1 ? close < sp.l : close > sp.h
+                    sp.pend := false
+                else if d == 1 ? close > sp.h : close < sp.l
+                    conf := true
+                    how  := "body close beyond sweep candle " + (d == 1 ? "high" : "low")
+                else if not na(sp.wickBar) and bar_index == sp.wickBar + 1 and not na(volume) and not na(volSma) and volume >= volSma * volMult
+                    conf := true
+                    how  := "wick break + high-volume next candle"
+                else if d == 1 ? high > sp.h : low < sp.l
+                    sp.wickBar := bar_index
+            if conf
+                sp.pend := false
+                if d == 1
+                    evSfpBull := true
+                else
+                    evSfpBear := true
+                f_txt(bar_index, d == 1 ? low : high, "SFP", d == 1 ? cBull : cBear, d == 1, size.small, "SFP confirmed by " + how + ". Swept level " + f_px(sp.lvl) + " on bar " + str.tostring(sp.bar))
+                if rbOn
+                    float rt = na
+                    float rb = na
+                    if d == -1
+                        rt := rbMode == "Body" ? math.max(sp.o, sp.c) : sp.h
+                        rb := rbMode == "Wick" ? math.max(sp.o, sp.c) : rbMode == "Body" ? math.min(sp.o, sp.c) : sp.l
+                    else
+                        rt := rbMode == "Wick" ? math.min(sp.o, sp.c) : rbMode == "Body" ? math.max(sp.o, sp.c) : sp.h
+                        rb := rbMode == "Body" ? math.min(sp.o, sp.c) : sp.l
+                    if rt > rb
+                        zones.push(f_newZone("RB", d, rt, rb, d == 1 ? sp.l : sp.h, sp.bar, 0))
+                    else if debug
+                        f_txt(bar_index, d == 1 ? low : high, "RB: NO_WICK", color.gray, d == 1, size.tiny, "")
+            float pen = d == 1 ? penSsl : penBsl
+            if not na(pen)
+                sp.pend    := true
+                sp.bar     := bar_index
+                sp.o       := open
+                sp.h       := high
+                sp.l       := low
+                sp.c       := close
+                sp.lvl     := pen
+                sp.wickBar := na
+
+    // ---- E. Lifecycle of zones that existed before this candle --------------
+    int nz = zones.size()
+    if nz > 0
+        for i = nz - 1 to 0
+            Zone  z    = zones.get(i)
+            bool  ov   = high >= z.bot and low <= z.top
+            if ov and not z.touched
+                z.touched := true
+            float hgt  = z.top - z.bot
+            float fill = not ov ? 0.0 : hgt <= 0 ? 1.0 : z.dir == 1 ? (z.top - low) / hgt : (high - z.bot) / hgt
+            bool  mit  = ov and (mitMode == "Touch" or (mitMode == "50%" and fill >= 0.5) or (mitMode == "Full" and fill >= 1.0))
+            if mit and not z.mitigated
+                z.mitigated := true
+                evMitig     := true
+                if not na(z.bx)
+                    box.set_border_style(z.bx, line.style_dashed)
+            bool inval = z.dir == 1 ? close < z.inv - invBuf : close > z.inv + invBuf
+            bool expd  = bar_index - z.created > zoneMaxAge
+            if inval or expd
+                f_zoneEnd(z, inval)
+                zones.remove(i)
+            else
+                f_zoneExtend(z)
+
+    // ---- F. SMT (comparison symbol, same timeframe) --------------------------
+    if smtOn and not smtSame
+        if not na(cPH) and (na(cHiT) or cPT != cHiT)
+            cHiPrev := cHi
+            cHi     := cPH
+            cHiT    := cPT
+        if not na(cPL) and (na(cLoT) or cPT != cLoT)
+            cLoPrev := cLo
+            cLo     := cPL
+            cLoT    := cPT
+        for d in dirs
+            SmtPend p = d == 1 ? smtB : smtS
+            if p.pend
+                bool  useHi = (d == -1) != smtInv
+                int   cT    = useHi ? cHiT : cLoT
+                float cv    = useHi ? cHi : cLo
+                float cpv   = useHi ? cHiPrev : cLoPrev
+                bool  matched = not na(cT) and not na(cv) and not na(cpv) and math.abs(cT - p.t) <= smtTol * tfSec * 1000
+                if matched
+                    bool compNew = useHi ? cv > cpv : cv < cpv
+                    p.pend := false
+                    if not compNew
+                        if d == 1
+                            evSmtBull := true
+                        else
+                            evSmtBear := true
+                        smtStatus := (d == 1 ? "Bullish" : "Bearish") + " SMT (pivot bar " + str.tostring(p.pivBar) + ")"
+                        color sc = d == 1 ? cBull : cBear
+                        line.new(math.max(p.prevBar, bar_index - 4999), p.prevPrice, p.pivBar, p.price, color = sc, style = line.style_dashed, width = 1)
+                        f_txt(p.pivBar, p.price, "SMT", sc, d == 1, size.tiny, "Chart made a new " + (d == 1 ? "low" : "high") + "; " + smtTicker + " did not confirm. Context only, not an entry.")
+                    else
+                        smtStatus := "No divergence (last check)"
+                else if bar_index - p.confBar > smtTol
+                    p.pend    := false
+                    smtStatus := na(cC) ? "N/A — no data" : "N/A — no matching pivot"
+
+    // ---- G. Setup state machines (IDM → MSS → zone wait → entry) -------------
+    bool   wantL = false
+    bool   wantS = false
+    bool   ctL   = false
+    bool   ctS   = false
+    string tipL  = ""
+    string tipS  = ""
+    for d in dirs
+        Setup s     = d == 1 ? bull : bear
+        float prot  = d == 1 ? protLow : protHigh
+        int   ld    = d == 1 ? lastBullDisp : lastBearDisp
+        bool  ctxOk = not na(prot) and (profile != "Strict" or maj.bias == d)
+        bool  doSwept = false
+        bool  doMss   = false
+
+        // G0 context
+        if s.state <= ST_CONTEXT
+            s.state := ctxOk ? ST_CONTEXT : ST_NONE
+
+        // G1 invalidation / expiry of an active IDM sequence
+        if s.state == ST_CAND or s.state == ST_SWEPT
+            if not na(s.prot) and (d == 1 ? close < s.prot : close > s.prot)
+                f_kill(s, "PROTECTED_BROKEN")
+            else if bar_index - s.candBar > idmMaxBars
+                f_kill(s, "EXPIRED_MAX_BARS")
+
+        // G2 MSS after a sweep on an earlier candle
+        if s.state == ST_SWEPT and s.sweepBar < bar_index and f_mssBreak(d, s.mssLvl)
+            if not na(ld) and ld >= s.sweepBar and bar_index - ld <= dispWin
+                doMss := true
+            else
+                f_kill(s, "BREAK_NO_DISPLACEMENT")
+
+        // G3 IDM sweep + reclaim
+        if s.state == ST_CAND
+            bool pen = d == 1 ? low < s.idm - swpBuf : high > s.idm + swpBuf
+            bool rec = d == 1 ? close > s.idm : close < s.idm
+            if pen and rec
+                doSwept := true
+            else if pen
+                if reclaimN == 0
+                    f_kill(s, "IDM_ACCEPTED_BEYOND")
+                else if na(s.pendBar)
+                    s.pendBar := bar_index
+            else if rec and not na(s.pendBar)
+                doSwept := true
+            if s.state == ST_CAND and not doSwept and not na(s.pendBar) and bar_index - s.pendBar >= reclaimN
+                f_kill(s, "RECLAIM_TIMEOUT")
+
+        // G4 alternate path when IDM is disabled: liquidity sweep → MSS
+        if not idmOn and altPath and s.state == ST_CONTEXT
+            float lv = d == 1 ? recSsl : recBsl
+            if not na(lv)
+                s.idm     := lv
+                s.idmBar  := bar_index
+                s.candBar := bar_index
+                s.prot    := prot
+                s.path    := "SWEEP"
+                doSwept   := true
+
+        // G5 enter IDM_SWEPT; snapshot MSS level (latest confirmed swing before the sweep)
+        if doSwept
+            s.state    := ST_SWEPT
+            s.sweepBar := bar_index
+            s.pendBar  := na
+            bool useInt = mssMode == "Internal"
+            s.mssLvl    := d == 1 ? (useInt ? itn.hi : maj.hi) : (useInt ? itn.lo : maj.lo)
+            s.mssLvlBar := d == 1 ? (useInt ? itn.hiBar : maj.hiBar) : (useInt ? itn.loBar : maj.loBar)
+            if s.path == "IDM"
+                evIdmSwept := true
+                if not na(s.ln)
+                    line.set_x2(s.ln, bar_index)
+                    line.set_style(s.ln, line.style_solid)
+                if not na(s.lb)
+                    label.set_text(s.lb, "IDM ✓")
+            if na(s.mssLvl)
+                f_kill(s, "NO_MSS_LEVEL")
+            else if f_mssBreak(d, s.mssLvl)
+                if sameBarOk and not na(ld) and bar_index - ld <= dispWin
+                    doMss := true
+                else
+                    f_kill(s, "SAME_BAR_AMBIGUOUS")
+
+        // G6 MSS confirmed
+        if doMss
+            uid += 1
+            s.state   := ST_MSS
+            s.mssBar  := bar_index
+            s.mssId   := uid
+            s.dispBar := ld
+            if d == 1
+                evMssBull := true
+            else
+                evMssBear := true
+            if showIdm
+                f_drawBreak(s.mssLvlBar, s.mssLvl, "MSS", d == 1 ? cBull : cBear, true, false, d == 1)
+                if not na(s.lb)
+                    label.set_text(s.lb, "IDM → MSS")
+
+        // G7 protected swing replaced before MSS → expire
+        if (s.state == ST_CAND or s.state == ST_SWEPT) and (na(prot) or prot != s.prot)
+            f_kill(s, "PROTECTED_CHANGED")
+
+        // G8 new IDM candidate: most recent confirmed internal swing on the valid side
+        float ip = d == 1 ? intPL : intPH
+        if idmOn and ctxOk and not na(ip) and s.state <= ST_CAND and (d == 1 ? ip > prot : ip < prot)
+            if s.state == ST_CAND
+                f_dropCand(s)
+            s.state   := ST_CAND
+            s.idm     := ip
+            s.idmBar  := bar_index - intR
+            s.candBar := bar_index
+            s.prot    := prot
+            s.pendBar := na
+            s.path    := "IDM"
+            s.ln      := na
+            s.lb      := na
+            evIdmCand := true
+            if showIdm
+                s.ln := line.new(s.idmBar, ip, bar_index, ip, color = cIdm, style = line.style_dotted, width = 1)
+                s.lb := f_txt(s.idmBar, ip, "IDM?", cIdm, d == 1, size.tiny, "IDM candidate · internal swing confirmed on bar " + str.tostring(bar_index) + " · protected " + f_px(prot))
+        if s.state == ST_CAND and not na(s.ln)
+            line.set_x2(s.ln, bar_index)
+
+        // G9 MSS → ZONE_WAIT → entry trigger
+        if s.state == ST_MSS or s.state == ST_ZONE
+            if not na(s.prot) and (d == 1 ? close < s.prot : close > s.prot)
+                f_kill(s, "PROTECTED_BROKEN")
+            else if bar_index - s.mssBar > zoneMaxAge
+                f_kill(s, "ZONE_WAIT_EXPIRED")
+        if (s.state == ST_MSS or s.state == ST_ZONE) and s.mssBar < bar_index
+            int    nTag    = 0
+            bool   touched = false
+            bool   rejHit  = false
+            string zk      = ""
+            int    nzs     = zones.size()
+            if nzs > 0
+                for j = 0 to nzs - 1
+                    Zone z = zones.get(j)
+                    if z.setupId == s.mssId and z.dir == d
+                        nTag += 1
+                        if z.touched
+                            touched := true
+                            if zk == ""
+                                zk := z.kind
+                            bool ov = high >= z.bot and low <= z.top
+                            bool rejC = d == 1 ? (close > z.top and close >= low + rng * 0.5) : (close < z.bot and close <= high - rng * 0.5)
+                            if ov and rng > 0 and rejC
+                                rejHit := true
+                                zk     := z.kind
+            if s.state == ST_MSS
+                if nTag > 0
+                    s.state := ST_ZONE
+                else if bar_index > s.mssBar + 1
+                    f_kill(s, "NO_ZONE_FROM_MSS")
+            else if nTag == 0
+                f_kill(s, "ZONES_INVALIDATED")
+            if s.state == ST_ZONE and nTag > 0
+                bool   tRej   = rejHit
+                bool   tInt   = touched and (d == 1 ? iUp > 0 : iDn > 0)
+                bool   tSfp   = touched and (d == 1 ? evSfpBull : evSfpBear)
+                bool   trig   = trigMode == "Rejection Candle" ? tRej : trigMode == "Internal MSS" ? tInt : trigMode == "SFP" ? tSfp : (tRej or tInt or tSfp)
+                string tName  = trigMode != "Any enabled trigger" ? trigMode : tRej ? "Rejection Candle" : tInt ? "Internal MSS" : "SFP"
+                bool   biasOk = profile == "Strict" ? maj.bias == d : profile == "Balanced"
+                if trig and biasOk
+                    bool   isCT = maj.bias == -d
+                    string tip  = "Profile: " + profile + "\n✔ Context: protected " + (d == 1 ? "low " : "high ") + f_px(s.prot) + "\n✔ " + (s.path == "IDM" ? "IDM swept" : "Liquidity swept") + " " + f_px(s.idm) + " (bar " + str.tostring(s.sweepBar) + ")\n✔ MSS + displacement through " + f_px(s.mssLvl) + " (bar " + str.tostring(s.mssBar) + ")\n✔ Retest: " + zk + "\n✔ Trigger: " + tName + "\n" + (isCT ? "⚠ Countertrend vs major bias" : "✔ Major bias: " + f_bias(maj.bias)) + "\nSMT: " + smtStatus
+                    if d == 1
+                        wantL := true
+                        ctL   := isCT
+                        tipL  := tip
+                    else
+                        wantS := true
+                        ctS   := isCT
+                        tipS  := tip
+                else if trig
+                    s.reason := profile == "Context-only" ? "CONTEXT_ONLY" : "BIAS_NOT_ALIGNED"
+
+    // ---- H. Entry resolution (one entry per setup; both sides = conflict) ---
+    if wantL and wantS
+        f_txt(bar_index, high, "CONFLICT", color.gray, false, size.small, "Long and short triggers on the same candle — no entry")
+        bull.reason := "CONFLICT"
+        bear.reason := "CONFLICT"
+    else if wantL
+        evLong    := true
+        lastEntry := "LONG @ " + f_px(close) + (ctL ? " (CT)" : "")
+        label.new(bar_index, low, "LONG" + (ctL ? " (CT)" : ""), style = label.style_label_up, color = cBull, textcolor = color.white, size = size.small, tooltip = tipL)
+        f_kill(bull, "ENTRY_DONE")
+    else if wantS
+        evShort   := true
+        lastEntry := "SHORT @ " + f_px(close) + (ctS ? " (CT)" : "")
+        label.new(bar_index, high, "SHORT" + (ctS ? " (CT)" : ""), style = label.style_label_down, color = cBear, textcolor = color.white, size = size.small, tooltip = tipS)
+        f_kill(bear, "ENTRY_DONE")
+
+    // ---- I. New zones (added AFTER lifecycle → no instant false retest) -----
+    for d in dirs
+        Setup s = d == 1 ? bull : bear
+        // OB of the MSS displacement leg, tied to the setup by mssId
+        if s.state == ST_MSS and s.mssBar == bar_index
+            [src, zt, zb, why] = f_findOB(d, s.dispBar)
+            if na(src)
+                if debug
+                    f_txt(bar_index, d == 1 ? low : high, "OB: " + why, color.gray, d == 1, size.tiny, "")
+            else
+                int zi = f_findZoneIdx("OB", d, src)
+                if zi >= 0
+                    Zone zz = zones.get(zi)
+                    zz.setupId := s.mssId
+                    if not na(zz.bx)
+                        box.set_border_width(zz.bx, 2)
+                else
+                    zones.push(f_newZone("OB", d, zt, zb, d == 1 ? zb : zt, src, s.mssId))
+                    evNewOB := true
+        // General OB: displacement candle (+ structure break by default)
+        bool disp   = d == 1 ? bullDisp : bearDisp
+        bool anyBrk = d == 1 ? (mUp > 0 or iUp > 0) : (mDn > 0 or iDn > 0)
+        if disp and (not obNeedBrk or anyBrk)
+            [src2, zt2, zb2, why2] = f_findOB(d, bar_index)
+            if not na(src2) and f_findZoneIdx("OB", d, src2) < 0
+                zones.push(f_newZone("OB", d, zt2, zb2, d == 1 ? zb2 : zt2, src2, 0))
+                evNewOB := true
+
+    // FVG (three-candle, confirmed on this close)
+    if not na(high[2]) and not na(low[2])
+        bool fB = low > high[2] and low - high[2] >= fvgMin and (not fvgDisp or bullDisp[1])
+        bool fS = high < low[2] and low[2] - high >= fvgMin and (not fvgDisp or bearDisp[1])
+        if fB and not fS
+            zones.push(f_newZone("FVG", 1, low, high[2], high[2], bar_index - 2, f_fvgTag(bull)))
+            evNewFVG := true
+        if fS and not fB
+            zones.push(f_newZone("FVG", -1, low[2], high, low[2], bar_index - 2, f_fvgTag(bear)))
+            evNewFVG := true
+
+    while zones.size() > 150
+        Zone old = zones.shift()
+        f_zoneEnd(old, false)
+
+// =============================================================== DASHBOARD ===
+var table dash = table.new(position.top_right, 2, 12, bgcolor = color.new(#131722, 10), border_color = color.new(color.gray, 70), border_width = 1)
+if showDash and barstate.islast
+    int nOB  = 0
+    int nFVG = 0
+    int nRB  = 0
+    int nzd  = zones.size()
+    if nzd > 0
+        for i = 0 to nzd - 1
+            Zone   zq = zones.get(i)
+            string k  = zq.kind
+            if k == "OB"
+                nOB += 1
+            else if k == "FVG"
+                nFVG += 1
+            else
+                nRB += 1
+    string smtTxt = not smtOn ? "Off" : smtSame ? "N/A — same symbol" : na(cC) ? "N/A — no data" : smtStatus
+    string pdTxt  = (pdOn ? (pdOk ? "PDH/PDL on" : "PDH/PDL off (TF ≥ D)") : "PDH/PDL off") + " · " + (pwOn ? (pwOk ? "PWH/PWL on" : "PWH/PWL off (TF ≥ W)") : "PWH/PWL off")
+    f_row(dash, 0, "SMC · single TF", timeframe.period, color.white)
+    f_row(dash, 1, "Profile · trigger", profile + " · " + trigMode, color.white)
+    f_row(dash, 2, "Major bias", f_bias(maj.bias), maj.bias == 1 ? cBull : maj.bias == -1 ? cBear : color.gray)
+    f_row(dash, 3, "Internal bias", f_bias(itn.bias), itn.bias == 1 ? cBull : itn.bias == -1 ? cBear : color.gray)
+    f_row(dash, 4, "Protected L / H", f_px(protLow) + " / " + f_px(protHigh), color.white)
+    f_row(dash, 5, "Last liquidity", lastLiq, color.white)
+    f_row(dash, 6, "Bull setup", f_stName(bull.state) + " · " + bull.reason, cBull)
+    f_row(dash, 7, "Bear setup", f_stName(bear.state) + " · " + bear.reason, cBear)
+    f_row(dash, 8, "Active zones", "OB " + str.tostring(nOB) + " · FVG " + str.tostring(nFVG) + " · RB " + str.tostring(nRB), color.white)
+    f_row(dash, 9, "SMT " + (smtOn ? smtTicker : ""), smtTxt, color.white)
+    f_row(dash, 10, "PD / PW", pdTxt, color.white)
+    f_row(dash, 11, "Last entry", lastEntry, color.white)
+
+// ================================================================== ALERTS ===
+// All flags are set on closed candles only → one alert per event.
+alertcondition(evBosBull,   "Bullish BOS (major)",       "{{ticker}} {{interval}}: Bullish BOS (major)")
+alertcondition(evBosBear,   "Bearish BOS (major)",       "{{ticker}} {{interval}}: Bearish BOS (major)")
+alertcondition(evChochBull, "Bullish CHoCH (major)",     "{{ticker}} {{interval}}: Bullish CHoCH (major)")
+alertcondition(evChochBear, "Bearish CHoCH (major)",     "{{ticker}} {{interval}}: Bearish CHoCH (major)")
+alertcondition(evMssBull,   "Bullish MSS",               "{{ticker}} {{interval}}: Bullish MSS after sweep")
+alertcondition(evMssBear,   "Bearish MSS",               "{{ticker}} {{interval}}: Bearish MSS after sweep")
+alertcondition(evSweepBull, "SSL sweep (bullish)",       "{{ticker}} {{interval}}: Sell-side liquidity swept")
+alertcondition(evSweepBear, "BSL sweep (bearish)",       "{{ticker}} {{interval}}: Buy-side liquidity swept")
+alertcondition(evIdmCand,   "IDM candidate",             "{{ticker}} {{interval}}: New IDM candidate")
+alertcondition(evIdmSwept,  "IDM swept",                 "{{ticker}} {{interval}}: IDM swept")
+alertcondition(evSfpBull,   "Bullish SFP",               "{{ticker}} {{interval}}: Bullish SFP confirmed")
+alertcondition(evSfpBear,   "Bearish SFP",               "{{ticker}} {{interval}}: Bearish SFP confirmed")
+alertcondition(evNewOB,     "New OB",                    "{{ticker}} {{interval}}: New order block")
+alertcondition(evNewFVG,    "New FVG",                   "{{ticker}} {{interval}}: New fair value gap")
+alertcondition(evMitig,     "Zone mitigated",            "{{ticker}} {{interval}}: Zone mitigated")
+alertcondition(evSmtBull,   "Bullish SMT",               "{{ticker}} {{interval}}: Bullish SMT divergence")
+alertcondition(evSmtBear,   "Bearish SMT",               "{{ticker}} {{interval}}: Bearish SMT divergence")
+alertcondition(evLong,      "Confirmed LONG entry",      "{{ticker}} {{interval}}: Confirmed LONG setup @ {{close}}")
+alertcondition(evShort,     "Confirmed SHORT entry",     "{{ticker}} {{interval}}: Confirmed SHORT setup @ {{close}}")
+
+plot(na, "anchor", display = display.none, editable = false)
