@@ -1,0 +1,218 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0
+// Rejection Blocks (RJB) + Liquidity Grabs (SFP) — เขียนใหม่ตามแนวคิด RJB / SFP
+// เงื่อนไขแต่ละข้อมีรหัสกำกับ เช่น [P1], [R2], [S3] ให้ตรงกับไฟล์ CONDITIONS_TH.md
+//@version=6
+indicator("RJB & SFP (Liquidity Grab)", "RJB/SFP", overlay = true,
+     max_boxes_count = 500, max_lines_count = 500, max_labels_count = 500)
+
+// ============================================================================
+// INPUTS
+// ============================================================================
+grpP = "1) Swing / Pivot"
+pvLeft  = input.int(5, "Pivot: แท่งซ้าย",            minval = 1, group = grpP)
+pvRight = input.int(3, "Pivot: แท่งขวา (ยืนยัน)",     minval = 1, group = grpP)
+
+grpR = "2) Rejection Block (RJB)"
+showRJB       = input.bool(true,  "แสดง RJB",                                   group = grpR)
+wickBodyMin   = input.float(1.5,  "[R2] ไส้ / เนื้อเทียน ขั้นต่ำ (เท่า)", minval = 0, step = 0.1,  group = grpR)
+wickRangeMin  = input.float(0.5,  "[R3] ไส้ / ความยาวแท่ง ขั้นต่ำ",      minval = 0, maxval = 1, step = 0.05, group = grpR)
+rjbNeedColor  = input.bool(false, "[R4] บังคับสีแท่ง (Bear=แดง, Bull=เขียว)",   group = grpR)
+rjbInvalidBy  = input.string("Close", "[R6] ยกเลิกโซนเมื่อ", options = ["Close", "Wick"], group = grpR)
+keepTouched   = input.bool(true,  "[R5] เก็บโซนไว้หลังถูกแตะ",                  group = grpR)
+maxRJB        = input.int(10,     "จำนวนโซนสูงสุดต่อฝั่ง", minval = 1,          group = grpR)
+bullRJBCol    = input.color(color.new(color.teal, 75), "สี Bullish RJB",       group = grpR)
+bearRJBCol    = input.color(color.new(color.red,  75), "สี Bearish RJB",       group = grpR)
+touchedCol    = input.color(color.new(color.gray, 85), "สีโซนที่ถูกแตะแล้ว",   group = grpR)
+
+grpS = "3) Liquidity Grab (SFP)"
+showSFP       = input.bool(true,  "แสดง SFP",                                   group = grpS)
+sfpLookback   = input.int(100,    "[S5] อายุ swing สูงสุด (แท่ง)", minval = 5,  group = grpS)
+sfpMinPenAtr  = input.float(0.0,  "[S2] ระยะทะลุ swing ขั้นต่ำ (x ATR)", minval = 0, step = 0.05, group = grpS)
+sfpNeedColor  = input.bool(false, "[S4] บังคับสีแท่ง (Bear=แดง, Bull=เขียว)",   group = grpS)
+bullSFPCol    = input.color(color.teal, "สี Bullish SFP",                       group = grpS)
+bearSFPCol    = input.color(color.red,  "สี Bearish SFP",                       group = grpS)
+
+grpD = "4) Debug (ดูทีละแท่ง)"
+debugPivot    = input.bool(false, "แสดงค่าอัตราส่วนไส้เทียนที่ทุก pivot",       group = grpD)
+
+atr = ta.atr(14)
+
+// ============================================================================
+// TYPES / STORAGE
+// ============================================================================
+type Zone
+    box   bx
+    float top
+    float bottom
+    int   dir        // 1 = bullish (แนวรับ), -1 = bearish (แนวต้าน)
+    bool  touched
+
+type Swing
+    float price
+    int   idx
+
+var array<Zone>  bullZones = array.new<Zone>()
+var array<Zone>  bearZones = array.new<Zone>()
+var array<Swing> swingHighs = array.new<Swing>()
+var array<Swing> swingLows  = array.new<Swing>()
+
+// ============================================================================
+// [P1] หา Pivot  — ยืนยันหลังผ่านไป pvRight แท่ง
+// ============================================================================
+ph = ta.pivothigh(high, pvLeft, pvRight)
+pl = ta.pivotlow(low,  pvLeft, pvRight)
+pIdx = bar_index - pvRight
+
+// ข้อมูลแท่ง pivot (ย้อนหลัง pvRight แท่ง)
+pO = open[pvRight]
+pH = high[pvRight]
+pL = low[pvRight]
+pC = close[pvRight]
+pBody     = math.abs(pC - pO)
+pRange    = pH - pL
+pUpWick   = pH - math.max(pO, pC)
+pDnWick   = math.min(pO, pC) - pL
+
+// ============================================================================
+// SFP — ตรวจบนแท่งปัจจุบัน (ใช้ swing ที่ยืนยันแล้วก่อนแท่งนี้)
+// ============================================================================
+// คืนค่า [พบ SFP?, ราคา swing ที่ถูกกวาด, index ของ swing]
+checkSFP(array<Swing> swings, int dir) =>
+    bool  found     = false
+    float bestPrice = na
+    int   bestIdx   = na
+    if swings.size() > 0
+        for i = swings.size() - 1 to 0
+            s = swings.get(i)
+            if bar_index - s.idx > sfpLookback
+                swings.remove(i)                                   // [S5] หมดอายุ
+            else if dir == -1
+                if close > s.price
+                    swings.remove(i)                               // [S3x] ปิดเหนือ = breakout จริง ไม่ใช่ SFP
+                else if high > s.price and (high - s.price) >= sfpMinPenAtr * atr
+                    // [S1] ไส้ทะลุ swing high  [S2] ทะลุพอ  [S3] ปิดกลับใต้ swing
+                    found := true
+                    if na(bestPrice) or s.price > bestPrice
+                        bestPrice := s.price
+                        bestIdx   := s.idx
+                    swings.remove(i)                               // [S6] swing ใช้ได้ครั้งเดียว
+            else
+                if close < s.price
+                    swings.remove(i)                               // [S3x] ปิดใต้ = breakdown จริง
+                else if low < s.price and (s.price - low) >= sfpMinPenAtr * atr
+                    found := true
+                    if na(bestPrice) or s.price < bestPrice
+                        bestPrice := s.price
+                        bestIdx   := s.idx
+                    swings.remove(i)
+    [found, bestPrice, bestIdx]
+
+[bearSFPRaw, bearSFPPrice, bearSFPIdx] = checkSFP(swingHighs, -1)
+[bullSFPRaw, bullSFPPrice, bullSFPIdx] = checkSFP(swingLows,   1)
+
+// [S4] เงื่อนไขสีแท่ง (ถ้าเปิด)
+bearSFP = bearSFPRaw and (not sfpNeedColor or close < open)
+bullSFP = bullSFPRaw and (not sfpNeedColor or close > open)
+
+if showSFP and bearSFP
+    line.new(bearSFPIdx, bearSFPPrice, bar_index, bearSFPPrice, color = bearSFPCol, style = line.style_dashed)
+    label.new(bar_index, high, "SFP", style = label.style_label_down, color = color.new(bearSFPCol, 20),
+         textcolor = color.white, size = size.small)
+if showSFP and bullSFP
+    line.new(bullSFPIdx, bullSFPPrice, bar_index, bullSFPPrice, color = bullSFPCol, style = line.style_dashed)
+    label.new(bar_index, low, "SFP", style = label.style_label_up, color = color.new(bullSFPCol, 20),
+         textcolor = color.white, size = size.small)
+
+// เก็บ swing ใหม่ (หลังตรวจ SFP แล้ว เพื่อไม่ให้แท่งนี้ไปเช็คกับ swing ของตัวเอง)
+if not na(ph)
+    swingHighs.push(Swing.new(ph, pIdx))
+    if swingHighs.size() > 50
+        swingHighs.shift()
+if not na(pl)
+    swingLows.push(Swing.new(pl, pIdx))
+    if swingLows.size() > 50
+        swingLows.shift()
+
+// ============================================================================
+// RJB — จัดการโซนเดิม (แตะ / ยกเลิก) ทุกแท่ง
+// ============================================================================
+var bool bullTouchNow = false
+var bool bearTouchNow = false
+bullTouchNow := false
+bearTouchNow := false
+
+manageZones(array<Zone> zs) =>
+    bool touchedNow = false
+    if zs.size() > 0
+        for i = zs.size() - 1 to 0
+            z = zs.get(i)
+            // [R6] ยกเลิกโซน
+            bool invalid = z.dir == -1 ?
+                 (rjbInvalidBy == "Close" ? close > z.top    : high > z.top) :
+                 (rjbInvalidBy == "Close" ? close < z.bottom : low  < z.bottom)
+            if invalid
+                z.bx.delete()
+                zs.remove(i)
+            else
+                // [R5] ราคากลับมาแตะโซนครั้งแรก
+                bool hit = z.dir == -1 ? high >= z.bottom : low <= z.top
+                if hit and not z.touched
+                    z.touched  := true
+                    touchedNow := true
+                    if keepTouched
+                        z.bx.set_bgcolor(touchedCol)
+                        z.bx.set_border_color(touchedCol)
+                    else
+                        z.bx.delete()
+                        zs.remove(i)
+                        continue
+                z.bx.set_right(bar_index)
+    touchedNow
+
+bullTouchNow := manageZones(bullZones)
+bearTouchNow := manageZones(bearZones)
+
+// ============================================================================
+// RJB — สร้างโซนใหม่ที่ pivot
+// ============================================================================
+// [R1] เกิดที่ swing high / low   [R2] ไส้/เนื้อ   [R3] ไส้/ทั้งแท่ง   [R4] สีแท่ง
+bearRJB = not na(ph) and pRange > 0 and pUpWick >= wickBodyMin * pBody and pUpWick / pRange >= wickRangeMin
+     and (not rjbNeedColor or pC < pO)
+bullRJB = not na(pl) and pRange > 0 and pDnWick >= wickBodyMin * pBody and pDnWick / pRange >= wickRangeMin
+     and (not rjbNeedColor or pC > pO)
+
+addZone(array<Zone> zs, float top, float bottom, int dir, color col) =>
+    b = box.new(pIdx, top, bar_index, bottom, border_color = col, bgcolor = col)
+    zs.unshift(Zone.new(b, top, bottom, dir, false))
+    if zs.size() > maxRJB
+        old = zs.pop()
+        old.bx.delete()
+
+// [R7] ขอบเขตโซน: Bear = ไส้บน (body top -> high), Bull = ไส้ล่าง (low -> body bottom)
+if showRJB and bearRJB
+    addZone(bearZones, pH, math.max(pO, pC), -1, bearRJBCol)
+if showRJB and bullRJB
+    addZone(bullZones, math.min(pO, pC), pL, 1, bullRJBCol)
+
+// ============================================================================
+// DEBUG — ดูค่าที่ pivot ทีละแท่ง
+// ============================================================================
+f_ratio(float w) => pBody > 0 ? w / pBody : 999.0
+if debugPivot and not na(ph)
+    label.new(pIdx, pH, "PH W/B=" + str.tostring(f_ratio(pUpWick), "#.##") + " W/R=" +
+         str.tostring(pRange > 0 ? pUpWick / pRange : 0, "#.##") + (bearRJB ? " ✔RJB" : " ✘"),
+         style = label.style_label_down, color = color.new(color.black, 30), textcolor = color.white, size = size.tiny)
+if debugPivot and not na(pl)
+    label.new(pIdx, pL, "PL W/B=" + str.tostring(f_ratio(pDnWick), "#.##") + " W/R=" +
+         str.tostring(pRange > 0 ? pDnWick / pRange : 0, "#.##") + (bullRJB ? " ✔RJB" : " ✘"),
+         style = label.style_label_up, color = color.new(color.black, 30), textcolor = color.white, size = size.tiny)
+
+// ============================================================================
+// ALERTS
+// ============================================================================
+alertcondition(bullRJB,      "Bullish RJB ใหม่",      "Bullish Rejection Block ใหม่")
+alertcondition(bearRJB,      "Bearish RJB ใหม่",      "Bearish Rejection Block ใหม่")
+alertcondition(bullTouchNow, "แตะ Bullish RJB",       "ราคาแตะ Bullish RJB")
+alertcondition(bearTouchNow, "แตะ Bearish RJB",       "ราคาแตะ Bearish RJB")
+alertcondition(bullSFP,      "Bullish SFP",           "Liquidity grab ใต้ swing low (Bullish SFP)")
+alertcondition(bearSFP,      "Bearish SFP",           "Liquidity grab เหนือ swing high (Bearish SFP)")
