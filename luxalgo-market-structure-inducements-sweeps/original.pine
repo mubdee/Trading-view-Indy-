@@ -1,28 +1,28 @@
 // This work is licensed under a Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0) https://creativecommons.org/licenses/by-nc-sa/4.0/
 // © LuxAlgo
 
-//@version=6
-indicator("Market Structure with Inducements & Sweeps", "Market Structure with Inducements & Sweeps", overlay = true, max_lines_count = 500, max_labels_count = 500)
+//@version=5
+indicator("Market Structure with Inducements & Sweeps [LuxAlgo]", "LuxAlgo - Market Structure with Inducements & Sweeps", overlay = true, max_lines_count = 500, max_labels_count = 500)
 //---------------------------------------------------------------------------------------------------------------------}
 //Settings
 //---------------------------------------------------------------------------------------------------------------------{
-len = input.int(50, 'CHoCH Detection Period')
-shortLen = input.int(3, 'IDM Detection Period')
+len = input(50, 'CHoCH Detection Period')
+shortLen = input(3, 'IDM Detection Period')
 
 //Styling
-bullCss = input.color(#089981, 'Bullish Elements', group = 'Style')
-bearCss = input.color(#ff5252, 'Bearish Elements', group = 'Style')
+bullCss = input(#089981, 'Bullish Elements', group = 'Style')
+bearCss = input(#ff5252, 'Bearish Elements', group = 'Style')
 
-showChoch = input.bool(true, "Show CHoCH", group = 'Style')
-showBos = input.bool(true, "Show BOS", group = 'Style')
+showChoch = input(true, "Show CHoCH", group = 'Style')
+showBos = input(true, "Show BOS", group = 'Style')
 
-showIdm = input.bool(true, "Show Inducements", inline = 'idm', group = 'Style')
-idmCss = input.color(color.gray, "", inline = 'idm', group = 'Style')
+showIdm = input(true, "Show Inducements", inline = 'idm', group = 'Style')
+idmCss = input(color.gray, "", inline = 'idm', group = 'Style')
 
-showSweeps = input.bool(true, "Show Sweeps", inline = 'sweeps', group = 'Style')
-sweepsCss = input.color(color.gray, "", inline = 'sweeps', group = 'Style')
+showSweeps = input(true, "Show Sweeps", inline = 'sweeps', group = 'Style')
+sweepsCss = input(color.gray, "", inline = 'sweeps', group = 'Style')
 
-showCircles = input.bool(true, "Show Swings", group = 'Style')
+showCircles = input(true, "Show Swings", group = 'Style')
 
 //---------------------------------------------------------------------------------------------------------------------}
 //Functions
