@@ -1,0 +1,283 @@
+// This work is licensed under a Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0) https://creativecommons.org/licenses/by-nc-sa/4.0/
+// © LuxAlgo
+//
+// ไฟล์นี้คือ "เวอร์ชันสำหรับแก้ไข" ของ Market Structure with Inducements & Sweeps [LuxAlgo]
+// ต้นฉบับที่ไม่ได้แก้ไขอยู่ใน original.pine (ไฟล์เดียวกันในโฟลเดอร์นี้)
+//
+// สิ่งที่ต่างจากต้นฉบับ:
+//   1) แยกเงื่อนไขทุกตัวออกมาเป็นตัวแปร bool ที่มีชื่อ (cond_*) ให้แก้ทีละเงื่อนไขได้ง่าย
+//   2) ใส่คอมเมนต์ภาษาไทยอธิบายแต่ละขั้น
+//   3) แก้จุดเล็ก ๆ: IDM ฝั่ง Bearish ในต้นฉบับใช้ color.gray ตายตัว -> เปลี่ยนเป็น idmCss
+//      ให้ตรงกับสีที่ตั้งใน Settings (ฝั่ง Bullish ใช้ idmCss อยู่แล้ว)
+//   4) เขียน `if top` เป็น `if not na(top)` ให้ชัดเจน (ผลลัพธ์เหมือนเดิม)
+//   5) เพิ่ม alertcondition() ท้ายไฟล์ ใช้ตั้ง Alert ได้ (ไม่กระทบการวาดบนกราฟ)
+// นอกเหนือจากนี้ logic เหมือนต้นฉบับทุกอย่าง รวมถึงลำดับการคำนวณ
+// (ลำดับสำคัญมาก เพราะแต่ละขั้นอ่าน/เขียน state ชุดเดียวกันใน bar เดียวกัน)
+
+//@version=6
+indicator("Market Structure with Inducements & Sweeps (Editable)", "MS IDM Sweeps (Edit)", overlay = true, max_lines_count = 500, max_labels_count = 500)
+//---------------------------------------------------------------------------------------------------------------------}
+//Settings
+//---------------------------------------------------------------------------------------------------------------------{
+len      = input.int(50, 'CHoCH Detection Period')   // swing ใหญ่: ใช้หา CHoCH (ยิ่งมาก ยิ่งเป็นโครงสร้างระยะยาว)
+shortLen = input.int(3, 'IDM Detection Period')      // swing เล็ก: ใช้หา IDM (pullback ภายในเทรนด์)
+
+//Styling
+bullCss = input.color(#089981, 'Bullish Elements', group = 'Style')
+bearCss = input.color(#ff5252, 'Bearish Elements', group = 'Style')
+
+showChoch = input.bool(true, "Show CHoCH", group = 'Style')
+showBos   = input.bool(true, "Show BOS", group = 'Style')
+
+showIdm = input.bool(true, "Show Inducements", inline = 'idm', group = 'Style')
+idmCss  = input.color(color.gray, "", inline = 'idm', group = 'Style')
+
+showSweeps = input.bool(true, "Show Sweeps", inline = 'sweeps', group = 'Style')
+sweepsCss  = input.color(color.gray, "", inline = 'sweeps', group = 'Style')
+
+showCircles = input.bool(true, "Show Swings", group = 'Style')
+
+//---------------------------------------------------------------------------------------------------------------------}
+//Functions
+//---------------------------------------------------------------------------------------------------------------------{
+n = bar_index
+
+// swings(len): หา swing high / swing low แบบ "ย้อนหลัง len แท่ง"
+//   - ดูแท่งที่ len แท่งก่อน (high[len], low[len]) เทียบกับ highest/lowest ของ len แท่งล่าสุด
+//   - high[len] > highest(len)  => แท่งนั้นสูงกว่าทุกแท่งหลังจากมัน -> สถานะ os = 0 (กำลังอยู่ที่ยอด)
+//   - low[len]  < lowest(len)   => แท่งนั้นต่ำกว่าทุกแท่งหลังจากมัน -> สถานะ os = 1 (กำลังอยู่ที่ก้น)
+//   - top จะมีค่าเฉพาะแท่งที่ os เพิ่งเปลี่ยนเป็น 0, btm เฉพาะแท่งที่ os เพิ่งเปลี่ยนเป็น 1 (นอกนั้น na)
+//   หมายเหตุ: swing จะ "ยืนยัน" ช้ากว่าจริง len แท่งเสมอ (ไม่ repaint แต่ lag)
+swings(len)=>
+    var os = 0
+    var int topx = na
+    var int btmx = na
+
+    upper = ta.highest(len)
+    lower = ta.lowest(len)
+
+    os := high[len] > upper ? 0 : low[len] < lower ? 1 : os[1]
+
+    newTop = os == 0 and os[1] != 0
+    newBtm = os == 1 and os[1] != 1
+
+    top  = newTop ? high[len] : na
+    topx := newTop ? n[len] : topx
+
+    btm  = newBtm ? low[len] : na
+    btmx := newBtm ? n[len] : btmx
+
+    [top, topx, btm, btmx]
+
+//---------------------------------------------------------------------------------------------------------------------}
+//Swings
+//---------------------------------------------------------------------------------------------------------------------{
+[top, topx, btm, btmx]         = swings(len)        // swing ใหญ่ -> CHoCH
+[stop, stopx, sbtm, sbtmx]     = swings(shortLen)   // swing เล็ก -> IDM
+
+var os = 0                  // ทิศทางโครงสร้างปัจจุบัน: 1 = Bullish, 0 = Bearish
+var top_crossed = false     // swing high ใหญ่ล่าสุดถูก close ทะลุไปแล้วหรือยัง
+var btm_crossed = false     // swing low ใหญ่ล่าสุดถูก close ทะลุไปแล้วหรือยัง
+
+var float max = na          // trailing high สูงสุดนับตั้งแต่ CHoCH ล่าสุด (ระดับ BOS ขาขึ้น)
+var float min = na          // trailing low ต่ำสุดนับตั้งแต่ CHoCH ล่าสุด (ระดับ BOS ขาลง)
+
+var int max_x1 = na         // bar_index ที่เกิด max
+var int min_x1 = na         // bar_index ที่เกิด min
+
+var float topy = na         // ราคา swing high ใหญ่ล่าสุด (ระดับ CHoCH ขาขึ้น)
+var float btmy = na         // ราคา swing low ใหญ่ล่าสุด (ระดับ CHoCH ขาลง)
+var stop_crossed = false    // IDM ขาลงเกิดแล้ว (swing high เล็กถูกแทงด้วย high)
+var sbtm_crossed = false    // IDM ขาขึ้นเกิดแล้ว (swing low เล็กถูกแทงด้วย low)
+
+//---------------------------------------------------------------------------------------------------------------------}
+//CHoCH Detection
+//---------------------------------------------------------------------------------------------------------------------{
+// มี swing ใหม่ -> จำระดับ และรีเซ็ตสถานะ "ถูกทะลุ"
+if not na(top)
+    topy := top
+    top_crossed := false
+if not na(btm)
+    btmy := btm
+    btm_crossed := false
+
+// [เงื่อนไข CHoCH] ใช้ราคาปิด (close) ทะลุ swing ใหญ่ ครั้งแรก
+cond_chochBullBreak = close > topy and not top_crossed
+if cond_chochBullBreak
+    os := 1
+    top_crossed := true
+
+cond_chochBearBreak = close < btmy and not btm_crossed
+if cond_chochBearBreak
+    os := 0
+    btm_crossed := true
+
+// CHoCH จะถูก "แสดง" เมื่อทิศทาง os เปลี่ยนจริงเท่านั้น
+// (ถ้า close ทะลุ swing high ตอนที่ os = 1 อยู่แล้ว จะไม่นับเป็น CHoCH)
+cond_choch     = os != os[1]
+cond_chochBull = cond_choch and os == 1
+cond_chochBear = cond_choch and os == 0
+
+if cond_choch
+    // เริ่ม leg ใหม่: ตั้ง trailing max/min ที่แท่งนี้ และรีเซ็ต IDM
+    max := high
+    min := low
+    max_x1 := n
+    min_x1 := n
+    stop_crossed := false
+    sbtm_crossed := false
+
+    if os == 1 and showChoch
+        line.new(topx, topy, n, topy, color = bullCss, style = line.style_dashed)
+        label.new(int(math.avg(n, topx)), topy, 'CHoCH', color = color(na), style = label.style_label_down, textcolor = bullCss, size = size.tiny)
+    else if showChoch
+        line.new(btmx, btmy, n, btmy, color = bearCss, style = line.style_dashed)
+        label.new(int(math.avg(n, btmx)), btmy, 'CHoCH', color = color(na), style = label.style_label_up, textcolor = bearCss, size = size.tiny)
+
+// ระดับ swing เล็กล่าสุด (fixnan = ถือค่าเดิมไว้จนกว่าจะมี swing ใหม่)
+stopy = fixnan(stop)
+sbtmy = fixnan(sbtm)
+
+//---------------------------------------------------------------------------------------------------------------------}
+//Bullish BOS
+//---------------------------------------------------------------------------------------------------------------------{
+// [เงื่อนไข IDM ขาขึ้น]
+//   - low แทงลงใต้ swing low เล็ก (ใช้ไส้เทียนได้ ไม่ต้องปิด)
+//   - ยังไม่เคยนับ IDM ใน leg นี้
+//   - โครงสร้างเป็นขาขึ้น (os == 1)
+//   - swing low เล็กนั้นต้องไม่ใช่ระดับเดียวกับ swing low ใหญ่ (กันไม่ให้ IDM ซ้อนกับระดับ CHoCH)
+cond_idmBull = low < sbtmy and not sbtm_crossed and os == 1 and sbtmy != btmy
+if cond_idmBull
+    if showIdm
+        line.new(sbtmx, sbtmy, n, sbtmy, color = idmCss, style = line.style_dotted)
+        label.new(int(math.avg(n, sbtmx)), sbtmy, 'IDM', color = color(na), style = label.style_label_up, textcolor = idmCss, size = size.tiny)
+
+    sbtm_crossed := true
+
+// [เงื่อนไข BOS ขาขึ้น]
+//   - close ปิดเหนือ trailing max (high สูงสุดของ leg)
+//   - ต้องมี IDM ขาขึ้นเกิดก่อนแล้ว (sbtm_crossed)  <- หัวใจของ indicator นี้
+//   - โครงสร้างเป็นขาขึ้น
+// เกิด BOS แล้วรีเซ็ต IDM -> BOS ถัดไปต้องรอ IDM ใหม่อีกครั้ง
+cond_bosBull = close > max and sbtm_crossed and os == 1
+if cond_bosBull
+    if showBos
+        line.new(max_x1, max, n, max, color = bullCss)
+        label.new(int(math.avg(n, max_x1)), max, 'BOS', color = color(na), style = label.style_label_down, textcolor = bullCss, size = size.tiny)
+
+    sbtm_crossed := false
+
+//---------------------------------------------------------------------------------------------------------------------}
+//Bearish BOS
+//---------------------------------------------------------------------------------------------------------------------{
+// [เงื่อนไข IDM ขาลง] กลับด้านของขาขึ้น
+cond_idmBear = high > stopy and not stop_crossed and os == 0 and stopy != topy
+if cond_idmBear
+    if showIdm
+        // ต้นฉบับใช้ color.gray ตรงนี้ -> เปลี่ยนเป็น idmCss
+        line.new(stopx, stopy, n, stopy, color = idmCss, style = line.style_dotted)
+        label.new(int(math.avg(n, stopx)), stopy, 'IDM', color = color(na), style = label.style_label_down, textcolor = idmCss, size = size.tiny)
+
+    stop_crossed := true
+
+// [เงื่อนไข BOS ขาลง]
+cond_bosBear = close < min and stop_crossed and os == 0
+if cond_bosBear
+    if showBos
+        line.new(min_x1, min, n, min, color = bearCss)
+        label.new(int(math.avg(n, min_x1)), min, 'BOS', color = color(na), style = label.style_label_up, textcolor = bearCss, size = size.tiny)
+
+    stop_crossed := false
+
+//---------------------------------------------------------------------------------------------------------------------}
+//Sweeps
+//---------------------------------------------------------------------------------------------------------------------{
+// [เงื่อนไข Sweep] ไส้เทียนกวาดเหนือ/ใต้ trailing extreme แต่ราคาปิดกลับเข้ามา
+//   - n - max_x1 > 1 : extreme ต้องเกิดก่อนอย่างน้อย 2 แท่ง (กันการนับแท่งติดกัน)
+//   - ไม่มีเงื่อนไข IDM -> sweep เกิดได้ทุกเมื่อในทิศทางของโครงสร้าง
+cond_sweepBull = high > max and close < max and os == 1 and n - max_x1 > 1   // กวาด high ในขาขึ้น
+cond_sweepBear = low < min and close > min and os == 0 and n - min_x1 > 1    // กวาด low ในขาลง
+
+if cond_sweepBull and showSweeps
+    line.new(max_x1, max, n, max, color = sweepsCss, style = line.style_dotted)
+    label.new(int(math.avg(n, max_x1)), max, 'x', color = color(na), style = label.style_label_down, textcolor = sweepsCss)
+
+if cond_sweepBear and showSweeps
+    line.new(min_x1, min, n, min, color = sweepsCss, style = line.style_dotted)
+    label.new(int(math.avg(n, min_x1)), min, 'x', color = color(na), style = label.style_label_up, textcolor = sweepsCss)
+
+//Trailing max/min
+// อัปเดตหลังเช็ก BOS/Sweep เสมอ (ถ้าย้ายขึ้นไปก่อน เงื่อนไข close > max จะไม่มีวันเป็นจริง)
+max := math.max(high, max)
+min := math.min(low, min)
+
+if max > max[1]
+    max_x1 := n
+if min < min[1]
+    min_x1 := n
+
+//---------------------------------------------------------------------------------------------------------------------}
+//Extensions
+//---------------------------------------------------------------------------------------------------------------------{
+// เส้น "รอการทะลุ" บนแท่งล่าสุด: ระดับ CHoCH ฝั่งตรงข้าม, ระดับ BOS ถัดไป, และ IDM ที่ยังไม่ถูกแทง
+var ext_choch = line.new(na,na,na,na, style = line.style_dashed)
+var ext_bos   = line.new(na,na,na,na)
+var ext_idm   = line.new(na,na,na,na, style = line.style_dotted, color = idmCss)
+
+var ext_choch_lbl = label.new(na,na, 'CHoCH', color = color(na), size = size.tiny)
+var ext_bos_lbl   = label.new(na,na, 'BOS'  , color = color(na), size = size.tiny)
+var ext_idm_lbl   = label.new(na,na, 'IDM'  , color = color(na), size = size.tiny, textcolor = idmCss)
+
+if barstate.islast
+    if os == 1
+        if showChoch
+            ext_choch.set_xy1(btmx, btmy), ext_choch.set_xy2(n, btmy), ext_choch.set_color(bearCss)
+            ext_choch_lbl.set_xy(n, btmy), ext_choch_lbl.set_style(label.style_label_up), ext_choch_lbl.set_textcolor(bearCss)
+
+        if showBos
+            ext_bos.set_xy1(max_x1, max), ext_bos.set_xy2(n, max), ext_bos.set_color(bullCss)
+            ext_bos_lbl.set_xy(n, max), ext_bos_lbl.set_style(label.style_label_down), ext_bos_lbl.set_textcolor(bullCss)
+
+        if not sbtm_crossed and showIdm
+            ext_idm.set_xy1(sbtmx, sbtmy), ext_idm.set_xy2(n+15, sbtmy)
+            ext_idm_lbl.set_xy(n+15, sbtmy), ext_idm_lbl.set_style(label.style_label_up)
+            ext_idm.set_color(idmCss), ext_idm_lbl.set_textcolor(idmCss)
+        else
+            ext_idm.set_color(na)
+            ext_idm_lbl.set_textcolor(na)
+    else
+        if showChoch
+            ext_choch.set_xy1(topx, topy), ext_choch.set_xy2(n, topy), ext_choch.set_color(bullCss)
+            ext_choch_lbl.set_xy(n, topy), ext_choch_lbl.set_style(label.style_label_down), ext_choch_lbl.set_textcolor(bullCss)
+
+        if showBos
+            ext_bos.set_xy1(min_x1, min), ext_bos.set_xy2(n, min), ext_bos.set_color(bearCss)
+            ext_bos_lbl.set_xy(n, min), ext_bos_lbl.set_style(label.style_label_up), ext_bos_lbl.set_textcolor(bearCss)
+
+        if not stop_crossed and showIdm
+            ext_idm.set_xy1(stopx, stopy), ext_idm.set_xy2(n+15, stopy)
+            ext_idm_lbl.set_xy(n+15, stopy), ext_idm_lbl.set_style(label.style_label_down)
+            ext_idm.set_color(idmCss), ext_idm_lbl.set_textcolor(idmCss)
+        else
+            ext_idm.set_color(na)
+            ext_idm_lbl.set_textcolor(na)
+
+//---------------------------------------------------------------------------------------------------------------------}
+//Plots
+//---------------------------------------------------------------------------------------------------------------------{
+plot(showCircles ? top : na, 'Swing High', color.new(bearCss, 50), 5, plot.style_circles, offset = -len)
+plot(showCircles ? btm : na, 'Swing Low', color.new(bullCss, 50), 5, plot.style_circles, offset = -len)
+
+//---------------------------------------------------------------------------------------------------------------------}
+//Alerts (เพิ่มใหม่ ไม่มีในต้นฉบับ)
+//---------------------------------------------------------------------------------------------------------------------{
+alertcondition(cond_chochBull, 'Bullish CHoCH', 'Bullish CHoCH on {{ticker}} @ {{close}}')
+alertcondition(cond_chochBear, 'Bearish CHoCH', 'Bearish CHoCH on {{ticker}} @ {{close}}')
+alertcondition(cond_bosBull,   'Bullish BOS',   'Bullish BOS on {{ticker}} @ {{close}}')
+alertcondition(cond_bosBear,   'Bearish BOS',   'Bearish BOS on {{ticker}} @ {{close}}')
+alertcondition(cond_idmBull,   'Bullish IDM',   'Bullish IDM taken on {{ticker}} @ {{close}}')
+alertcondition(cond_idmBear,   'Bearish IDM',   'Bearish IDM taken on {{ticker}} @ {{close}}')
+alertcondition(cond_sweepBull, 'Bullish Sweep (high swept)', 'High swept on {{ticker}} @ {{close}}')
+alertcondition(cond_sweepBear, 'Bearish Sweep (low swept)',  'Low swept on {{ticker}} @ {{close}}')
+
+//---------------------------------------------------------------------------------------------------------------------}
