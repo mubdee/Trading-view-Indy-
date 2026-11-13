@@ -2,19 +2,19 @@
 // © LuxAlgo
 //
 // ไฟล์นี้คือ "เวอร์ชันสำหรับแก้ไข" ของ Market Structure with Inducements & Sweeps [LuxAlgo]
-// ไฟล์หลักอยู่ใน original.pine (Pine v5, ไฟล์เดียวกันในโฟลเดอร์นี้) ไฟล์นี้ใช้ v5 และ syntax input(...) แบบเดียวกัน
+// ไฟล์หลักอยู่ใน original.pine (Pine v5, ไฟล์เดียวกันในโฟลเดอร์นี้) ไฟล์นี้ใช้ Pine v6 แต่ใช้ syntax input(...) แบบเดียวกับไฟล์หลัก
 //
 // สิ่งที่ต่างจากต้นฉบับ:
 //   1) แยกเงื่อนไขทุกตัวออกมาเป็นตัวแปร bool ที่มีชื่อ (cond_*) ให้แก้ทีละเงื่อนไขได้ง่าย
 //   2) ใส่คอมเมนต์ภาษาไทยอธิบายแต่ละขั้น
 //   3) แก้จุดเล็ก ๆ: IDM ฝั่ง Bearish ในต้นฉบับใช้ color.gray ตายตัว -> เปลี่ยนเป็น idmCss
 //      ให้ตรงกับสีที่ตั้งใน Settings (ฝั่ง Bullish ใช้ idmCss อยู่แล้ว)
-//   4) เขียน `if top` เป็น `if not na(top)` ให้ชัดเจน (ผลลัพธ์เหมือนเดิม และย้ายไป v6 ได้โดยไม่ต้องแก้)
+//   4) เขียน `if top` เป็น `if not na(top)` (จำเป็นใน v6 เพราะ v6 ไม่แปลง float เป็น bool ให้อัตโนมัติ ผลลัพธ์เหมือนเดิม)
 //   5) เพิ่ม alertcondition() ท้ายไฟล์ ใช้ตั้ง Alert ได้ (ไม่กระทบการวาดบนกราฟ)
 // นอกเหนือจากนี้ logic เหมือนต้นฉบับทุกอย่าง รวมถึงลำดับการคำนวณ
 // (ลำดับสำคัญมาก เพราะแต่ละขั้นอ่าน/เขียน state ชุดเดียวกันใน bar เดียวกัน)
 
-//@version=5
+//@version=6
 indicator("Market Structure with Inducements & Sweeps [LuxAlgo] (Editable)", "LuxAlgo - Market Structure with Inducements & Sweeps (Editable)", overlay = true, max_lines_count = 500, max_labels_count = 500)
 //---------------------------------------------------------------------------------------------------------------------}
 //Settings

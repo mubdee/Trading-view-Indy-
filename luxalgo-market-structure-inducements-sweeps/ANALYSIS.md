@@ -9,7 +9,7 @@
 
 **ที่มา:** [LuxAlgo Library](https://www.luxalgo.com/library/indicator/market-structure-with-inducements-sweeps/) และ [TradingView](https://www.tradingview.com/script/kMDlPZuz-Market-Structure-with-Inducements-Sweeps-LuxAlgo/), เผยแพร่ 26 ก.พ. 2024
 
-**เวอร์ชัน:** ไฟล์หลักและ `editable.pine` ใช้ **Pine Script v5** และ syntax `input(...)` (LuxAlgo Library แสดงเป็น v6 แต่ logic เหมือนกันทุกบรรทัด ดูรายละเอียดใน `MAIN-ANALYSIS.md`)
+**เวอร์ชัน:** ไฟล์หลัก `original.pine` ใช้ **Pine Script v5** ส่วน `editable.pine` ใช้ **Pine Script v6** ทั้งสองไฟล์ใช้ syntax `input(...)` แบบเดียวกัน และ logic เหมือนกัน (ดูรายละเอียดใน `MAIN-ANALYSIS.md`)
 
 **License:** [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) © LuxAlgo
 ใช้/แก้/แจกต่อได้ แต่ **ต้องให้เครดิต LuxAlgo**, **ห้ามใช้เชิงพาณิชย์**, และงานที่ดัดแปลงต้องใช้ license เดียวกัน (ไฟล์ทั้งสองจึงเก็บ header license ไว้)

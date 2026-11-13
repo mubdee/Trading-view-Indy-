@@ -133,12 +133,12 @@ btm = os == 1 and os[1] != 1 ? low[len]  : na                 // 46
 
 ## 6. ความสอดคล้องระหว่างไฟล์ (ใน branch `claude/main-analysis`)
 
-ปรับ `editable.pine` และ `ANALYSIS.md` ให้ตรงกับไฟล์หลักแล้ว **ไม่ได้แก้ `original.pine` และไม่ได้แตะ `main`**
+ปรับ `editable.pine` และ `ANALYSIS.md` ให้สอดคล้องกับไฟล์หลักแล้ว (`editable.pine` เปลี่ยนเป็น v6 ตามที่ขอ ส่วนไฟล์หลักยังเป็น v5) **ไม่ได้แก้ `original.pine` และไม่ได้แตะ `main`**
 
 | ไฟล์ | สถานะ |
 |---|---|
 | `original.pine` | ไฟล์หลัก v5 ไม่แก้ |
-| `editable.pine` | เปลี่ยนเป็น v5 และใช้ `input(...)` เหมือนไฟล์หลัก ชื่อ indicator ตามไฟล์หลักต่อท้าย "(Editable)" ให้แยกกันได้บนกราฟ logic เหมือนเดิม |
+| `editable.pine` | **Pine v6** ใช้ `input(...)` เหมือนไฟล์หลัก ชื่อ indicator ตามไฟล์หลักต่อท้าย "(Editable)" ให้แยกกันได้บนกราฟ logic เหมือนไฟล์หลัก |
 | `ANALYSIS.md` | แก้คำอธิบายเวอร์ชันเป็น v5 และระบุว่า `original.pine` คือไฟล์หลัก |
 
-สิ่งที่ `editable.pine` ยังต่างจากไฟล์หลักโดยตั้งใจ: แยกเงื่อนไขเป็น `cond_*`, สี IDM ขาลงใช้ `idmCss`, `if not na(top)` และเพิ่ม `alertcondition` 8 ตัว
+สิ่งที่ `editable.pine` ยังต่างจากไฟล์หลักโดยตั้งใจ: เวอร์ชัน v6, แยกเงื่อนไขเป็น `cond_*`, สี IDM ขาลงใช้ `idmCss`, `if not na(top)` และเพิ่ม `alertcondition` 8 ตัว
