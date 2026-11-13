@@ -131,14 +131,14 @@ btm = os == 1 and os[1] != 1 ? low[len]  : na                 // 46
 4. **object จำกัด 500 เส้น / 500 label** (บรรทัด 5)
 5. `os` เริ่มที่ 0 ช่วงต้นกราฟก่อน CHoCH แรกจึงทำงานเป็นขาลง
 
-## 6. ความไม่ตรงกันระหว่างไฟล์ใน `main`
+## 6. ความสอดคล้องระหว่างไฟล์ (ใน branch `claude/main-analysis`)
 
-ข้อนี้แจ้งไว้เฉยๆ **ไม่ได้แก้อะไร**
+ปรับ `editable.pine` และ `ANALYSIS.md` ให้ตรงกับไฟล์หลักแล้ว **ไม่ได้แก้ `original.pine` และไม่ได้แตะ `main`**
 
 | ไฟล์ | สถานะ |
 |---|---|
-| `original.pine` | v5 (ไฟล์หลักที่แก้แล้ว) |
-| `editable.pine` | ยังเป็น v6, ใช้ `input.int` / `input.color` / `input.bool`, ชื่อ indicator แบบ "(Editable)" แต่ logic ตรงกับไฟล์หลัก |
-| `ANALYSIS.md` | ยังเขียนว่าต้นฉบับเป็น v6 และ "ตรงตาม LuxAlgo ทุกบรรทัด" ซึ่งไม่ตรงกับไฟล์หลักแล้ว |
+| `original.pine` | ไฟล์หลัก v5 ไม่แก้ |
+| `editable.pine` | เปลี่ยนเป็น v5 และใช้ `input(...)` เหมือนไฟล์หลัก ชื่อ indicator ตามไฟล์หลักต่อท้าย "(Editable)" ให้แยกกันได้บนกราฟ logic เหมือนเดิม |
+| `ANALYSIS.md` | แก้คำอธิบายเวอร์ชันเป็น v5 และระบุว่า `original.pine` คือไฟล์หลัก |
 
-ถ้าต้องการให้ `editable.pine` / `ANALYSIS.md` ตรงกับไฟล์หลัก (v5) แจ้งได้ จะทำใน branch แยกเหมือนเดิม
+สิ่งที่ `editable.pine` ยังต่างจากไฟล์หลักโดยตั้งใจ: แยกเงื่อนไขเป็น `cond_*`, สี IDM ขาลงใช้ `idmCss`, `if not na(top)` และเพิ่ม `alertcondition` 8 ตัว

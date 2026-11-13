@@ -2,40 +2,40 @@
 // © LuxAlgo
 //
 // ไฟล์นี้คือ "เวอร์ชันสำหรับแก้ไข" ของ Market Structure with Inducements & Sweeps [LuxAlgo]
-// ต้นฉบับที่ไม่ได้แก้ไขอยู่ใน original.pine (ไฟล์เดียวกันในโฟลเดอร์นี้)
+// ไฟล์หลักอยู่ใน original.pine (Pine v5, ไฟล์เดียวกันในโฟลเดอร์นี้) ไฟล์นี้ใช้ v5 และ syntax input(...) แบบเดียวกัน
 //
 // สิ่งที่ต่างจากต้นฉบับ:
 //   1) แยกเงื่อนไขทุกตัวออกมาเป็นตัวแปร bool ที่มีชื่อ (cond_*) ให้แก้ทีละเงื่อนไขได้ง่าย
 //   2) ใส่คอมเมนต์ภาษาไทยอธิบายแต่ละขั้น
 //   3) แก้จุดเล็ก ๆ: IDM ฝั่ง Bearish ในต้นฉบับใช้ color.gray ตายตัว -> เปลี่ยนเป็น idmCss
 //      ให้ตรงกับสีที่ตั้งใน Settings (ฝั่ง Bullish ใช้ idmCss อยู่แล้ว)
-//   4) เขียน `if top` เป็น `if not na(top)` ให้ชัดเจน (ผลลัพธ์เหมือนเดิม)
+//   4) เขียน `if top` เป็น `if not na(top)` ให้ชัดเจน (ผลลัพธ์เหมือนเดิม และย้ายไป v6 ได้โดยไม่ต้องแก้)
 //   5) เพิ่ม alertcondition() ท้ายไฟล์ ใช้ตั้ง Alert ได้ (ไม่กระทบการวาดบนกราฟ)
 // นอกเหนือจากนี้ logic เหมือนต้นฉบับทุกอย่าง รวมถึงลำดับการคำนวณ
 // (ลำดับสำคัญมาก เพราะแต่ละขั้นอ่าน/เขียน state ชุดเดียวกันใน bar เดียวกัน)
 
-//@version=6
-indicator("Market Structure with Inducements & Sweeps (Editable)", "MS IDM Sweeps (Edit)", overlay = true, max_lines_count = 500, max_labels_count = 500)
+//@version=5
+indicator("Market Structure with Inducements & Sweeps [LuxAlgo] (Editable)", "LuxAlgo - Market Structure with Inducements & Sweeps (Editable)", overlay = true, max_lines_count = 500, max_labels_count = 500)
 //---------------------------------------------------------------------------------------------------------------------}
 //Settings
 //---------------------------------------------------------------------------------------------------------------------{
-len      = input.int(50, 'CHoCH Detection Period')   // swing ใหญ่: ใช้หา CHoCH (ยิ่งมาก ยิ่งเป็นโครงสร้างระยะยาว)
-shortLen = input.int(3, 'IDM Detection Period')      // swing เล็ก: ใช้หา IDM (pullback ภายในเทรนด์)
+len      = input(50, 'CHoCH Detection Period')   // swing ใหญ่: ใช้หา CHoCH (ยิ่งมาก ยิ่งเป็นโครงสร้างระยะยาว)
+shortLen = input(3, 'IDM Detection Period')      // swing เล็ก: ใช้หา IDM (pullback ภายในเทรนด์)
 
 //Styling
-bullCss = input.color(#089981, 'Bullish Elements', group = 'Style')
-bearCss = input.color(#ff5252, 'Bearish Elements', group = 'Style')
+bullCss = input(#089981, 'Bullish Elements', group = 'Style')
+bearCss = input(#ff5252, 'Bearish Elements', group = 'Style')
 
-showChoch = input.bool(true, "Show CHoCH", group = 'Style')
-showBos   = input.bool(true, "Show BOS", group = 'Style')
+showChoch = input(true, "Show CHoCH", group = 'Style')
+showBos   = input(true, "Show BOS", group = 'Style')
 
-showIdm = input.bool(true, "Show Inducements", inline = 'idm', group = 'Style')
-idmCss  = input.color(color.gray, "", inline = 'idm', group = 'Style')
+showIdm = input(true, "Show Inducements", inline = 'idm', group = 'Style')
+idmCss  = input(color.gray, "", inline = 'idm', group = 'Style')
 
-showSweeps = input.bool(true, "Show Sweeps", inline = 'sweeps', group = 'Style')
-sweepsCss  = input.color(color.gray, "", inline = 'sweeps', group = 'Style')
+showSweeps = input(true, "Show Sweeps", inline = 'sweeps', group = 'Style')
+sweepsCss  = input(color.gray, "", inline = 'sweeps', group = 'Style')
 
-showCircles = input.bool(true, "Show Swings", group = 'Style')
+showCircles = input(true, "Show Swings", group = 'Style')
 
 //---------------------------------------------------------------------------------------------------------------------}
 //Functions

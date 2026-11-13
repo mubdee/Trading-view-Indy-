@@ -2,11 +2,14 @@
 
 | ไฟล์ | ใช้ทำอะไร |
 |---|---|
-| [`original.pine`](original.pine) | โค้ดต้นฉบับ ตรงตามที่ LuxAlgo เผยแพร่ทุกบรรทัด ห้ามแก้ (ไว้เทียบ) |
+| [`original.pine`](original.pine) | **ไฟล์หลัก** (Pine v5) ห้ามแก้ ใช้เทียบ |
 | [`editable.pine`](editable.pine) | เวอร์ชันสำหรับแก้ไข: แยกเงื่อนไขเป็นตัวแปร `cond_*` มีคอมเมนต์ภาษาไทย และเพิ่ม Alert |
 | `ANALYSIS.md` | เอกสารนี้ |
+| [`MAIN-ANALYSIS.md`](MAIN-ANALYSIS.md) | วิเคราะห์ไฟล์หลักพร้อมเลขบรรทัด และสิ่งที่เปลี่ยนจากเวอร์ชัน v6 ของ LuxAlgo Library |
 
-**ที่มา:** [LuxAlgo Library](https://www.luxalgo.com/library/indicator/market-structure-with-inducements-sweeps/) และ [TradingView](https://www.tradingview.com/script/kMDlPZuz-Market-Structure-with-Inducements-Sweeps-LuxAlgo/), เผยแพร่ 26 ก.พ. 2024, Pine Script v6
+**ที่มา:** [LuxAlgo Library](https://www.luxalgo.com/library/indicator/market-structure-with-inducements-sweeps/) และ [TradingView](https://www.tradingview.com/script/kMDlPZuz-Market-Structure-with-Inducements-Sweeps-LuxAlgo/), เผยแพร่ 26 ก.พ. 2024
+
+**เวอร์ชัน:** ไฟล์หลักและ `editable.pine` ใช้ **Pine Script v5** และ syntax `input(...)` (LuxAlgo Library แสดงเป็น v6 แต่ logic เหมือนกันทุกบรรทัด ดูรายละเอียดใน `MAIN-ANALYSIS.md`)
 
 **License:** [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) © LuxAlgo
 ใช้/แก้/แจกต่อได้ แต่ **ต้องให้เครดิต LuxAlgo**, **ห้ามใช้เชิงพาณิชย์**, และงานที่ดัดแปลงต้องใช้ license เดียวกัน (ไฟล์ทั้งสองจึงเก็บ header license ไว้)
