@@ -15,8 +15,8 @@ pvRight = input.int(3, "0.2 Pivot: แท่งขวา (ยืนยัน)", 
 grpR = "2) Rejection Block (RJB)"
 showRJB       = input.bool(true,  "0.3 แสดง RJB (กล่องที่ไส้แท่งกวาด)",                 group = grpR)
 rjbExtendBars = input.int(10,     "0.3b ยืดกล่องไปทางขวา (แท่ง)", minval = 1,             group = grpR)
-wickBodyMin   = input.float(1.5,  "0.4 [R2] ไส้ / เนื้อเทียน ขั้นต่ำ (เท่า)", minval = 0, step = 0.1,  group = grpR)
-wickRangeMin  = input.float(0.5,  "0.5 [R3] ไส้ / ความยาวแท่ง ขั้นต่ำ",      minval = 0, maxval = 1, step = 0.05, group = grpR)
+wickBodyMin   = input.float(1.0,  "0.4 [R2] ไส้ / เนื้อเทียน ขั้นต่ำ (เท่า)", minval = 0, step = 0.1,  group = grpR)
+wickRangeMin  = input.float(0.4,  "0.5 [R3] ไส้ / ความยาวแท่ง ขั้นต่ำ",      minval = 0, maxval = 1, step = 0.05, group = grpR)
 rjbNeedColor  = input.bool(false, "0.6 [R4] บังคับสีแท่งกวาด (Bear=แดง, Bull=เขียว)",   group = grpR)
 keepTouched   = input.bool(true,  "0.8 [R5] เก็บโซนไว้หลังถูกแตะ",                      group = grpR)
 maxRJB        = input.int(10,     "0.9 จำนวนโซนสูงสุดต่อฝั่ง", minval = 1,               group = grpR)
@@ -24,13 +24,14 @@ bullRJBCol    = input.color(color.new(color.teal, 75), "0.10 สี Bullish RJB"
 bearRJBCol    = input.color(color.new(color.red,  75), "0.10 สี Bearish RJB",           group = grpR)
 touchedCol    = input.color(color.new(color.gray, 85), "0.10 สีโซนที่ถูกแตะแล้ว",       group = grpR)
 piercedCol    = input.color(color.new(color.gray, 93), "0.7 สีโซนที่ไส้ทะลุแล้ว (จาง)", group = grpR)
+brokenCol     = input.color(color.new(color.gray, 96), "0.7 สีโซนที่ราคาปิดทะลุแล้ว (จางมาก)", group = grpR)
 
 grpS = "3) Liquidity Grab (SFP)"
-showSFP        = input.bool(false, "0.11 แสดง SFP (เส้น + ป้าย)",                       group = grpS)
+showSFP        = input.bool(true,  "0.11 แสดง SFP (เส้น + ป้าย)",                       group = grpS)
 sfpLookback    = input.int(100,    "0.12 [S5] อายุ swing สูงสุด (แท่ง)", minval = 5,     group = grpS)
 sfpMinPenAtr   = input.float(0.0,  "0.13 [S2] ระยะทะลุ swing ขั้นต่ำ (x ATR)", minval = 0, step = 0.05, group = grpS)
 sfpNeedColor   = input.bool(false, "0.14 [S4] บังคับสีแท่งยืนยัน (Bear=แดง, Bull=เขียว)", group = grpS)
-sfpConfirmBars = input.int(20,     "0.16 ต้องยืนยันภายใน (แท่ง)", minval = 1,           group = grpS)
+sfpConfirmBars = input.int(40,    "0.16 ต้องยืนยันภายใน (แท่ง)", minval = 1,           group = grpS)
 bullSFPCol     = input.color(color.teal, "สี Bullish SFP",                              group = grpS)
 bearSFPCol     = input.color(color.red,  "สี Bearish SFP",                              group = grpS)
 
@@ -62,7 +63,7 @@ type Pending
     float sH
     float sL
     float sC
-    float lvl             // เส้นยืนยัน (swing ฝั่งตรงข้ามล่าสุด)
+    float lvl             // เส้นยืนยัน (Low/High ของแท่งกวาด)
     int   lvlIdx
 
 var array<Zone>  bullZones  = array.new<Zone>()
@@ -71,10 +72,6 @@ var array<Swing> swingHighs = array.new<Swing>()
 var array<Swing> swingLows  = array.new<Swing>()
 var Pending bearP = Pending.new()
 var Pending bullP = Pending.new()
-var float lastPH    = na
-var int   lastPHIdx = na
-var float lastPL    = na
-var int   lastPLIdx = na
 
 // ============================================================================
 // ส่วนที่ 1 — หา Pivot (1.1–1.2)
@@ -93,9 +90,10 @@ manageZones(array<Zone> zs) =>
             z = zs.get(i)
             bool closeThru = z.dir == -1 ? close > z.top : close < z.bottom
             bool wickThru  = z.dir == -1 ? high  > z.top : low   < z.bottom
-            // 3.1 / 3.3 ขั้นที่ 2: ราคาปิดทะลุ → ลบโซน
+            // 3.1 / 3.3 ขั้นที่ 2: ราคาปิดทะลุ → โซนจางมาก แล้วเลิกติดตาม (ไม่ลบ ให้เห็นประวัติ)
             if closeThru
-                z.bx.delete()
+                z.bx.set_bgcolor(brokenCol)
+                z.bx.set_border_color(brokenCol)
                 zs.remove(i)
                 continue
             // 3.1 / 3.3 ขั้นที่ 1: ไส้ทะลุ → โซนจางลง
@@ -162,14 +160,14 @@ addZone(array<Zone> zs, float top, float bottom, int dir, int left, color col) =
     b = box.new(left, top, right, bottom, border_color = col, bgcolor = col)
     zs.unshift(Zone.new(b, top, bottom, dir))
     if zs.size() > maxRJB
-        old = zs.pop()
-        old.bx.delete()
+        zs.pop()                    // 4.8 เลิกติดตามโซนเก่าสุด (กล่องยังอยู่บนกราฟ)
 
-// 2.3d / 2.6d แท่งกวาดใหม่ แทนที่ตัวที่รออยู่ — จำเส้นยืนยัน = swing ฝั่งตรงข้ามล่าสุด
-if bearSweep and not na(lastPL)
-    bearP := Pending.new(true, bar_index, open, high, low, close, lastPL, lastPLIdx)
-if bullSweep and not na(lastPH)
-    bullP := Pending.new(true, bar_index, open, high, low, close, lastPH, lastPHIdx)
+// 2.3d / 2.6d แท่งกวาดใหม่ แทนที่ตัวที่รออยู่
+// 2.3a / 2.6a เส้นยืนยัน = Low ของแท่งกวาด (Bear) / High ของแท่งกวาด (Bull)
+if bearSweep
+    bearP := Pending.new(true, bar_index, open, high, low, close, low, bar_index)
+if bullSweep
+    bullP := Pending.new(true, bar_index, open, high, low, close, high, bar_index)
 
 // ============================================================================
 // ส่วนที่ 2C + 4 — ยืนยัน SFP แล้วสร้าง RJB
@@ -222,14 +220,10 @@ if not na(ph)
     swingHighs.push(Swing.new(ph, pIdx))
     if swingHighs.size() > 50
         swingHighs.shift()
-    lastPH    := ph
-    lastPHIdx := pIdx
 if not na(pl)
     swingLows.push(Swing.new(pl, pIdx))
     if swingLows.size() > 50
         swingLows.shift()
-    lastPL    := pl
-    lastPLIdx := pIdx
 
 // ============================================================================
 // ส่วนที่ 5 — DEBUG ที่แท่งกวาด
@@ -254,8 +248,8 @@ if debugSweep and bullSweep
 // ============================================================================
 alertcondition(bearSweep,    "Bearish Sweep (รอยืนยัน)", "ไส้กวาดเหนือ swing high — รอยืนยัน SFP")
 alertcondition(bullSweep,    "Bullish Sweep (รอยืนยัน)", "ไส้กวาดใต้ swing low — รอยืนยัน SFP")
-alertcondition(bearSFP,      "Bearish SFP",              "ยืนยัน Bearish SFP: ปิดหลุด swing low")
-alertcondition(bullSFP,      "Bullish SFP",              "ยืนยัน Bullish SFP: ปิดเหนือ swing high")
+alertcondition(bearSFP,      "Bearish SFP",              "ยืนยัน Bearish SFP: ปิดหลุด Low ของแท่งกวาด")
+alertcondition(bullSFP,      "Bullish SFP",              "ยืนยัน Bullish SFP: ปิดเหนือ High ของแท่งกวาด")
 alertcondition(bearRJBNew,   "Bearish RJB ใหม่",         "Bearish Rejection Block ใหม่")
 alertcondition(bullRJBNew,   "Bullish RJB ใหม่",         "Bullish Rejection Block ใหม่")
 alertcondition(bearTouchNow, "แตะ Bearish RJB",          "ราคาแตะ Bearish RJB")
