@@ -1,0 +1,391 @@
+// ════════════════════════════════════════════════════════════════
+// SFP Pro — Sweep + MSS  (Pine Script v6)
+// Swing Failure Pattern ที่ต้องยืนยันด้วยการทะลุ swing ล่าสุดด้วยเนื้อเทียน
+// ดูคำอธิบาย: indicators/sfp/README.md
+// ════════════════════════════════════════════════════════════════
+//@version=6
+indicator("SFP Pro — Sweep + MSS", "SFP Pro", overlay = true, max_boxes_count = 100, max_lines_count = 300, max_labels_count = 200)
+
+// ═════════════════════════ INPUTS ═════════════════════════
+grpG = "General"
+confirmClose = input.bool(true, "ยืนยันเมื่อแท่งปิด", group = grpG, tooltip = "ปิด = เห็นสัญญาณ real-time ระหว่างแท่ง")
+
+grpS = "1) Liquidity Sweep"
+showBullS = input.bool(true, "Bullish SFP", inline = "s0", group = grpS)
+showBearS = input.bool(true, "Bearish SFP", inline = "s0", group = grpS)
+pivLeft   = input.int(5, "Swing (liquidity): Left", minval = 1, inline = "p", group = grpS)
+pivRight  = input.int(1, "Right", minval = 1, inline = "p", group = grpS)
+maxLv     = input.int(5, "จำนวน swing ที่ติดตาม (ต่อฝั่ง)", minval = 1, maxval = 30, group = grpS)
+rejMode   = input.string("Close", "แท่ง Sweep ต้องปิดกลับด้วย", options = ["Close", "Body"], group = grpS, tooltip = "Close = ราคาปิดกลับเข้ามาในระดับ\nBody = ทั้ง open และ close ต้องอยู่ในระดับ (มีแค่ไส้ที่ออกไป)")
+sweepMin  = input.float(0.0, "ระยะ sweep ขั้นต่ำ (x ATR)", minval = 0, step = 0.05, group = grpS, tooltip = "0 = ปิด")
+
+grpC = "2) Confirmation — ทะลุ Swing ล่าสุด (MSS)"
+intLeft   = input.int(2, "Swing ล่าสุด: Left", minval = 1, inline = "i", group = grpC)
+intRight  = input.int(1, "Right", minval = 1, inline = "i", group = grpC, tooltip = "ใช้หา swing low/high ล่าสุดก่อนเกิด sweep")
+breakMode = input.string("Close", "ทะลุด้วย", options = ["Close", "Full Body"], group = grpC, tooltip = "Close = ราคาปิด (เนื้อเทียน) ทะลุ\nFull Body = ทั้ง open และ close ต้องอยู่เลยระดับ")
+confBars  = input.int(20, "ต้องทะลุภายใน (แท่ง)", minval = 1, group = grpC)
+showPending = input.bool(true, "แสดง SFP ที่รอทะลุ (จาง ๆ)", group = grpC)
+
+grpD = "Display"
+maxShow  = input.int(1, "แสดง SFP ล่าสุด (ต่อฝั่ง)", minval = 1, maxval = 10, group = grpD)
+maxAge   = input.int(150, "ลบเมื่อเก่าเกิน (แท่ง) · 0 = ไม่จำกัด", minval = 0, group = grpD)
+showLbl  = input.bool(true, "Label SFP", inline = "d0", group = grpD)
+showLn   = input.bool(true, "เส้น Liquidity", inline = "d0", group = grpD)
+showMss  = input.bool(true, "เส้น MSS", inline = "d1", group = grpD)
+showWick = input.bool(false, "ไฮไลต์ไส้", inline = "d1", group = grpD)
+bullCol  = input.color(#089981, "Bull", inline = "d2", group = grpD)
+bearCol  = input.color(#f23645, "Bear", inline = "d2", group = grpD)
+txtSize  = input.string("small", "ขนาดตัวอักษร", options = ["tiny", "small", "normal"], group = grpD)
+
+grpZ = "SFP Zone"
+showZone = input.bool(true, "แสดงโซน", group = grpZ)
+zoneType = input.string("Wick ที่เกินระดับ", "ขอบเขตโซน", options = ["Wick ที่เกินระดับ", "ไส้ทั้งหมด (body → ปลายไส้)"], group = grpZ)
+zExt     = input.int(10, "ยื่นไปทางขวา (แท่ง)", minval = 0, group = grpZ)
+zBullCol = input.color(color.new(#089981, 85), "Bull", inline = "z", group = grpZ)
+zBearCol = input.color(color.new(#f23645, 85), "Bear", inline = "z", group = grpZ)
+
+grpV = "Volume Validation (LTF)"
+useVol  = input.bool(false, "ใช้ Volume กรอง SFP", group = grpV)
+volThr  = input.float(25, "Volume เลยระดับได้ไม่เกิน (%)", minval = 1, maxval = 100, group = grpV)
+ltfMode = input.string("Auto", "LTF Resolution", options = ["Auto", "Manual"], group = grpV)
+ltfMan  = input.timeframe("1", "Manual LTF", group = grpV)
+
+grpT = "Dashboard"
+showDash = input.bool(true, "แสดง Dashboard", group = grpT)
+dashPos  = input.string("Top Right", "ตำแหน่ง", options = ["Top Right", "Bottom Right", "Top Left", "Bottom Left"], group = grpT)
+
+// ═════════════════════════ HELPERS ═════════════════════════
+f_size(string s) =>
+    s == "tiny" ? size.tiny : s == "small" ? size.small : size.normal
+
+f_pos(string s) =>
+    s == "Top Right" ? position.top_right : s == "Bottom Right" ? position.bottom_right : s == "Top Left" ? position.top_left : position.bottom_left
+
+f_autoLTF() =>
+    s = timeframe.in_seconds()
+    s <= 60 ? timeframe.period : s <= 300 ? "1" : s <= 3600 ? "5" : s <= 14400 ? "15" : s <= 86400 ? "60" : "240"
+
+ltf      = ltfMode == "Auto" ? f_autoLTF() : ltfMan
+conf     = confirmClose ? barstate.isconfirmed : true
+bt       = math.max(open, close)
+bb       = math.min(open, close)
+atrV     = ta.atr(14)
+wickZone = zoneType == "Wick ที่เกินระดับ"
+rejBody  = rejMode == "Body"
+fullBody = breakMode == "Full Body"
+
+// ═════════════════════════ LTF VOLUME ═════════════════════════
+[ltfH, ltfL, ltfV] = request.security_lower_tf(syminfo.tickerid, ltf, [high, low, volume])
+
+f_beyondPct(float level, bool isBear) =>
+    float tot = 0.0
+    float out = 0.0
+    for [i, v] in ltfV
+        vv = nz(v)
+        tot += vv
+        if isBear ? ltfH.get(i) > level : ltfL.get(i) < level
+            out += vv
+    tot > 0 ? out / tot * 100 : na
+
+// ═════════════════════════ TYPES ═════════════════════════
+type Level
+    float price
+    int   bar
+
+type Sig
+    bool  bull
+    float lvl
+    int   lvlBar
+    int   bar
+    float ext
+    float edge
+    float trig
+    int   trigBar
+    int   expire
+    float pct
+    int   born
+    bool  drawn = false
+    label lb
+    label ml
+    line  ln
+    line  wk
+    line  cl
+    box   bx
+
+var array<Level> highsLv = array.new<Level>()
+var array<Level> lowsLv  = array.new<Level>()
+var array<Sig>   actBull = array.new<Sig>()
+var array<Sig>   actBear = array.new<Sig>()
+var Sig pBull = na
+var Sig pBear = na
+
+var string lastType  = "-"
+var float  lastPrice = na
+var float  lastPct   = na
+var string lastValid = "-"
+var float  lastTrig  = na
+
+// ═════════════════════════ SWING ล่าสุด (สำหรับ MSS) ═════════════════════════
+iph = ta.pivothigh(high, intLeft, intRight)
+ipl = ta.pivotlow(low, intLeft, intRight)
+var float lastSH    = na
+var int   lastSHBar = na
+var float lastSL    = na
+var int   lastSLBar = na
+if not na(iph)
+    lastSH    := iph
+    lastSHBar := bar_index - intRight
+if not na(ipl)
+    lastSL    := ipl
+    lastSLBar := bar_index - intRight
+
+// fallback ถ้ายังไม่มี swing ล่าสุด
+fbN      = intLeft + intRight + 1
+fbLow    = ta.lowest(low, fbN)[1]
+fbLowBar = bar_index - 1 + ta.lowestbars(low, fbN)[1]
+fbHigh   = ta.highest(high, fbN)[1]
+fbHighBar = bar_index - 1 + ta.highestbars(high, fbN)[1]
+
+// ═════════════════════════ FUNCTIONS ═════════════════════════
+f_delSig(Sig s) =>
+    if not na(s.lb)
+        s.lb.delete()
+    if not na(s.ml)
+        s.ml.delete()
+    if not na(s.ln)
+        s.ln.delete()
+    if not na(s.wk)
+        s.wk.delete()
+    if not na(s.cl)
+        s.cl.delete()
+    if not na(s.bx)
+        s.bx.delete()
+
+f_draw(Sig s, bool pend) =>
+    col = s.bull ? bullCol : bearCol
+    c   = pend ? color.new(col, 65) : col
+    tip = (s.bull ? "Bullish SFP" : "Bearish SFP") + "\nLiquidity: " + str.tostring(s.lvl, format.mintick) + "\nSweep: " + str.tostring(s.ext, format.mintick) + "\nMSS level: " + str.tostring(s.trig, format.mintick) + (useVol and not na(s.pct) ? "\nVol beyond: " + str.tostring(s.pct, "#.#") + "%" : "")
+    if showLbl
+        s.lb := label.new(s.bar, s.ext, pend ? "SFP ?" : "SFP", style = s.bull ? label.style_label_up : label.style_label_down, color = c, textcolor = pend ? color.new(color.white, 30) : color.white, size = f_size(txtSize), tooltip = tip)
+    if showLn
+        s.ln := line.new(s.lvlBar, s.lvl, s.bar, s.lvl, color = pend ? color.new(col, 50) : col, style = line.style_dashed)
+    if showWick
+        s.wk := line.new(s.bar, s.ext, s.bar, s.lvl, color = c, width = 3)
+    if showMss
+        s.cl := line.new(s.trigBar, s.trig, bar_index + 1, s.trig, color = color.new(col, 50), style = line.style_dotted)
+    s.drawn := true
+
+f_activate(Sig s, array<Sig> arr) =>
+    col = s.bull ? bullCol : bearCol
+    if not s.drawn
+        f_draw(s, false)
+    else
+        if not na(s.lb)
+            s.lb.set_text("SFP")
+            s.lb.set_color(col)
+            s.lb.set_textcolor(color.white)
+        if not na(s.ln)
+            s.ln.set_color(col)
+        if not na(s.wk)
+            s.wk.set_color(col)
+    if showMss and not na(s.cl)
+        s.cl.set_x2(bar_index)
+        s.cl.set_color(col)
+        s.cl.set_style(line.style_solid)
+        s.cl.set_width(2)
+        s.ml := label.new(math.round((s.trigBar + bar_index) / 2), s.trig, "MSS", style = s.bull ? label.style_label_down : label.style_label_up, color = color.new(color.black, 100), textcolor = col, size = size.tiny)
+    if showZone
+        top = s.bull ? (wickZone ? s.lvl : s.edge) : s.ext
+        bot = s.bull ? s.ext : (wickZone ? s.lvl : s.edge)
+        zc  = s.bull ? zBullCol : zBearCol
+        s.bx := box.new(s.bar, top, bar_index + zExt, bot, border_color = color.new(zc, 50), bgcolor = zc)
+    s.born := bar_index
+    arr.push(s)
+    if arr.size() > maxShow
+        f_delSig(arr.shift())
+    alert((s.bull ? "Bullish" : "Bearish") + " SFP + MSS confirmed | " + syminfo.ticker + " " + timeframe.period + " | Liquidity " + str.tostring(s.lvl, format.mintick) + " | MSS " + str.tostring(s.trig, format.mintick), alert.freq_once_per_bar_close)
+
+f_updActive(array<Sig> arr, bool canAct) =>
+    bool touched = false
+    if arr.size() > 0
+        for i = arr.size() - 1 to 0
+            s = arr.get(i)
+            dead = s.bull ? close < s.ext : close > s.ext
+            old  = maxAge > 0 and bar_index - s.bar > maxAge
+            if canAct and bar_index > s.born and (dead or old)
+                f_delSig(s)
+                arr.remove(i)
+            else if not na(s.bx)
+                if bar_index > s.born and high >= s.bx.get_bottom() and low <= s.bx.get_top()
+                    touched := true
+                s.bx.set_right(bar_index + zExt)
+    touched
+
+// เนื้อเทียนทะลุระดับ MSS หรือยัง
+f_broke(Sig s) =>
+    s.bull ? (fullBody ? bb > s.trig : close > s.trig) : (fullBody ? bt < s.trig : close < s.trig)
+
+// ═════════════════════════ 1) ACTIVE SFP ═════════════════════════
+bullRetest = f_updActive(actBull, conf)
+bearRetest = f_updActive(actBear, conf)
+
+// ═════════════════════════ 2) PENDING → MSS / ลบทิ้ง ═════════════════════════
+bool bullConfSig = false
+bool bearConfSig = false
+
+if not na(pBear) and not na(pBear.cl)
+    pBear.cl.set_x2(bar_index + 1)
+if not na(pBull) and not na(pBull.cl)
+    pBull.cl.set_x2(bar_index + 1)
+
+if conf and not na(pBear)
+    if bar_index > pBear.bar and f_broke(pBear)
+        f_activate(pBear, actBear)
+        bearConfSig := true
+        lastValid := "✔ MSS Confirmed"
+        pBear := na
+    else if close > pBear.ext or bar_index >= pBear.expire
+        f_delSig(pBear)
+        lastValid := "✖ ไม่ทะลุ Low"
+        pBear := na
+
+if conf and not na(pBull)
+    if bar_index > pBull.bar and f_broke(pBull)
+        f_activate(pBull, actBull)
+        bullConfSig := true
+        lastValid := "✔ MSS Confirmed"
+        pBull := na
+    else if close < pBull.ext or bar_index >= pBull.expire
+        f_delSig(pBull)
+        lastValid := "✖ ไม่ทะลุ High"
+        pBull := na
+
+// ═════════════════════════ 3) LIQUIDITY LEVELS ═════════════════════════
+ph = ta.pivothigh(high, pivLeft, pivRight)
+pl = ta.pivotlow(low, pivLeft, pivRight)
+
+if conf and not na(ph)
+    highsLv.push(Level.new(ph, bar_index - pivRight))
+    if highsLv.size() > maxLv
+        highsLv.shift()
+if conf and not na(pl)
+    lowsLv.push(Level.new(pl, bar_index - pivRight))
+    if lowsLv.size() > maxLv
+        lowsLv.shift()
+
+// ═════════════════════════ 4) SWEEP DETECTION ═════════════════════════
+float bearSwept    = na
+int   bearSweptBar = na
+float bullSwept    = na
+int   bullSweptBar = na
+minDist = sweepMin * atrV
+
+if conf and highsLv.size() > 0
+    for i = highsLv.size() - 1 to 0
+        lv = highsLv.get(i)
+        if close > lv.price
+            highsLv.remove(i)
+        else if high > lv.price and high - lv.price >= minDist
+            rejected = rejBody ? bt < lv.price : close < lv.price
+            if rejected and (na(bearSwept) or lv.price > bearSwept)
+                bearSwept    := lv.price
+                bearSweptBar := lv.bar
+            highsLv.remove(i)
+
+if conf and lowsLv.size() > 0
+    for i = lowsLv.size() - 1 to 0
+        lv = lowsLv.get(i)
+        if close < lv.price
+            lowsLv.remove(i)
+        else if low < lv.price and lv.price - low >= minDist
+            rejected = rejBody ? bb > lv.price : close > lv.price
+            if rejected and (na(bullSwept) or lv.price < bullSwept)
+                bullSwept    := lv.price
+                bullSweptBar := lv.bar
+            lowsLv.remove(i)
+
+// ═════════════════════════ 5) CREATE SFP (รอ MSS) ═════════════════════════
+bool bullRawSig = false
+bool bearRawSig = false
+
+if showBearS and not na(bearSwept)
+    pct = useVol ? f_beyondPct(bearSwept, true) : na
+    ok  = not useVol or (not na(pct) and pct <= volThr)
+    lastType  := "Bearish SFP"
+    lastPrice := bearSwept
+    lastPct   := pct
+    if not ok
+        lastValid := "✖ Volume สูงเกิน"
+    else
+        bearRawSig := true
+        if not na(pBear)
+            f_delSig(pBear)
+            pBear := na
+        useSwing = not na(lastSL) and lastSLBar < bar_index and lastSL < high
+        trig     = useSwing ? lastSL : fbLow
+        trigBar  = useSwing ? lastSLBar : fbLowBar
+        lastTrig := trig
+        s = Sig.new(bull = false, lvl = bearSwept, lvlBar = bearSweptBar, bar = bar_index, ext = high, edge = bt, trig = trig, trigBar = trigBar, expire = bar_index + confBars, pct = pct)
+        if f_broke(s)
+            f_activate(s, actBear)
+            bearConfSig := true
+            lastValid := "✔ MSS Confirmed"
+        else
+            if showPending
+                f_draw(s, true)
+            pBear := s
+            lastValid := "⏳ รอทะลุ Low"
+
+if showBullS and not na(bullSwept)
+    pct = useVol ? f_beyondPct(bullSwept, false) : na
+    ok  = not useVol or (not na(pct) and pct <= volThr)
+    lastType  := "Bullish SFP"
+    lastPrice := bullSwept
+    lastPct   := pct
+    if not ok
+        lastValid := "✖ Volume สูงเกิน"
+    else
+        bullRawSig := true
+        if not na(pBull)
+            f_delSig(pBull)
+            pBull := na
+        useSwing = not na(lastSH) and lastSHBar < bar_index and lastSH > low
+        trig     = useSwing ? lastSH : fbHigh
+        trigBar  = useSwing ? lastSHBar : fbHighBar
+        lastTrig := trig
+        s = Sig.new(bull = true, lvl = bullSwept, lvlBar = bullSweptBar, bar = bar_index, ext = low, edge = bb, trig = trig, trigBar = trigBar, expire = bar_index + confBars, pct = pct)
+        if f_broke(s)
+            f_activate(s, actBull)
+            bullConfSig := true
+            lastValid := "✔ MSS Confirmed"
+        else
+            if showPending
+                f_draw(s, true)
+            pBull := s
+            lastValid := "⏳ รอทะลุ High"
+
+// ═════════════════════════ DASHBOARD ═════════════════════════
+var table dash = table.new(f_pos(dashPos), 2, 6, bgcolor = color.new(#131722, 10), border_color = color.new(color.gray, 70), border_width = 1, frame_color = color.new(color.gray, 50), frame_width = 1)
+if showDash and barstate.islast
+    tc = color.new(color.white, 5)
+    sc = color.new(color.white, 40)
+    dash.cell(0, 0, "SFP Pro · Sweep + MSS", text_color = tc, text_size = size.small, bgcolor = color.new(#2962ff, 35))
+    dash.merge_cells(0, 0, 1, 0)
+    dash.cell(0, 1, "Last", text_color = sc, text_size = size.small, text_halign = text.align_left)
+    dash.cell(1, 1, lastType, text_color = lastType == "Bearish SFP" ? bearCol : lastType == "Bullish SFP" ? bullCol : tc, text_size = size.small)
+    dash.cell(0, 2, "Liquidity", text_color = sc, text_size = size.small, text_halign = text.align_left)
+    dash.cell(1, 2, na(lastPrice) ? "-" : str.tostring(lastPrice, format.mintick), text_color = tc, text_size = size.small)
+    dash.cell(0, 3, "MSS level", text_color = sc, text_size = size.small, text_halign = text.align_left)
+    dash.cell(1, 3, na(lastTrig) ? "-" : str.tostring(lastTrig, format.mintick), text_color = tc, text_size = size.small)
+    dash.cell(0, 4, "Status", text_color = sc, text_size = size.small, text_halign = text.align_left)
+    dash.cell(1, 4, lastValid, text_color = tc, text_size = size.small)
+    dash.cell(0, 5, "Active", text_color = sc, text_size = size.small, text_halign = text.align_left)
+    dash.cell(1, 5, "▲ " + str.tostring(actBull.size()) + "   ▼ " + str.tostring(actBear.size()) + (useVol ? "  · vol " + (na(lastPct) ? "-" : str.tostring(lastPct, "#.#") + "%") : ""), text_color = tc, text_size = size.small)
+
+// ═════════════════════════ ALERTS ═════════════════════════
+alertcondition(bullRawSig, "Bullish Sweep (รอ MSS)", "Bullish liquidity sweep — waiting MSS | {{ticker}} {{interval}} @ {{close}}")
+alertcondition(bearRawSig, "Bearish Sweep (รอ MSS)", "Bearish liquidity sweep — waiting MSS | {{ticker}} {{interval}} @ {{close}}")
+alertcondition(bullConfSig, "Bullish SFP + MSS", "Bullish SFP confirmed by MSS | {{ticker}} {{interval}} @ {{close}}")
+alertcondition(bearConfSig, "Bearish SFP + MSS", "Bearish SFP confirmed by MSS | {{ticker}} {{interval}} @ {{close}}")
+alertcondition(bullRetest and conf, "Retest Bull SFP Zone", "Price retesting Bullish SFP zone | {{ticker}} {{interval}}")
+alertcondition(bearRetest and conf, "Retest Bear SFP Zone", "Price retesting Bearish SFP zone | {{ticker}} {{interval}}")
