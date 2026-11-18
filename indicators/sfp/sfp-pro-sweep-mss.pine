@@ -104,6 +104,8 @@ showWick = input.bool(false, "ไฮไลต์ไส้", inline = "d1", group
 bullCol  = input.color(#089981, "Bull", inline = "d2", group = grpD)
 bearCol  = input.color(#f23645, "Bear", inline = "d2", group = grpD)
 txtSize  = input.string("small", "ขนาดตัวอักษร", options = ["tiny", "small", "normal"], group = grpD)
+showHist = input.bool(true, "ลูกศรประวัติสัญญาณ (SFP + MSS)", group = grpD, tooltip = "ลูกศรเล็กที่แท่ง MSS ของทุกสัญญาณในอดีต — อยู่ถาวร ไม่ถูกลบตามกล่อง/เส้น")
+showSwp  = input.bool(false, "จุดประวัติ Sweep (รวมที่ไม่เกิด MSS)", group = grpD)
 
 grpV = "Volume Validation (LTF)"
 useVol  = input.bool(false, "ใช้ Volume กรอง SFP", group = grpV)
@@ -270,6 +272,11 @@ var int    nWin      = 0
 var int    nLoss     = 0
 var int    nMiss     = 0
 var float  sumWinR   = 0.0
+var int    cSweep    = 0
+var int    cMss      = 0
+var int    cFilt     = 0
+var int    cExp      = 0
+var int    cSlBig    = 0
 
 // ═════════════════════════ SWING ล่าสุด (สำหรับ MSS) ═════════════════════════
 iph = ta.pivothigh(high, intLeft, intRight)
@@ -877,14 +884,17 @@ if conf and not na(pBear)
     if bar_index > pBear.bar and f_broke(pBear)
         if f_activate(pBear, actBear)
             bearConfSig := true
+            cMss += 1
             lastValid := "✔ MSS Confirmed"
             lastEntry := pBear.entry
             lastConf  := pBear.m1N
         else
+            cSlBig += 1
             lastValid := "✖ SL เกิน (" + str.tostring(pBear.slV, "#.##") + " " + slUnit + ")"
         pBear := na
     else if close > pBear.ext or bar_index >= pBear.expire
         f_delSig(pBear)
+        cExp += 1
         lastValid := "✖ ไม่เกิด MSS"
         pBear := na
 
@@ -892,14 +902,17 @@ if conf and not na(pBull)
     if bar_index > pBull.bar and f_broke(pBull)
         if f_activate(pBull, actBull)
             bullConfSig := true
+            cMss += 1
             lastValid := "✔ MSS Confirmed"
             lastEntry := pBull.entry
             lastConf  := pBull.m1N
         else
+            cSlBig += 1
             lastValid := "✖ SL เกิน (" + str.tostring(pBull.slV, "#.##") + " " + slUnit + ")"
         pBull := na
     else if close < pBull.ext or bar_index >= pBull.expire
         f_delSig(pBull)
+        cExp += 1
         lastValid := "✖ ไม่เกิด MSS"
         pBull := na
 
@@ -1000,17 +1013,21 @@ bool bullRawSig = false
 bool bearRawSig = false
 
 if showBearS and not na(bearSwept)
+    cSweep += 1
     lastType  := "Bearish SFP"
     lastTag   := bearTag
     lastPrice := bearSwept
     if not bearAllowed
+        cFilt += 1
         lastValid := "✖ สวน HTF Bias"
     else if not sessOk
+        cFilt += 1
         lastValid := "✖ นอก Session"
     else
         pct = useVol ? f_beyondPct(bearSwept, true) : na
         lastPct := pct
         if useVol and (na(pct) or pct > volThr)
+            cFilt += 1
             lastValid := "✖ Volume สูงเกิน"
         else
             bearRawSig := true
@@ -1025,10 +1042,12 @@ if showBearS and not na(bearSwept)
             if f_broke(s)
                 if f_activate(s, actBear)
                     bearConfSig := true
+                    cMss += 1
                     lastValid := "✔ MSS Confirmed"
                     lastEntry := s.entry
                     lastConf  := s.m1N
                 else
+                    cSlBig += 1
                     lastValid := "✖ SL เกิน (" + str.tostring(s.slV, "#.##") + " " + slUnit + ")"
             else
                 if showPending
@@ -1037,17 +1056,21 @@ if showBearS and not na(bearSwept)
                 lastValid := "⏳ รอ MSS"
 
 if showBullS and not na(bullSwept)
+    cSweep += 1
     lastType  := "Bullish SFP"
     lastTag   := bullTag
     lastPrice := bullSwept
     if not bullAllowed
+        cFilt += 1
         lastValid := "✖ สวน HTF Bias"
     else if not sessOk
+        cFilt += 1
         lastValid := "✖ นอก Session"
     else
         pct = useVol ? f_beyondPct(bullSwept, false) : na
         lastPct := pct
         if useVol and (na(pct) or pct > volThr)
+            cFilt += 1
             lastValid := "✖ Volume สูงเกิน"
         else
             bullRawSig := true
@@ -1062,10 +1085,12 @@ if showBullS and not na(bullSwept)
             if f_broke(s)
                 if f_activate(s, actBull)
                     bullConfSig := true
+                    cMss += 1
                     lastValid := "✔ MSS Confirmed"
                     lastEntry := s.entry
                     lastConf  := s.m1N
                 else
+                    cSlBig += 1
                     lastValid := "✖ SL เกิน (" + str.tostring(s.slV, "#.##") + " " + slUnit + ")"
             else
                 if showPending
@@ -1074,7 +1099,7 @@ if showBullS and not na(bullSwept)
                 lastValid := "⏳ รอ MSS"
 
 // ═════════════════════════ DASHBOARD ═════════════════════════
-var table dash = table.new(f_pos(dashPos), 2, 9, bgcolor = color.new(#131722, 8), border_color = color.new(color.gray, 75), border_width = 1, frame_color = color.new(color.gray, 50), frame_width = 1)
+var table dash = table.new(f_pos(dashPos), 2, 11, bgcolor = color.new(#131722, 8), border_color = color.new(color.gray, 75), border_width = 1, frame_color = color.new(color.gray, 50), frame_width = 1)
 if showDash and barstate.islast
     tc = color.new(color.white, 5)
     sc = color.new(color.white, 45)
@@ -1099,7 +1124,17 @@ if showDash and barstate.islast
     dash.cell(0, 7, "Stats" + (tpMode == "RR" ? " (" + str.tostring(rr) + "R)" : " (Liq TP)"), text_color = sc, text_size = size.small, text_halign = text.align_left)
     dash.cell(1, 7, "W " + str.tostring(nWin) + " / L " + str.tostring(nLoss) + " / Miss " + str.tostring(nMiss) + (na(winRate) ? "" : "  · " + str.tostring(winRate, "#") + "%") + "  · " + str.tostring(netR, "#.#") + "R", text_color = netR > 0 ? bullCol : netR < 0 ? bearCol : tc, text_size = size.small)
     dash.cell(0, 8, "Active", text_color = sc, text_size = size.small, text_halign = text.align_left)
+    dash.cell(0, 9, "Funnel", text_color = sc, text_size = size.small, text_halign = text.align_left)
+    dash.cell(1, 9, "Sweep " + str.tostring(cSweep) + " → MSS " + str.tostring(cMss), text_color = tc, text_size = size.small)
+    dash.cell(0, 10, "ตกเงื่อนไข", text_color = sc, text_size = size.small, text_halign = text.align_left)
+    dash.cell(1, 10, "ไม่เกิด MSS " + str.tostring(cExp) + " · ตัวกรอง " + str.tostring(cFilt) + " · SL เกิน " + str.tostring(cSlBig), text_color = tc, text_size = size.small)
     dash.cell(1, 8, "▲ " + str.tostring(actBull.size()) + "   ▼ " + str.tostring(actBear.size()) + (useVol ? "  · vol " + (na(lastPct) ? "-" : str.tostring(lastPct, "#.#") + "%") : ""), text_color = tc, text_size = size.small)
+
+// ═════════════════════════ HISTORY MARKERS ═════════════════════════
+plotshape(showHist and bearConfSig, "Bear SFP + MSS", shape.triangledown, location.abovebar, bearCol, size = size.tiny)
+plotshape(showHist and bullConfSig, "Bull SFP + MSS", shape.triangleup, location.belowbar, bullCol, size = size.tiny)
+plotshape(showSwp and bearRawSig, "Bear Sweep", shape.circle, location.abovebar, color.new(bearCol, 50), size = size.auto)
+plotshape(showSwp and bullRawSig, "Bull Sweep", shape.circle, location.belowbar, color.new(bullCol, 50), size = size.auto)
 
 // ═════════════════════════ ALERTS ═════════════════════════
 alertcondition(bullRawSig, "Bullish Sweep (รอ MSS)", "Bullish liquidity sweep — waiting MSS | {{ticker}} {{interval}} @ {{close}}")
