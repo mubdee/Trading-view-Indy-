@@ -810,11 +810,22 @@ f_activate(Sig s, array<Sig> arr) =>
             ovTxt = overlap ? " + " + zN.get(best == 0 ? 1 : 0) : ""
             pickN := zN.get(best) + ovTxt + " ★" + str.tostring(zS.get(best)) + cfTxt
         else if cP.size() > 0
+            // ไม่มีโซน → ใช้ระดับ confluence ที่ใกล้สุด · โหมดตัวกรอง: ระดับต้องผ่าน Fib ด้วย
             for [i, p] in cP
-                if na(pick) or (s.bull ? p > pick : p < pick)
+                if (not fibF or f_fibOk(s.bull, p, p, fibP, fTolV)) and (na(pick) or (s.bull ? p > pick : p < pick))
                     pick  := p
                     pickB := cB.get(i)
                     pickN := cN.get(i) + " (ไม่มีโซนผ่านเกณฑ์)"
+            if fibF and na(pick)
+                // ยังไม่มีระดับไหนถึง Fib → ใช้ระดับลึกสุดแบบ "รอ Fib"
+                for [i, p] in cP
+                    if na(pick) or (s.bull ? p < pick : p > pick)
+                        pick  := p
+                        pickB := cB.get(i)
+                        pickN := cN.get(i) + " (ไม่มีโซนผ่านเกณฑ์)"
+                s.armed := false
+                s.zTop  := pick
+                s.zBot  := pick
         if not na(pick)
             tipL = "Entry: " + str.tostring(pick, format.mintick) + "\n" + pickN
             for [zi, zt] in zT
