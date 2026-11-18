@@ -44,3 +44,12 @@ HTF Bias · Session · SFP ล่าสุด + ชนิด liquidity · Liquid
 - Bullish / Bearish Sweep (รอ MSS)
 - Bullish / Bearish SFP + MSS (มี Entry / SL / TP ในข้อความ)
 - Retest Bull / Bear Entry (MSNR / OB / FVG)
+
+---
+
+## DEV — Zone Filter (OB / Demand-Supply)
+ไฟล์ `sfp-pro-sweep-mss.pine` (ตัว DEV) เพิ่ม:
+- **Demand / Supply** — base (body ≤ 0.5 ATR, 1–3 แท่ง) + impulse (body ≥ 1 ATR) · ระบุชนิด RBD/DBD/DBR/RBR
+- **ตัวกรองโซน** (ทั้ง OB และ D/S): Fresh · Displacement · Premium/Discount ของขา · ขนาดไม่เกิน 3 ATR
+- **คะแนน ★** = Fresh + Displacement + P/D + ขนาดพอดี + อยู่ที่จุด Sweep + ระดับ A/V·SBR·QM ในโซน (สูงสุด 3) + OB ซ้อน D/S
+- เลือกโซนที่ ★ สูงสุด (ต้อง ≥ 3) แล้วเข้าที่ระดับ confluence ในโซนนั้น เช่น `Entry · Supply RBD + OB ★7 + QM + A`

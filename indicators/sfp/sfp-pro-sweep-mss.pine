@@ -1,11 +1,11 @@
 // ════════════════════════════════════════════════════════════════
-// SFP Pro X — Liquidity Sweep + MSS + OB Confluence Entry  (Pine Script v6)
-// Sweep liquidity → MSS (เนื้อเทียนปิดทะลุ swing ล่าสุด) → เข้าที่ OB ที่ซ้อนกับ MSNR A/V, SBR/RBS, QM
+// SFP Pro X — DEV · Sweep + MSS + OB / Demand-Supply Confluence  (Pine Script v6)
+// Sweep liquidity → MSS → เข้าที่ OB / Demand-Supply ที่ผ่านตัวกรอง + ซ้อนกับ MSNR A/V, SBR/RBS, QM
 // ตัวกรองเสริม (ปิดไว้เป็นค่าเริ่มต้น): HTF Bias, Displacement, Session, ความลึก sweep, Volume LTF
 // ดูคำอธิบาย: indicators/sfp/README.md
 // ════════════════════════════════════════════════════════════════
 //@version=6
-indicator("SFP Pro X — Sweep + MSS + OB Confluence", "SFP Pro X", overlay = true, max_boxes_count = 200, max_lines_count = 400, max_labels_count = 300, max_bars_back = 500)
+indicator("SFP Pro X DEV — OB / Demand-Supply Confluence", "SFP Pro X DEV", overlay = true, max_boxes_count = 200, max_lines_count = 400, max_labels_count = 300, max_bars_back = 500)
 
 // ═════════════════════════ INPUTS ═════════════════════════
 grpG = "General"
@@ -52,14 +52,14 @@ sessLon = input.session("0700-1000", "London", group = grpK)
 sessNy  = input.session("1230-1530", "New York", group = grpK)
 
 grpE = "6) Entry — OB Confluence"
-entryMode  = input.string("OB + Confluence", "โซนเข้า", options = ["OB + Confluence", "MSNR", "MSNR + FVG", "OB + FVG", "Sweep Wick"], group = grpE, tooltip = "OB + Confluence = จุดเข้าที่ระดับ A/V, SBR/RBS หรือ QM ที่อยู่ใน OB\nMSNR = A/V level ที่ Fresh อย่างเดียว")
+entryMode  = input.string("Zone + Confluence", "โซนเข้า", options = ["Zone + Confluence", "MSNR", "MSNR + FVG", "OB + FVG", "Sweep Wick"], group = grpE, tooltip = "Zone + Confluence = เลือกโซนที่ดีที่สุดระหว่าง OB กับ Demand/Supply แล้วเข้าที่ระดับ A/V, SBR/RBS, QM ที่อยู่ในโซน\nMSNR = A/V level ที่ Fresh อย่างเดียว")
 useA       = input.bool(true, "A / V (MSNR)", inline = "cf", group = grpE)
 useSBR     = input.bool(true, "SBR / RBS", inline = "cf", group = grpE)
 useQM      = input.bool(true, "QM", inline = "cf", group = grpE)
-confTol    = input.float(0.1, "Confluence tolerance (x ATR)", minval = 0, step = 0.05, group = grpE, tooltip = "ระดับที่อยู่ใน OB หรือห่างขอบ OB ไม่เกินค่านี้ = ซ้อนกับ OB")
+confTol    = input.float(0.1, "Confluence tolerance (x ATR)", minval = 0, step = 0.05, group = grpE, tooltip = "ระดับที่อยู่ในโซน หรือห่างขอบโซนไม่เกินค่านี้ = ซ้อนกับโซน")
 entryAt    = input.string("Nearest", "เข้าที่ระดับ", options = ["Nearest", "Main"], group = grpE, tooltip = "Nearest = ระดับที่ใกล้ราคาที่สุด (โดนง่าย)\nMain = ระดับที่ไกล ใกล้จุด sweep (RR ดีกว่า)")
 showAllLv  = input.bool(false, "แสดงระดับ confluence ทั้งหมด", group = grpE)
-showFvgX   = input.bool(false, "แสดง FVG ด้วย (โหมด OB + Confluence)", group = grpE)
+showFvgX   = input.bool(false, "แสดง FVG ด้วย (โหมด Zone + Confluence)", group = grpE)
 msnrNear   = input.bool(true, "แสดงระดับ Near (โหมด MSNR)", group = grpE)
 obType     = input.string("Full", "OB ขอบเขต", options = ["Full", "Body"], group = grpE)
 zExt       = input.int(10, "ยื่นไปทางขวา (แท่ง)", minval = 0, group = grpE)
@@ -67,6 +67,20 @@ obBullCol  = input.color(color.new(#089981, 80), "OB Bull", inline = "e1", group
 obBearCol  = input.color(color.new(#f23645, 80), "OB Bear", inline = "e1", group = grpE)
 fvgBullCol = input.color(color.new(#2962ff, 85), "FVG Bull", inline = "e2", group = grpE)
 fvgBearCol = input.color(color.new(#ff9800, 85), "FVG Bear", inline = "e2", group = grpE)
+
+grpZ = "6b) Zone Filter — OB / Demand-Supply"
+useOBz    = input.bool(true, "OB", inline = "zz", group = grpZ)
+useSDz    = input.bool(true, "Demand / Supply", inline = "zz", group = grpZ)
+impAtr    = input.float(1.0, "Impulse: body ≥ (x ATR)", minval = 0.2, step = 0.1, group = grpZ, tooltip = "แท่งที่พุ่งออกจากโซนต้องมี body ใหญ่อย่างน้อยเท่านี้")
+baseAtr   = input.float(0.5, "Base: body ≤ (x ATR)", minval = 0.1, step = 0.05, group = grpZ, tooltip = "แท่งฐาน (base) ของ Demand/Supply ต้อง body เล็กกว่าเท่านี้")
+maxBase   = input.int(3, "Base สูงสุด (แท่ง)", minval = 1, maxval = 6, group = grpZ)
+reqFresh  = input.bool(true, "ต้อง Fresh (ยังไม่ถูก mitigate)", group = grpZ)
+reqDisp   = input.bool(true, "ต้องมี Displacement ออกจากโซน", group = grpZ, tooltip = "OB: ภายใน 3 แท่งหลัง OB ต้องมีแท่ง impulse หรือ FVG\nDemand/Supply: มี impulse อยู่แล้วตามนิยาม")
+reqPD     = input.bool(false, "ต้องอยู่ Premium / Discount ของขา", group = grpZ, tooltip = "Supply ต้องอยู่ครึ่งบนของขา, Demand ต้องอยู่ครึ่งล่าง")
+maxZAtr   = input.float(3.0, "ขนาดโซนไม่เกิน (x ATR) · 0 = ปิด", minval = 0, step = 0.5, group = grpZ)
+minScore  = input.int(3, "คะแนนขั้นต่ำ (★)", minval = 0, maxval = 9, group = grpZ, tooltip = "★ = Fresh + Displacement + Premium/Discount + ขนาดพอดี + อยู่ที่จุด Sweep + ระดับ confluence ในโซน (สูงสุด 3) + OB ซ้อน D/S")
+sdBullCol = input.color(color.new(#00bcd4, 82), "Demand", inline = "zc", group = grpZ)
+sdBearCol = input.color(color.new(#e040fb, 82), "Supply", inline = "zc", group = grpZ)
 
 grpR = "7) Trade & Stats"
 showTP = input.bool(true, "แสดง TP / SL", group = grpR)
@@ -116,7 +130,7 @@ body     = bt - bb
 atrV     = ta.atr(14)
 rejBody  = rejMode == "Body"
 fullBody = breakMode == "Full Body"
-useConf  = entryMode == "OB + Confluence"
+useConf  = entryMode == "Zone + Confluence"
 useMsnr  = str.contains(entryMode, "MSNR")
 useOB    = entryMode == "OB + FVG"
 useFVG   = entryMode == "MSNR + FVG" or entryMode == "OB + FVG" or (useConf and showFvgX)
@@ -217,6 +231,7 @@ type Sig
     line   m2
     box    bx
     box    fx
+    box    sx
 
 type Trade
     bool  bull
@@ -317,6 +332,8 @@ f_delSig(Sig s) =>
         s.bx.delete()
     if not na(s.fx)
         s.fx.delete()
+    if not na(s.sx)
+        s.sx.delete()
     if not na(s.xl)
         for l in s.xl
             l.delete()
@@ -429,6 +446,66 @@ f_findFVG(bool bull, int n) =>
                     bot    := high[i]
     [k, top, bot]
 
+// Demand / Supply: ฐาน (base) แท่งเล็ก 1–N แท่ง ตามด้วยแท่ง impulse
+// คืนค่า [top, bottom, offset ซ้ายสุดของ base, offset ของแท่ง impulse, ชนิด RBD/DBD/DBR/RBR]
+f_findSD(bool bull, int n) =>
+    float  zt = na
+    float  zb = na
+    int    zk = na
+    int    zi = na
+    string ty = ""
+    for i = 0 to n - 1
+        bd  = math.abs(close[i] - open[i])
+        imp = bd >= impAtr * atrV and (bull ? close[i] > open[i] : close[i] < open[i])
+        if imp
+            int   cnt = 0
+            float hB  = na
+            float lB  = na
+            for j = i + 1 to i + maxBase
+                if math.abs(close[j] - open[j]) <= baseAtr * atrV
+                    cnt += 1
+                    if bull
+                        lB := na(lB) ? low[j] : math.min(lB, low[j])
+                        hB := na(hB) ? math.max(open[j], close[j]) : math.max(hB, math.max(open[j], close[j]))
+                    else
+                        hB := na(hB) ? high[j] : math.max(hB, high[j])
+                        lB := na(lB) ? math.min(open[j], close[j]) : math.min(lB, math.min(open[j], close[j]))
+                else
+                    break
+            if cnt > 0 and hB > lB
+                if na(zk) or (bull ? lB < zb : hB > zt)
+                    zt := hB
+                    zb := lB
+                    zk := i + cnt
+                    zi := i
+                    pre     = i + cnt + 1
+                    preBull = close[pre] > open[pre]
+                    ty := bull ? (preBull ? "RBR" : "DBR") : (preBull ? "RBD" : "DBD")
+    [zt, zb, zk, zi, ty]
+
+// ประเมินคุณภาพโซน → [Fresh, Displacement, Premium/Discount, ขนาดพอดี, อยู่ที่จุด Sweep]
+// kAfter = offset ของแท่งสุดท้ายที่ยังเป็นส่วนของการเกิดโซน (แท่งที่ใหม่กว่านี้ใช้เช็ค Fresh)
+f_zoneEval(bool bull, float top, float bot, int kAfter, bool isSD, float legMid, float swLvl) =>
+    bool fr = true
+    if kAfter >= 1
+        for m = 0 to kAfter - 1
+            if bull ? low[m] <= top : high[m] >= bot
+                fr := false
+                break
+    bool dp = isSD
+    if not isSD and kAfter >= 0
+        lo = math.max(0, kAfter - 2)
+        for m = lo to kAfter
+            bd = math.abs(close[m] - open[m])
+            if bd >= impAtr * atrV and (bull ? close[m] > open[m] : close[m] < open[m])
+                dp := true
+            if bull ? high[m + 2] < low[m] : low[m + 2] > high[m]
+                dp := true
+    pd = bull ? (top + bot) / 2 <= legMid : (top + bot) / 2 >= legMid
+    sz = maxZAtr == 0 or (top - bot) <= maxZAtr * atrV
+    sw = bull ? bot <= swLvl : top >= swLvl
+    [fr, dp, pd, sz, sw]
+
 f_activate(Sig s, array<Sig> arr) =>
     col = s.bull ? bullCol : bearCol
     nx  = bar_index + zExt
@@ -466,9 +543,9 @@ f_activate(Sig s, array<Sig> arr) =>
             s.m2N := nm + " · Near"
             s.m2L := label.new(nx, np2, nm + " · Near · Fresh", style = label.style_label_left, color = color.new(col, 88), textcolor = color.new(col, 20), size = size.tiny)
         entryP := entryAt == "Main" ? mp : (not na(np2) ? np2 : mp)
-    // ── OB + Confluence (A/V, SBR/RBS, QM) ──
+    // ── Zone (OB / Demand-Supply) + Confluence (A/V, SBR/RBS, QM) ──
     if useConf
-        [k, t, b] = f_findOB(s.bull, n)
+        // 1) ระดับ confluence
         array<float>  cP = array.new<float>()
         array<string> cN = array.new<string>()
         array<int>    cB = array.new<int>()
@@ -501,15 +578,82 @@ f_activate(Sig s, array<Sig> arr) =>
                         cP.push(qp)
                         cN.push("QM")
                         cB.push(qb)
+        // 2) กลางขา (สำหรับ Premium / Discount)
+        float legY = na
+        for m = 0 to n
+            legY := na(legY) ? (s.bull ? high[m] : low[m]) : (s.bull ? math.max(legY, high[m]) : math.min(legY, low[m]))
+        legMid = (s.ext + legY) / 2
+        // 3) หาโซน + กรอง + ให้คะแนน
+        array<float>  zT = array.new<float>()
+        array<float>  zB = array.new<float>()
+        array<int>    zK = array.new<int>()
+        array<string> zN = array.new<string>()
+        array<int>    zS = array.new<int>()
+        array<bool>   zO = array.new<bool>()
+        if useOBz
+            [k, t, b] = f_findOB(s.bull, n)
+            if not na(k)
+                [fr, dp, pd, sz, sw] = f_zoneEval(s.bull, t, b, k - 1, false, legMid, s.lvl)
+                if (not reqFresh or fr) and (not reqDisp or dp) and (not reqPD or pd) and sz
+                    zT.push(t)
+                    zB.push(b)
+                    zK.push(k)
+                    zN.push("OB")
+                    zS.push((fr ? 1 : 0) + (dp ? 1 : 0) + (pd ? 1 : 0) + (sz ? 1 : 0) + (sw ? 1 : 0))
+                    zO.push(true)
+        if useSDz
+            [st, sb2, sk, si, sty] = f_findSD(s.bull, n)
+            if not na(sk)
+                [fr, dp, pd, sz, sw] = f_zoneEval(s.bull, st, sb2, si, true, legMid, s.lvl)
+                if (not reqFresh or fr) and (not reqDisp or dp) and (not reqPD or pd) and sz
+                    zT.push(st)
+                    zB.push(sb2)
+                    zK.push(sk)
+                    zN.push((s.bull ? "Demand " : "Supply ") + sty)
+                    zS.push((fr ? 1 : 0) + (dp ? 1 : 0) + (pd ? 1 : 0) + (sz ? 1 : 0) + (sw ? 1 : 0))
+                    zO.push(false)
+        // + คะแนนจากระดับ confluence ในโซน (สูงสุด 3)
+        for [zi, zt] in zT
+            lo  = zB.get(zi) - confTol * atrV
+            hi  = zt + confTol * atrV
+            int cnt = 0
+            for p in cP
+                if p >= lo and p <= hi
+                    cnt += 1
+            zS.set(zi, zS.get(zi) + math.min(cnt, 3))
+        // + คะแนนเมื่อ OB ซ้อนกับ Demand/Supply
+        bool overlap = false
+        if zT.size() == 2
+            overlap := math.min(zT.get(0), zT.get(1)) >= math.max(zB.get(0), zB.get(1))
+            if overlap
+                zS.set(0, zS.get(0) + 1)
+                zS.set(1, zS.get(1) + 1)
+        // 4) เลือกโซนที่ดีที่สุด
+        int best = na
+        for [zi, sc] in zS
+            if sc >= minScore and (na(best) or sc > zS.get(best))
+                best := zi
+        // 5) วาดโซนที่ผ่านเกณฑ์
+        for [zi, sc] in zS
+            if sc >= minScore
+                isOB  = zO.get(zi)
+                zc    = isOB ? (s.bull ? obBullCol : obBearCol) : (s.bull ? sdBullCol : sdBearCol)
+                isBst = not na(best) and zi == best
+                bxz   = box.new(bar_index - zK.get(zi), zT.get(zi), nx, zB.get(zi), border_color = color.new(zc, isBst ? 20 : 55), border_width = isBst ? 2 : 1, bgcolor = zc, text = zN.get(zi) + " ★" + str.tostring(sc), text_size = size.tiny, text_color = color.new(chart.fg_color, isBst ? 10 : 45), text_halign = text.align_right)
+                if isBst
+                    s.bx := bxz
+                else
+                    s.sx := bxz
+        // 6) จุดเข้าในโซนที่ดีที่สุด
         float  pick  = na
         int    pickB = na
         string pickN = ""
-        string cfTxt = ""
-        if not na(k)
-            zc = s.bull ? obBullCol : obBearCol
-            s.bx := box.new(bar_index - k, t, nx, b, border_color = color.new(zc, 40), bgcolor = zc, text = "OB", text_size = size.tiny, text_color = color.new(chart.fg_color, 30), text_halign = text.align_right)
-            lo = b - confTol * atrV
-            hi = t + confTol * atrV
+        if not na(best)
+            t      = zT.get(best)
+            b      = zB.get(best)
+            lo     = b - confTol * atrV
+            hi     = t + confTol * atrV
+            string cfTxt = ""
             for [i, p] in cP
                 if p >= lo and p <= hi
                     if not str.contains(cfTxt, cN.get(i))
@@ -520,16 +664,19 @@ f_activate(Sig s, array<Sig> arr) =>
                         pickB := cB.get(i)
             if na(pick)
                 pick  := s.bull ? t : b
-                pickB := bar_index - k
-            pickN := "OB" + cfTxt
+                pickB := bar_index - zK.get(best)
+            ovTxt = overlap ? " + " + zN.get(best == 0 ? 1 : 0) : ""
+            pickN := zN.get(best) + ovTxt + " ★" + str.tostring(zS.get(best)) + cfTxt
         else if cP.size() > 0
             for [i, p] in cP
                 if na(pick) or (s.bull ? p > pick : p < pick)
                     pick  := p
                     pickB := cB.get(i)
-                    pickN := cN.get(i)
+                    pickN := cN.get(i) + " (ไม่มีโซนผ่านเกณฑ์)"
         if not na(pick)
-            tipL = "Entry: " + str.tostring(pick, format.mintick) + "\nConfluence: " + pickN
+            tipL = "Entry: " + str.tostring(pick, format.mintick) + "\n" + pickN
+            for [zi, zt] in zT
+                tipL := tipL + "\n" + zN.get(zi) + " ★" + str.tostring(zS.get(zi)) + ": " + str.tostring(zB.get(zi), format.mintick) + " – " + str.tostring(zt, format.mintick)
             for [i, p] in cP
                 tipL := tipL + "\n" + cN.get(i) + ": " + str.tostring(p, format.mintick)
             s.m1P := pick
@@ -622,6 +769,10 @@ f_updActive(array<Sig> arr, bool canAct) =>
                     if live and high >= s.fx.get_bottom() and low <= s.fx.get_top()
                         touched := true
                     s.fx.set_right(nx)
+                if not na(s.sx)
+                    if live and high >= s.sx.get_bottom() and low <= s.sx.get_top()
+                        touched := true
+                    s.sx.set_right(nx)
                 if not na(s.xl)
                     for l in s.xl
                         l.set_x2(nx)
@@ -881,7 +1032,7 @@ if showDash and barstate.islast
     winRate = total > 0 ? nWin * 100.0 / total : na
     netR    = nWin * rr - nLoss
     sessTxt = inLon ? "London ●" : inNy ? "New York ●" : inAsia ? "Asia ●" : "-"
-    dash.cell(0, 0, "SFP Pro X · OB Confluence", text_color = tc, text_size = size.small, bgcolor = color.new(#2962ff, 30))
+    dash.cell(0, 0, "SFP Pro X DEV · Zone Confluence", text_color = tc, text_size = size.small, bgcolor = color.new(#2962ff, 30))
     dash.merge_cells(0, 0, 1, 0)
     dash.cell(0, 1, "HTF Bias", text_color = sc, text_size = size.small, text_halign = text.align_left)
     dash.cell(1, 1, biasTxt + (biasMode != "Off" ? "  (" + htfTf + ")" : ""), text_color = biasMode == "Off" ? tc : emaBull ? bullCol : emaBear ? bearCol : tc, text_size = size.small)
