@@ -1055,19 +1055,32 @@ f_updActive(array<Sig> arr, array<Sig> doneArr, bool canAct) =>
 f_broke(Sig s) =>
     s.bull ? ((fullBody ? bb > s.trig : close > s.trig) and dispBull) : ((fullBody ? bt < s.trig : close < s.trig) and dispBear)
 
-// ระดับ MSS = จุดเริ่มขาที่วิ่งเข้า sweep: swing ล่าสุด หรือไส้ที่ต่ำ/สูงกว่าหลังจากนั้น (ก่อนแท่ง sweep)
-// bear → low ต่ำสุด, bull → high สูงสุด
-f_legExtreme(bool bull, float p, int b) =>
-    float ep = p
-    int   eb = b
-    n = math.min(bar_index - b - 1, 300)
-    if n > 0
-        for k = 1 to n
-            v = bull ? high[k] : low[k]
-            if bull ? v > ep : v < ep
-                ep := v
-                eb := bar_index - k
-    [ep, eb]
+// ระดับ MSS = swing ที่ส่งราคาขึ้นไป sweep (bear) / ลงไป sweep (bull)
+// bear: low ต่ำสุดหลัง swing high ล่าสุดก่อนแท่ง sweep = จุดเริ่มขาขึ้นชุดที่ไป sweep
+// bull: high สูงสุดหลัง swing low ล่าสุดก่อนแท่ง sweep
+// ถ้าขานั้นสั้นกว่า 1 ATR (แค่ pullback เล็กในขา) ย้อนไปใช้ swing ก่อนหน้า (สูงสุด 10 swing)
+f_legOrigin(bool bull, float ext) =>
+    arrB = bull ? ilB : ihB
+    float op = na
+    int   ob = na
+    sz = arrB.size()
+    if sz > 0
+        for j = sz - 1 to math.max(0, sz - 10)
+            n = math.min(bar_index - arrB.get(j), 300)
+            if n >= 2
+                float ep = na
+                int   eb = na
+                for k = 1 to n - 1
+                    v = bull ? high[k] : low[k]
+                    if na(ep) or (bull ? v > ep : v < ep)
+                        ep := v
+                        eb := bar_index - k
+                if not na(ep)
+                    op := ep
+                    ob := eb
+                    if math.abs(ext - ep) >= atrV
+                        break
+    [op, ob]
 
 // ═════════════════════════ 1) STATS (limit order ที่ระดับ Entry) ═════════════════════════
 // ไม่ได้เข้า (ไม่ถึง Entry) = ไม่นับ SL · ไม่นับใน W/L
@@ -1268,8 +1281,9 @@ if showBearS and not na(bearSwept) and (na(pBear) or high > pBear.ext)
             if not na(pBear)
                 f_delSig(pBear)
                 pBear := na
-            useSwing = not na(lastSL) and lastSLBar < bar_index and lastSL < high
-            [trig, trigBar] = f_legExtreme(false, useSwing ? lastSL : fbLow, useSwing ? lastSLBar : fbLowBar)
+            [oP, oB] = f_legOrigin(false, high)
+            trig    = na(oP) ? fbLow : oP
+            trigBar = na(oP) ? fbLowBar : oB
             lastTrig := trig
             s = Sig.new(bull = false, lvl = bearSwept, lvlBar = bearSweptBar, tag = bearTag, bar = bar_index, ext = high, edge = bt, trig = trig, trigBar = trigBar, expire = bar_index + confBars, pct = pct)
             if f_broke(s)
@@ -1312,8 +1326,9 @@ if showBullS and not na(bullSwept) and (na(pBull) or low < pBull.ext)
             if not na(pBull)
                 f_delSig(pBull)
                 pBull := na
-            useSwing = not na(lastSH) and lastSHBar < bar_index and lastSH > low
-            [trig, trigBar] = f_legExtreme(true, useSwing ? lastSH : fbHigh, useSwing ? lastSHBar : fbHighBar)
+            [oP, oB] = f_legOrigin(true, low)
+            trig    = na(oP) ? fbHigh : oP
+            trigBar = na(oP) ? fbHighBar : oB
             lastTrig := trig
             s = Sig.new(bull = true, lvl = bullSwept, lvlBar = bullSweptBar, tag = bullTag, bar = bar_index, ext = low, edge = bb, trig = trig, trigBar = trigBar, expire = bar_index + confBars, pct = pct)
             if f_broke(s)
