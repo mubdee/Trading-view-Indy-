@@ -1,4 +1,4 @@
-# SFP Pro — Sweep + MSS
+# SFP Pro X — Liquidity Sweep + MSS
 
 ไฟล์สคริปต์: [`sfp-pro-sweep-mss.pine`](./sfp-pro-sweep-mss.pine) (Pine Script v6)
 
@@ -6,24 +6,34 @@
 1. เปิดไฟล์ `.pine` → กด **Raw** → คัดลอกทั้งหมด
 2. TradingView → Pine Editor → วางโค้ด → **Add to chart**
 
-## เงื่อนไข (ตัวอย่างฝั่ง Bearish)
-1. **Sweep** — ไส้เลย swing high เดิม แล้วปิดกลับลงมาใต้ระดับ → ขึ้น "SFP ?" จาง ๆ และเส้นประที่ swing low ล่าสุด
-2. **MSS** — ภายใน N แท่ง (ค่าเริ่มต้น 20) ต้องมีแท่งที่ **ราคาปิด (เนื้อเทียน) ทะลุ swing low ล่าสุด** → SFP สีเต็ม + เส้น MSS + โซน
-3. **ยกเลิก** — ราคาปิดเหนือปลายไส้ sweep หรือไม่ทะลุภายในเวลา → ลบทิ้ง
+## ลำดับเงื่อนไข (ตัวอย่างฝั่ง Bearish)
+1. **Liquidity** — swing high, EQH, PDH, Asia High หรือ HTF High
+2. **Sweep** — ไส้เลยระดับแล้วปิดกลับลงมา (ลึกไม่เกิน 1.5 ATR) → "SFP ?" จาง ๆ
+3. **ตัวกรอง** — ต้องไม่สวน HTF Bias, อยู่ใน Session (ถ้าเปิด), Volume ผ่าน (ถ้าเปิด)
+4. **MSS** — ภายใน 10 แท่ง ต้องปิดทะลุ swing low ล่าสุดด้วยเนื้อเทียน **และมีแรง** (body ≥ 0.8 ATR หรือทิ้ง FVG)
+5. **Entry** — วาด OB + FVG ในขา MSS พร้อม TP (2R) / SL (เหนือไส้ sweep)
+6. **ลบออก** — เมื่อราคาปิดเลยปลายไส้, ถึง TP, หรือเก่าเกิน 150 แท่ง
 
-ฝั่ง Bullish กลับด้านกัน (กวาด swing low → ปิดทะลุ swing high ล่าสุด)
+ฝั่ง Bullish กลับด้านกัน
 
-## ค่าที่ควรรู้
-| Setting | ค่าเริ่มต้น | ความหมาย |
+## ค่าเริ่มต้นสำคัญ
+| Setting | ค่าเริ่มต้น | หมายเหตุ |
 |---|---|---|
-| Swing (liquidity) Left / Right | 5 / 1 | swing ที่ใช้เป็น liquidity |
-| Swing ล่าสุด Left / Right | 2 / 1 | swing ที่ต้องทะลุเพื่อ MSS |
-| ทะลุด้วย | Close | `Full Body` = ทั้ง open และ close ต้องเลยระดับ |
-| แท่ง Sweep ต้องปิดกลับด้วย | Close | `Body` = ทั้งเนื้อเทียนต้องอยู่ในระดับ |
-| แสดง SFP ล่าสุด (ต่อฝั่ง) | 1 | กราฟสะอาด เหลือเฉพาะตัวที่ใช้ได้ |
-| ใช้ Volume กรอง SFP | ปิด | กรองด้วย volume จาก lower timeframe |
+| ใช้ Liquidity | All | `Key only` = เฉพาะ EQH/EQL, PDH/PDL, Asia, HTF |
+| ลึกไม่เกิน | 1.5 ATR | 0 = ปิด |
+| Displacement | Body ATR หรือ FVG | Off = ทะลุอย่างเดียวพอ |
+| ต้องทะลุภายใน | 10 แท่ง | |
+| HTF Bias | EMA 50 บน H4 | Off / EMA / Premium-Discount / ทั้งคู่ |
+| Session filter | ปิด | London 07–10, NY 12:30–15:30 (UTC) |
+| โซนเข้า | OB + FVG | หรือ Sweep Wick แบบเดิม |
+| RR | 2 | ใช้ทั้งเส้น TP และสถิติ |
+
+## Dashboard
+HTF Bias · Session · SFP ล่าสุด + ชนิด liquidity · ระดับ Liquidity/MSS · Status · สถิติ W/L, Win rate, Net R · จำนวน setup ที่ active
+
+> สถิติคำนวณแบบง่าย: เข้าที่ราคาปิดของแท่ง MSS, SL เหนือ/ใต้ไส้ sweep, TP = RR ที่ตั้ง — ถ้าแท่งเดียวแตะทั้ง TP และ SL นับเป็นแพ้
 
 ## Alerts
 - Bullish / Bearish Sweep (รอ MSS)
-- Bullish / Bearish SFP + MSS (confirmed)
-- Retest Bull / Bear SFP Zone
+- Bullish / Bearish SFP + MSS (มีราคา SL/TP ในข้อความ)
+- Retest Bull / Bear Entry Zone (OB/FVG)
