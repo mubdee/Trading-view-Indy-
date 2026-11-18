@@ -1027,7 +1027,7 @@ f_updActive(array<Sig> arr, array<Sig> doneArr, bool canAct) =>
                         s.m1Fresh := false
                         touched   := true
                         s.m1.set_style(line.style_dotted)
-                        s.m1L.set_text(s.m1N + " · Tested")
+                        s.m1L.set_text(s.m1N + (s.filled ? " · Filled" : " · Tested"))
                     s.m1.set_x2(nx)
                     s.m1L.set_x(nx)
                 if not na(s.m2)
