@@ -1,6 +1,8 @@
 // ════════════════════════════════════════════════════════════════
 // SFP Pro X — DEV · Sweep + MSS + OB / Demand-Supply Confluence  (Pine Script v6)
+// ไฟล์สำรองสำหรับแก้/ทดลองเงื่อนไขใหม่ (สำเนาจาก MAIN v2 2026-11-18 · มี Fib คัดโซนแล้ว) · ไฟล์หลัก: indicators/sfp/main/sfp-pro-x-main-v2.pine
 // Sweep liquidity → MSS → เข้าที่ OB / Demand-Supply ที่ผ่านตัวกรอง + ซ้อนกับ MSNR A/V, SBR/RBS, QM
+// คัดโซนด้วย Fib ของขา sweep → ยอดขา MSS (ค่าเริ่มต้น 0.618 · ยอดขาเลื่อนตาม high/low ใหม่จนกว่าจะเข้า Entry)
 // ตัวกรองเสริม (ปิดไว้เป็นค่าเริ่มต้น): HTF Bias, Displacement, Session, ความลึก sweep, Volume LTF
 // ดูคำอธิบาย: indicators/sfp/README.md
 // ════════════════════════════════════════════════════════════════
@@ -85,7 +87,13 @@ depMin    = input.float(1.0, "Leg-out ≥ (x ความสูงโซน) · 
 useLtfZ   = input.bool(true, "ใช้ LTF ช่วยกรองโซน", group = grpZ, tooltip = "ดูแท่ง LTF ในแท่งที่พุ่งออกจากโซน (impulse):\n• มี FVG บน LTF ไหม (imbalance จริง)\n• volume delta ไปทางเดียวกับ impulse ไหม\nแท่งที่ไม่มีข้อมูล LTF จะไม่ถูกตัดทิ้ง")
 reqLtfImb = input.bool(true, "ต้องมี FVG บน LTF ตอนออกจากโซน", group = grpZ)
 ltfDMin   = input.float(30, "LTF volume delta ≥ (%) ได้ ★", minval = 0, maxval = 100, step = 5, group = grpZ, tooltip = "(volume แท่ง LTF ตามทิศ − สวนทิศ) / volume ทั้งหมด ในแท่ง impulse")
-minScore  = input.int(4, "คะแนนขั้นต่ำ (★)", minval = 0, maxval = 12, group = grpZ, tooltip = "★ = Fresh + Displacement + Premium/Discount + ขนาดพอดี + อยู่ที่จุด Sweep + Leg-out + LTF FVG + LTF delta + ระดับ confluence ในโซน (สูงสุด 3) + OB ซ้อน D/S")
+fibMode   = input.string("ตัวกรอง", "Fib คัดโซน", options = ["Off", "ตัวกรอง", "คะแนน ★"], group = grpZ, tooltip = "ลาก Fib จากปลายไส้ sweep (1) ไปยอดขา MSS (0) · ยอดขาเลื่อนตามราคาที่ทำ high ใหม่ (low ใหม่) จนกว่าจะเข้า Entry\nตัวกรอง = โซนต้องอยู่ลึกถึงระดับ Fib · ถ้าตอน MSS ยังไม่ถึง จะรอขา MSS วิ่งต่อจนโซนผ่าน (รอ Fib) · ราคาย้อนลงมาแตะโซนก่อนผ่าน = ยกเลิก\nคะแนน ★ = ไม่ตัดทิ้ง แต่ได้ +1 ★ ถ้าอยู่ลึกถึงตอน MSS")
+fibLvl    = input.float(0.618, "ระดับ Fib", minval = 0.1, maxval = 1.0, step = 0.001, inline = "fb", group = grpZ)
+fibHow    = input.string("แตะ", "โซนต้อง", options = ["แตะ", "ทั้งโซนเลย"], inline = "fb", group = grpZ, tooltip = "แตะ = มีส่วนใดของโซนอยู่ต่ำกว่า (Bull) / สูงกว่า (Bear) ระดับ Fib\nทั้งโซนเลย = ทั้งโซนอยู่ระหว่างระดับ Fib กับ 1 (ไส้ sweep)")
+fibTol    = input.float(0.05, "Fib tolerance (x ATR)", minval = 0, step = 0.05, group = grpZ)
+showFib   = input.bool(true, "แสดงเส้น Fib (0 / ระดับ / 1)", group = grpZ)
+fallMode  = input.string("ต้องผ่าน Fib", "ระดับสำรอง (ไม่มีโซนผ่านเกณฑ์)", options = ["ต้องผ่าน Fib", "ไม่สน Fib", "ไม่ใช้"], group = grpZ, tooltip = "ถ้าไม่มีโซน OB / Demand-Supply ผ่านเกณฑ์ → ใช้ระดับ confluence (A/V, SBR/RBS, QM) ที่ใกล้สุดเป็น Entry แทน\nต้องผ่าน Fib = ระดับต้องอยู่ลึกถึง Fib ด้วย (ยังไม่ถึง = รอ Fib)\nไม่สน Fib = เข้าที่ระดับใกล้สุดได้เลย\nไม่ใช้ = ไม่มีโซน = ไม่เข้าออเดอร์")
+minScore  = input.int(4, "คะแนนขั้นต่ำ (★)", minval = 0, maxval = 13, group = grpZ, tooltip = "★ = Fresh + Displacement + Premium/Discount + ขนาดพอดี + อยู่ที่จุด Sweep + Leg-out + LTF FVG + LTF delta + Fib (โหมดคะแนน) + ระดับ confluence ในโซน (สูงสุด 3) + OB ซ้อน D/S")
 sdBullCol = input.color(color.new(#00bcd4, 82), "Demand", inline = "zc", group = grpZ)
 sdBearCol = input.color(color.new(#e040fb, 82), "Supply", inline = "zc", group = grpZ)
 
@@ -249,7 +257,8 @@ type Trade
     bool  filled
     float rrv
     float ext
-    bool  dead = false
+    bool  dead  = false
+    bool  armed = true
 
 type Sig
     bool   bull
@@ -297,6 +306,15 @@ type Sig
     box    fx
     box    sx
     Trade  tr
+    float  legHi
+    float  zTop
+    float  zBot
+    string zTxt  = ""
+    bool   armed = true
+    line   f0
+    line   fm
+    label  f0L
+    label  fmL
 
 var array<Level> highsLv = array.new<Level>()
 var array<Level> lowsLv  = array.new<Level>()
@@ -403,6 +421,14 @@ f_delSig(Sig s) =>
         s.fx.delete()
     if not na(s.sx)
         s.sx.delete()
+    if not na(s.f0)
+        s.f0.delete()
+    if not na(s.fm)
+        s.fm.delete()
+    if not na(s.f0L)
+        s.f0L.delete()
+    if not na(s.fmL)
+        s.fmL.delete()
     if not na(s.xl)
         for l in s.xl
             l.delete()
@@ -596,6 +622,10 @@ f_zoneEval(bool bull, float top, float bot, int kAfter, bool isSD, float legMid,
     lD  = useLtfZ and la and ld * 100 >= ltfDMin
     [fr, dp, pd, sz, sw, lOk, lI, lD, dep]
 
+// Fib คัดโซน: Bull = โซนต้องลงไปถึงระดับ Fib (ฝั่ง Discount ลึก) · Bear = ขึ้นไปถึง (Premium ลึก)
+f_fibOk(bool bull, float top, float bot, float fibP, float tol) =>
+    fibHow == "แตะ" ? (bull ? bot <= fibP + tol : top >= fibP - tol) : (bull ? top <= fibP + tol : bot >= fibP - tol)
+
 f_activate(Sig s, array<Sig> arr) =>
     col = s.bull ? bullCol : bearCol
     nx  = bar_index + zExt
@@ -673,6 +703,12 @@ f_activate(Sig s, array<Sig> arr) =>
         for m = 0 to n
             legY := na(legY) ? (s.bull ? high[m] : low[m]) : (s.bull ? math.max(legY, high[m]) : math.min(legY, low[m]))
         legMid = (s.ext + legY) / 2
+        // Fib: 1 = ปลายไส้ sweep · 0 = ยอดขา MSS
+        fibP  = legY + fibLvl * (s.ext - legY)
+        fTolV = fibTol * atrV
+        useFb = fibMode != "Off"
+        fibF  = fibMode == "ตัวกรอง"
+        s.legHi := legY
         // 3) หาโซน + กรอง + ให้คะแนน
         array<float>  zT = array.new<float>()
         array<float>  zB = array.new<float>()
@@ -680,28 +716,33 @@ f_activate(Sig s, array<Sig> arr) =>
         array<string> zN = array.new<string>()
         array<int>    zS = array.new<int>()
         array<bool>   zO = array.new<bool>()
+        array<bool>   zF = array.new<bool>()
         if useOBz
             [k, t, b] = f_findOB(s.bull, n)
             if not na(k)
                 [fr, dp, pd, sz, sw, lOk, lI, lD, dep] = f_zoneEval(s.bull, t, b, k - 1, false, legMid, s.lvl)
+                fb = f_fibOk(s.bull, t, b, fibP, fTolV)
                 if (not reqFresh or fr) and (not reqDisp or dp) and (not reqPD or pd) and sz and lOk and dep
                     zT.push(t)
                     zB.push(b)
                     zK.push(k)
                     zN.push("OB")
-                    zS.push((fr ? 1 : 0) + (dp ? 1 : 0) + (pd ? 1 : 0) + (sz ? 1 : 0) + (sw ? 1 : 0) + (lI ? 1 : 0) + (lD ? 1 : 0) + (dep and depMin > 0 ? 1 : 0))
+                    zS.push((fr ? 1 : 0) + (dp ? 1 : 0) + (pd ? 1 : 0) + (sz ? 1 : 0) + (sw ? 1 : 0) + (lI ? 1 : 0) + (lD ? 1 : 0) + (dep and depMin > 0 ? 1 : 0) + (fibMode == "คะแนน ★" and fb ? 1 : 0))
                     zO.push(true)
+                    zF.push(fb)
         if useSDz
             [st, sb2, sk, si, sty] = f_findSD(s.bull, n)
             if not na(sk)
                 [fr, dp, pd, sz, sw, lOk, lI, lD, dep] = f_zoneEval(s.bull, st, sb2, si, true, legMid, s.lvl)
+                fb = f_fibOk(s.bull, st, sb2, fibP, fTolV)
                 if (not reqFresh or fr) and (not reqDisp or dp) and (not reqPD or pd) and sz and lOk and dep
                     zT.push(st)
                     zB.push(sb2)
                     zK.push(sk)
                     zN.push((s.bull ? "Demand " : "Supply ") + sty)
-                    zS.push((fr ? 1 : 0) + (dp ? 1 : 0) + (pd ? 1 : 0) + (sz ? 1 : 0) + (sw ? 1 : 0) + (lI ? 1 : 0) + (lD ? 1 : 0) + (dep and depMin > 0 ? 1 : 0))
+                    zS.push((fr ? 1 : 0) + (dp ? 1 : 0) + (pd ? 1 : 0) + (sz ? 1 : 0) + (sw ? 1 : 0) + (lI ? 1 : 0) + (lD ? 1 : 0) + (dep and depMin > 0 ? 1 : 0) + (fibMode == "คะแนน ★" and fb ? 1 : 0))
                     zO.push(false)
+                    zF.push(fb)
         // + คะแนนจากระดับ confluence ในโซน (สูงสุด 3)
         for [zi, zt] in zT
             lo  = zB.get(zi) - confTol * atrV
@@ -719,19 +760,31 @@ f_activate(Sig s, array<Sig> arr) =>
                 zS.set(0, zS.get(0) + 1)
                 zS.set(1, zS.get(1) + 1)
         // 4) เลือกโซนที่ดีที่สุด
+        // โหมดตัวกรอง: เลือกโซนที่ผ่าน Fib ก่อน · ไม่มี → ใช้โซนดีสุดแบบ "รอ Fib" (รอขา MSS วิ่งต่อจนโซนผ่าน)
         int best = na
         for [zi, sc] in zS
-            if sc >= minScore and (na(best) or sc > zS.get(best))
+            if sc >= minScore and (not fibF or zF.get(zi)) and (na(best) or sc > zS.get(best))
                 best := zi
+        bool waitFib = false
+        if fibF and na(best)
+            for [zi, sc] in zS
+                if sc >= minScore and (na(best) or sc > zS.get(best))
+                    best := zi
+            waitFib := not na(best)
+        s.armed := not waitFib
+        if not na(best)
+            s.zTop := zT.get(best)
+            s.zBot := zB.get(best)
         // 5) วาดโซนที่ผ่านเกณฑ์
         for [zi, sc] in zS
             if sc >= minScore
                 isOB  = zO.get(zi)
                 zc    = isOB ? (s.bull ? obBullCol : obBearCol) : (s.bull ? sdBullCol : sdBearCol)
                 isBst = not na(best) and zi == best
-                bxz   = box.new(bar_index - zK.get(zi), zT.get(zi), nx, zB.get(zi), border_color = color.new(zc, isBst ? 20 : 55), border_width = isBst ? 2 : 1, bgcolor = zc, text = zN.get(zi) + " ★" + str.tostring(sc), text_size = size.tiny, text_color = color.new(chart.fg_color, isBst ? 10 : 45), text_halign = text.align_right)
+                bxz   = box.new(bar_index - zK.get(zi), zT.get(zi), nx, zB.get(zi), border_color = color.new(zc, isBst ? 20 : 55), border_width = isBst ? 2 : 1, bgcolor = zc, text = zN.get(zi) + " ★" + str.tostring(sc) + (fibF and not zF.get(zi) ? " · ยังไม่ถึง Fib" : ""), text_size = size.tiny, text_color = color.new(chart.fg_color, isBst ? 10 : 45), text_halign = text.align_right)
                 if isBst
-                    s.bx := bxz
+                    s.bx   := bxz
+                    s.zTxt := zN.get(zi) + " ★" + str.tostring(sc)
                 else
                     s.sx := bxz
         // 6) จุดเข้าในโซนที่ดีที่สุด
@@ -757,22 +810,36 @@ f_activate(Sig s, array<Sig> arr) =>
                 pickB := bar_index - zK.get(best)
             ovTxt = overlap ? " + " + zN.get(best == 0 ? 1 : 0) : ""
             pickN := zN.get(best) + ovTxt + " ★" + str.tostring(zS.get(best)) + cfTxt
-        else if cP.size() > 0
+        else if cP.size() > 0 and fallMode != "ไม่ใช้"
+            // ไม่มีโซน → ใช้ระดับ confluence ที่ใกล้สุด · "ต้องผ่าน Fib": ระดับต้องผ่าน Fib ด้วย
+            fibFall = fibF and fallMode == "ต้องผ่าน Fib"
             for [i, p] in cP
-                if na(pick) or (s.bull ? p > pick : p < pick)
+                if (not fibFall or f_fibOk(s.bull, p, p, fibP, fTolV)) and (na(pick) or (s.bull ? p > pick : p < pick))
                     pick  := p
                     pickB := cB.get(i)
                     pickN := cN.get(i) + " (ไม่มีโซนผ่านเกณฑ์)"
+            if fibFall and na(pick)
+                // ยังไม่มีระดับไหนถึง Fib → ใช้ระดับลึกสุดแบบ "รอ Fib"
+                for [i, p] in cP
+                    if na(pick) or (s.bull ? p < pick : p > pick)
+                        pick  := p
+                        pickB := cB.get(i)
+                        pickN := cN.get(i) + " (ไม่มีโซนผ่านเกณฑ์)"
+                s.armed := false
+                s.zTop  := pick
+                s.zBot  := pick
         if not na(pick)
             tipL = "Entry: " + str.tostring(pick, format.mintick) + "\n" + pickN
             for [zi, zt] in zT
                 tipL := tipL + "\n" + zN.get(zi) + " ★" + str.tostring(zS.get(zi)) + ": " + str.tostring(zB.get(zi), format.mintick) + " – " + str.tostring(zt, format.mintick)
             for [i, p] in cP
                 tipL := tipL + "\n" + cN.get(i) + ": " + str.tostring(p, format.mintick)
+            if useFb
+                tipL := tipL + "\nFib " + str.tostring(fibLvl) + ": " + str.tostring(fibP, format.mintick) + " (" + fibMode + " · " + fibHow + ")"
             s.m1P := pick
             s.m1N := "Entry · " + pickN
             s.m1  := line.new(pickB, pick, nx, pick, color = col, width = 2)
-            s.m1L := label.new(nx, pick, s.m1N + " · Fresh", style = label.style_label_left, color = color.new(col, 85), textcolor = col, size = size.tiny, tooltip = tipL)
+            s.m1L := label.new(nx, pick, s.m1N + (s.armed ? " · Fresh" : " · รอ Fib"), style = label.style_label_left, color = color.new(col, 85), textcolor = col, size = size.tiny, tooltip = tipL)
             entryP := pick
         if showAllLv and cP.size() > 0
             s.xl := array.new<line>()
@@ -781,6 +848,18 @@ f_activate(Sig s, array<Sig> arr) =>
                 if p != pick
                     s.xl.push(line.new(cB.get(i), p, nx, p, color = color.new(col, 60), style = line.style_dotted))
                     s.xb.push(label.new(nx, p, cN.get(i), style = label.style_label_left, color = color.new(col, 92), textcolor = color.new(col, 30), size = size.tiny))
+        if showFib and useFb
+            if na(s.xl)
+                s.xl := array.new<line>()
+            if na(s.xb)
+                s.xb := array.new<label>()
+            fc = color.new(chart.fg_color, 40)
+            s.f0  := line.new(s.bar, legY, nx, legY, color = fc, style = line.style_solid)
+            s.fm  := line.new(s.bar, fibP, nx, fibP, color = color.new(bearCol, 20), width = 2)
+            s.xl.push(line.new(s.bar, s.ext, nx, s.ext, color = fc, style = line.style_solid))
+            s.f0L := label.new(nx, legY, "0 (" + str.tostring(legY, format.mintick) + ")", style = label.style_label_left, color = color.new(color.black, 100), textcolor = fc, size = size.tiny)
+            s.fmL := label.new(nx, fibP, str.tostring(fibLvl) + " (" + str.tostring(fibP, format.mintick) + ")", style = label.style_label_left, color = color.new(color.black, 100), textcolor = bearCol, size = size.tiny)
+            s.xb.push(label.new(nx, s.ext, "1 (" + str.tostring(s.ext, format.mintick) + ")", style = label.style_label_left, color = color.new(color.black, 100), textcolor = fc, size = size.tiny))
     // ── Sweep wick / OB / FVG ──
     if wickZone
         top = s.bull ? s.edge : s.ext
@@ -826,6 +905,7 @@ f_activate(Sig s, array<Sig> arr) =>
     else
         s.filled := false
         tr = Trade.new(s.bull, bar_index, s.entry, s.sl, na, false, na, s.ext)
+        tr.armed := s.armed
         trades.push(tr)
         s.tr   := tr
         s.born := bar_index
@@ -836,7 +916,7 @@ f_activate(Sig s, array<Sig> arr) =>
             if not old.filled and not na(old.tr)
                 old.tr.dead := true
             f_delSig(old)
-        alert((s.bull ? "Bullish" : "Bearish") + " SFP + MSS | " + syminfo.ticker + " " + timeframe.period + " | " + s.tag + " " + str.tostring(s.lvl, format.mintick) + " | Limit Entry " + str.tostring(s.entry, format.mintick) + " | SL " + str.tostring(s.sl, format.mintick) + " (" + str.tostring(slPts, "#") + " pts) · TP ตั้งตอนเข้า", alert.freq_once_per_bar_close)
+        alert((s.bull ? "Bullish" : "Bearish") + " SFP + MSS | " + syminfo.ticker + " " + timeframe.period + " | " + s.tag + " " + str.tostring(s.lvl, format.mintick) + " | Limit Entry " + str.tostring(s.entry, format.mintick) + " | SL " + str.tostring(s.sl, format.mintick) + " (" + str.tostring(slPts, "#") + " pts) · TP ตั้งตอนเข้า" + (s.armed ? "" : " · รอขา MSS ถึง Fib"), alert.freq_once_per_bar_close)
     reason
 
 // TP = liquidity ฝั่งตรงข้ามที่ยังไม่ถูกกวาด ณ ตอนเข้าออเดอร์ (ไม่ใช้ RR คงที่)
@@ -969,6 +1049,16 @@ f_finish(Sig s, string res, color rc, float ry, array<Sig> doneArr) =>
         if not na(s.fx)
             s.fx.set_right(bar_index)
             s.fx.set_bgcolor(color.new(color.gray, 92))
+        if not na(s.f0)
+            s.f0.set_x2(bar_index)
+            s.f0.set_color(gc)
+        if not na(s.fm)
+            s.fm.set_x2(bar_index)
+            s.fm.set_color(gc)
+        if not na(s.f0L)
+            s.f0L.delete()
+        if not na(s.fmL)
+            s.fmL.delete()
         if not na(s.xl)
             for l in s.xl
                 l.set_x2(bar_index)
@@ -1001,7 +1091,24 @@ f_updActive(array<Sig> arr, array<Sig> doneArr, bool canAct) =>
             string res = ""
             color  rc  = color.gray
             float  ry  = close
-            if canAct and live
+            if canAct and live and not s.armed
+                // ยังรอ Fib: ราคาย้อนมาแตะโซนก่อนขา MSS ถึง Fib = ยกเลิก
+                if s.bull ? low <= s.zTop : high >= s.zBot
+                    res := "ยกเลิก · โซนไม่ถึง Fib"
+                    ry  := s.entry
+                    if not na(s.tr)
+                        s.tr.dead := true
+                else if s.bull ? close < s.ext : close > s.ext
+                    res := "ไม่ได้เข้า · ปิดเลยไส้"
+                    ry  := s.ext
+                else if fillBars > 0 and bar_index - s.born >= fillBars
+                    res := "ไม่ได้เข้า · หมดเวลา"
+                    ry  := s.entry
+                else if maxAge > 0 and bar_index - s.bar > maxAge
+                    res := "หมดอายุ"
+                    if not na(s.tr)
+                        s.tr.dead := true
+            else if canAct and live
                 [f, nf, r] = f_resolve(s.bull, s.entry, s.sl, s.tp, s.filled)
                 s.filled := f
                 if r == -1
@@ -1068,6 +1175,12 @@ f_updActive(array<Sig> arr, array<Sig> doneArr, bool canAct) =>
                 if not na(s.xb)
                     for x in s.xb
                         x.set_x(nx)
+                if not na(s.f0)
+                    s.f0.set_x2(nx)
+                    s.f0L.set_x(nx)
+                if not na(s.fm)
+                    s.fm.set_x2(nx)
+                    s.fmL.set_x(nx)
                 if not na(s.tpl)
                     s.tpl.set_x2(nx)
                 if not na(s.sll)
@@ -1114,6 +1227,37 @@ f_legOrigin(bool bull, float ext) =>
                         break
     [op, ob]
 
+// ขา MSS ยังวิ่งต่อ (high ใหม่ / low ใหม่ ก่อนเข้า Entry) → เลื่อนจุด 0 ของ Fib ไปยอดใหม่
+// โซนที่ "รอ Fib" ผ่านเมื่อไหร่ = เปิดให้เข้า Entry
+f_updLeg(array<Sig> arr, bool canAct) =>
+    if canAct and useConf and fibMode != "Off" and arr.size() > 0
+        for s in arr
+            if not s.filled and not na(s.legHi) and (s.bull ? high > s.legHi : low < s.legHi)
+                s.legHi := s.bull ? high : low
+                fibP = s.legHi + fibLvl * (s.ext - s.legHi)
+                if not na(s.f0)
+                    s.f0.set_y1(s.legHi)
+                    s.f0.set_y2(s.legHi)
+                    s.f0L.set_y(s.legHi)
+                    s.f0L.set_text("0 (" + str.tostring(s.legHi, format.mintick) + ")")
+                if not na(s.fm)
+                    s.fm.set_y1(fibP)
+                    s.fm.set_y2(fibP)
+                    s.fmL.set_y(fibP)
+                    s.fmL.set_text(str.tostring(fibLvl) + " (" + str.tostring(fibP, format.mintick) + ")")
+                if not s.armed and not na(s.zTop) and f_fibOk(s.bull, s.zTop, s.zBot, fibP, fibTol * atrV)
+                    s.armed := true
+                    if not na(s.tr)
+                        s.tr.armed := true
+                    if not na(s.m1L)
+                        s.m1L.set_text(s.m1N + " · Fresh")
+                    if not na(s.bx)
+                        s.bx.set_text(s.zTxt)
+                    alert((s.bull ? "Bullish" : "Bearish") + " โซนผ่าน Fib " + str.tostring(fibLvl) + " | " + syminfo.ticker + " " + timeframe.period + " | Limit Entry " + str.tostring(s.entry, format.mintick), alert.freq_once_per_bar_close)
+
+f_updLeg(actBull, conf)
+f_updLeg(actBear, conf)
+
 // ═════════════════════════ 1) STATS (limit order ที่ระดับ Entry) ═════════════════════════
 // ไม่ได้เข้า (ไม่ถึง Entry) = ไม่นับ SL · ไม่นับใน W/L
 if conf and trades.size() > 0
@@ -1122,6 +1266,11 @@ if conf and trades.size() > 0
         if t.dead and not t.filled
             nNoFill += 1
             trades.remove(i)
+        else if bar_index > t.bar and not t.armed
+            // ยังรอ Fib = ยังไม่เปิดให้เข้า
+            if (t.bull ? close < t.ext : close > t.ext) or (fillBars > 0 and bar_index - t.bar >= fillBars)
+                nNoFill += 1
+                trades.remove(i)
         else if bar_index > t.bar
             [f, nf, r] = f_resolve(t.bull, t.entry, t.sl, t.tp, t.filled)
             t.filled := f
@@ -1165,7 +1314,7 @@ if conf and not na(pBear)
         if r == 0
             bearConfSig := true
             cMss += 1
-            lastValid := "✔ MSS Confirmed"
+            lastValid := "✔ MSS Confirmed" + (pBear.armed ? "" : " · รอ Fib")
             lastEntry := pBear.entry
             lastConf  := pBear.m1N
         else
@@ -1190,7 +1339,7 @@ if conf and not na(pBull)
         if r == 0
             bullConfSig := true
             cMss += 1
-            lastValid := "✔ MSS Confirmed"
+            lastValid := "✔ MSS Confirmed" + (pBull.armed ? "" : " · รอ Fib")
             lastEntry := pBull.entry
             lastConf  := pBull.m1N
         else
@@ -1348,7 +1497,7 @@ if showBearS and not na(bearSwept) and (na(pBear) or high > pBear.ext)
                 if r == 0
                     bearConfSig := true
                     cMss += 1
-                    lastValid := "✔ MSS Confirmed"
+                    lastValid := "✔ MSS Confirmed" + (s.armed ? "" : " · รอ Fib")
                     lastEntry := s.entry
                     lastConf  := s.m1N
                 else
@@ -1396,7 +1545,7 @@ if showBullS and not na(bullSwept) and (na(pBull) or low < pBull.ext)
                 if r == 0
                     bullConfSig := true
                     cMss += 1
-                    lastValid := "✔ MSS Confirmed"
+                    lastValid := "✔ MSS Confirmed" + (s.armed ? "" : " · รอ Fib")
                     lastEntry := s.entry
                     lastConf  := s.m1N
                 else
