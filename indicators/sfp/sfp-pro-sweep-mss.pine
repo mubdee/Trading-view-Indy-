@@ -38,7 +38,6 @@ intRight    = input.int(1, "Right", minval = 1, inline = "i", group = grpC)
 breakMode   = input.string("Close", "ทะลุด้วย", options = ["Close", "Full Body"], group = grpC, tooltip = "Close = ราคาปิด (เนื้อเทียน) ทะลุ\nFull Body = ทั้ง open และ close ต้องเลยระดับ")
 dispMode    = input.string("Off", "Displacement (ตัวกรองเสริม)", options = ["Off", "Body ATR", "FVG", "Body ATR หรือ FVG"], group = grpC, tooltip = "Off = ทะลุด้วยเนื้อเทียนอย่างเดียวพอ (แบบเดิม)")
 dispAtr     = input.float(0.8, "Body ขั้นต่ำ (x ATR)", minval = 0.1, step = 0.1, group = grpC)
-wickMss     = input.string("เลื่อนระดับไปปลายไส้", "ถ้ามีไส้ทะลุระดับ MSS ก่อน", options = ["เลื่อนระดับไปปลายไส้", "ยกเลิก Setup", "ไม่สนใจ (แบบเดิม)"], group = grpC, tooltip = "ใช้กับแท่งที่ไส้ทะลุระดับ MSS แต่เนื้อเทียนปิดไม่ผ่าน\nเลื่อนระดับไปปลายไส้ = ระดับ MSS ย้ายไปที่ปลายไส้นั้น ต้องปิดเนื้อเทียนผ่านปลายไส้ถึงจะนับ\nยกเลิก Setup = ไส้ทะลุก่อน ถือว่า setup เสีย\nไม่สนใจ = แบบเดิม (ยังนับแท่งที่ปิดผ่านระดับเดิมได้)\nตอนสร้าง SFP จะเลือกระดับ MSS เป็นปลายไส้ที่ต่ำ/สูงสุดของขาที่วิ่งเข้า sweep เสมอ (ไม่ใช้ swing ที่ถูกไส้ทะลุไปแล้ว)")
 confBars    = input.int(20, "ต้องทะลุภายใน (แท่ง)", minval = 1, maxval = 50, group = grpC)
 showPending = input.bool(true, "แสดง SFP ที่รอ MSS (จาง ๆ)", group = grpC)
 
@@ -1056,25 +1055,13 @@ f_updActive(array<Sig> arr, array<Sig> doneArr, bool canAct) =>
 f_broke(Sig s) =>
     s.bull ? ((fullBody ? bb > s.trig : close > s.trig) and dispBull) : ((fullBody ? bt < s.trig : close < s.trig) and dispBear)
 
-// ไส้ทะลุระดับ MSS แต่ราคาปิดยังไม่ผ่าน
-f_wickPierce(Sig s) =>
-    s.bull ? (high > s.trig and close <= s.trig) : (low < s.trig and close >= s.trig)
-
-// ย้ายระดับ MSS ไปที่ปลายไส้ของแท่งนี้ + ขยับเส้น
-f_shiftTrig(Sig s) =>
-    s.trig    := s.bull ? high : low
-    s.trigBar := bar_index
-    if not na(s.cl)
-        s.cl.set_xy1(bar_index, s.trig)
-        s.cl.set_y2(s.trig)
-
-// ระดับ MSS ที่ยังไม่ถูกไส้ทะลุ: ปลายสุดของขาตั้งแต่ swing ถึงแท่งก่อนหน้า (แท่ง sweep เช็คแยก)
+// ระดับ MSS = จุดเริ่มขาที่วิ่งเข้า sweep: swing ล่าสุด หรือไส้ที่ต่ำ/สูงกว่าหลังจากนั้น (ก่อนแท่ง sweep)
 // bear → low ต่ำสุด, bull → high สูงสุด
 f_legExtreme(bool bull, float p, int b) =>
     float ep = p
     int   eb = b
     n = math.min(bar_index - b - 1, 300)
-    if n > 0 and wickMss != "ไม่สนใจ (แบบเดิม)"
+    if n > 0
         for k = 1 to n
             v = bull ? high[k] : low[k]
             if bull ? v > ep : v < ep
@@ -1136,15 +1123,6 @@ if conf and not na(pBear)
         cExp += 1
         lastValid := "✖ ไม่เกิด MSS"
         pBear := na
-    else if bar_index > pBear.bar and f_wickPierce(pBear)
-        if wickMss == "ยกเลิก Setup"
-            f_delSig(pBear)
-            cExp += 1
-            lastValid := "✖ ไส้ทะลุ MSS ก่อน"
-            pBear := na
-        else if wickMss == "เลื่อนระดับไปปลายไส้"
-            f_shiftTrig(pBear)
-            lastTrig := pBear.trig
 
 if conf and not na(pBull)
     if bar_index > pBull.bar and f_broke(pBull)
@@ -1165,15 +1143,6 @@ if conf and not na(pBull)
         cExp += 1
         lastValid := "✖ ไม่เกิด MSS"
         pBull := na
-    else if bar_index > pBull.bar and f_wickPierce(pBull)
-        if wickMss == "ยกเลิก Setup"
-            f_delSig(pBull)
-            cExp += 1
-            lastValid := "✖ ไส้ทะลุ MSS ก่อน"
-            pBull := na
-        else if wickMss == "เลื่อนระดับไปปลายไส้"
-            f_shiftTrig(pBull)
-            lastTrig := pBull.trig
 
 // ═════════════════════════ 4) LIQUIDITY LEVELS ═════════════════════════
 ph = ta.pivothigh(high, pivLeft, pivRight)
@@ -1301,19 +1270,7 @@ if showBearS and not na(bearSwept)
             [trig, trigBar] = f_legExtreme(false, useSwing ? lastSL : fbLow, useSwing ? lastSLBar : fbLowBar)
             lastTrig := trig
             s = Sig.new(bull = false, lvl = bearSwept, lvlBar = bearSweptBar, tag = bearTag, bar = bar_index, ext = high, edge = bt, trig = trig, trigBar = trigBar, expire = bar_index + confBars, pct = pct)
-            // แท่ง sweep เองมีไส้ทะลุระดับ MSS แต่ปิดไม่ผ่าน
-            bool killed = false
-            if not f_broke(s) and f_wickPierce(s)
-                if wickMss == "ยกเลิก Setup"
-                    killed := true
-                else if wickMss == "เลื่อนระดับไปปลายไส้"
-                    s.trig    := s.bull ? high : low
-                    s.trigBar := bar_index
-            lastTrig := s.trig
-            if killed
-                cExp += 1
-                lastValid := "✖ ไส้ทะลุ MSS ก่อน"
-            else if f_broke(s)
+            if f_broke(s)
                 r = f_activate(s, actBear)
                 if r == 0
                     bearConfSig := true
@@ -1357,19 +1314,7 @@ if showBullS and not na(bullSwept)
             [trig, trigBar] = f_legExtreme(true, useSwing ? lastSH : fbHigh, useSwing ? lastSHBar : fbHighBar)
             lastTrig := trig
             s = Sig.new(bull = true, lvl = bullSwept, lvlBar = bullSweptBar, tag = bullTag, bar = bar_index, ext = low, edge = bb, trig = trig, trigBar = trigBar, expire = bar_index + confBars, pct = pct)
-            // แท่ง sweep เองมีไส้ทะลุระดับ MSS แต่ปิดไม่ผ่าน
-            bool killed = false
-            if not f_broke(s) and f_wickPierce(s)
-                if wickMss == "ยกเลิก Setup"
-                    killed := true
-                else if wickMss == "เลื่อนระดับไปปลายไส้"
-                    s.trig    := s.bull ? high : low
-                    s.trigBar := bar_index
-            lastTrig := s.trig
-            if killed
-                cExp += 1
-                lastValid := "✖ ไส้ทะลุ MSS ก่อน"
-            else if f_broke(s)
+            if f_broke(s)
                 r = f_activate(s, actBull)
                 if r == 0
                     bullConfSig := true
