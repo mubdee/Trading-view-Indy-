@@ -49,6 +49,7 @@ HTF Bias · Session · SFP ล่าสุด + ชนิด liquidity · Liquid
 
 ## DEV — Zone Filter (OB / Demand-Supply)
 ไฟล์ `sfp-pro-sweep-mss.pine` (ตัว DEV) เพิ่ม:
+- **อายุ Liquidity** (ค่าเริ่มต้น 10 แท่ง) — นับ SFP เฉพาะตอนกวาด swing / EQH / EQL ที่เกิดภายใน 10 แท่งก่อนหน้า · PDH/PWH/Asia/HTF sweep ได้ตลอด (เลือกให้นับอายุด้วยได้) · swing เก่ายังใช้เป็นเป้า TP
 - **Demand / Supply** — base (body ≤ 0.5 ATR, 1–3 แท่ง) + impulse (body ≥ 1 ATR) · ระบุชนิด RBD/DBD/DBR/RBR
 - **ตัวกรองโซน** (ทั้ง OB และ D/S): Fresh · Displacement · Premium/Discount ของขา · ขนาดไม่เกิน 3 ATR
 - **คะแนน ★** = Fresh + Displacement + P/D + ขนาดพอดี + อยู่ที่จุด Sweep + ระดับ A/V·SBR·QM ในโซน (สูงสุด 3) + OB ซ้อน D/S
