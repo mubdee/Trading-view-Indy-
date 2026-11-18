@@ -1244,7 +1244,9 @@ if conf and lowsLv.size() > 0
 bool bullRawSig = false
 bool bearRawSig = false
 
-if showBearS and not na(bearSwept)
+// มี SFP รอ MSS อยู่แล้ว: sweep ใหม่ที่ไม่เลยไส้เดิม (lower high / higher low) ไม่ทับของเดิม
+// → MSS ยังวัดจากจุดเริ่มขาของ sweep ตัวแรก
+if showBearS and not na(bearSwept) and (na(pBear) or high > pBear.ext)
     cSweep += 1
     lastType  := "Bearish SFP"
     lastTag   := bearTag
@@ -1288,7 +1290,7 @@ if showBearS and not na(bearSwept)
                 pBear := s
                 lastValid := "⏳ รอ MSS"
 
-if showBullS and not na(bullSwept)
+if showBullS and not na(bullSwept) and (na(pBull) or low < pBull.ext)
     cSweep += 1
     lastType  := "Bullish SFP"
     lastTag   := bullTag
