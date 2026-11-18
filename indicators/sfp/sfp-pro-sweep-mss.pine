@@ -112,7 +112,7 @@ bearCol  = input.color(#f23645, "Bear", inline = "d2", group = grpD)
 txtSize  = input.string("small", "ขนาดตัวอักษร", options = ["tiny", "small", "normal"], group = grpD)
 showHist = input.bool(true, "ลูกศรประวัติสัญญาณ (SFP + MSS)", group = grpD, tooltip = "ลูกศรเล็กที่แท่ง MSS ของทุกสัญญาณในอดีต — อยู่ถาวร ไม่ถูกลบตามกล่อง/เส้น")
 showSwp  = input.bool(false, "จุดประวัติ Sweep (รวมที่ไม่เกิด MSS)", group = grpD)
-keepDone = input.bool(true, "เก็บ setup ที่จบแล้ว (จาง + ป้ายผล)", group = grpD, tooltip = "ไม่ลบ setup ที่ถึง TP / โดน SL / Miss / ยกเลิก แต่ทำให้จางและแปะผลไว้")
+keepDone = input.bool(true, "เก็บ setup ที่จบแล้ว (จาง + ป้ายผล)", group = grpD, tooltip = "ไม่ลบ setup ที่ถึง TP / โดน SL / ไม่ได้เข้า / ยกเลิก แต่ทำให้จางและแปะผลไว้")
 maxDone  = input.int(5, "จำนวน setup ที่จบแล้วที่แสดง (ต่อฝั่ง)", minval = 1, maxval = 30, group = grpD)
 winC     = input.color(#26a69a, "สีผล: TP", inline = "rc", group = grpD)
 lossC    = input.color(#ef5350, "SL", inline = "rc", group = grpD)
@@ -314,7 +314,7 @@ var string lastConf  = ""
 var string lastValid = "-"
 var int    nWin      = 0
 var int    nLoss     = 0
-var int    nMiss     = 0
+var int    nNoTp     = 0
 var float  sumWinR   = 0.0
 var int    cSweep    = 0
 var int    cMss      = 0
@@ -814,76 +814,89 @@ f_activate(Sig s, array<Sig> arr) =>
     slPts = risk / syminfo.mintick
     s.slV := slUnit == "Points" ? slPts : slUnit == "Price" ? risk : risk / atrV
     slTooBig = slMax > 0 and s.slV > slMax
-    // ── TP: liquidity ฝั่งตรงข้ามที่ยังไม่ถูกกวาด (ไม่ใช้ RR คงที่) ──
+    // TP ยังไม่ตั้ง — ตั้ง TP / SL ตอนราคาเข้า Entry จริงเท่านั้น (f_onFill)
+    reason = slTooBig ? 1 : noEntry ? 3 : 0
+    if reason != 0
+        // ไม่เข้าออเดอร์ ลบ setup ทิ้ง
+        f_delSig(s)
+    else
+        s.filled := false
+        trades.push(Trade.new(s.bull, bar_index, s.entry, s.sl, na, false, na, s.ext))
+        s.born := bar_index
+        arr.push(s)
+        if arr.size() > maxShow
+            f_delSig(arr.shift())
+        alert((s.bull ? "Bullish" : "Bearish") + " SFP + MSS | " + syminfo.ticker + " " + timeframe.period + " | " + s.tag + " " + str.tostring(s.lvl, format.mintick) + " | Limit Entry " + str.tostring(s.entry, format.mintick) + " | SL " + str.tostring(s.sl, format.mintick) + " (" + str.tostring(slPts, "#") + " pts) · TP ตั้งตอนเข้า", alert.freq_once_per_bar_close)
+    reason
+
+// TP = liquidity ฝั่งตรงข้ามที่ยังไม่ถูกกวาด ณ ตอนเข้าออเดอร์ (ไม่ใช้ RR คงที่)
+f_findTp(bool bull, float en, float sl) =>
     float  tpP    = na
     string tpTag  = ""
     float  tpK    = na
     string tpKTag = ""
-    lim = s.bull ? math.max(s.entry, close) : math.min(s.entry, close)
+    risk = math.abs(en - sl)
+    lim  = bull ? math.max(en, close) : math.min(en, close)
     if risk > 0
-        arrL = s.bull ? highsLv : lowsLv
+        arrL = bull ? highsLv : lowsLv
         for lv in arrL
-            if s.bull ? lv.price > lim : lv.price < lim
-                if math.abs(lv.price - s.entry) / risk >= tpMinRR
-                    tg = lv.tag == "Swing" ? (s.bull ? "Swing H" : "Swing L") : lv.tag
-                    if na(tpP) or (s.bull ? lv.price < tpP : lv.price > tpP)
+            if bull ? lv.price > lim : lv.price < lim
+                if math.abs(lv.price - en) / risk >= tpMinRR
+                    tg = lv.tag == "Swing" ? (bull ? "Swing H" : "Swing L") : lv.tag
+                    if na(tpP) or (bull ? lv.price < tpP : lv.price > tpP)
                         tpP   := lv.price
                         tpTag := tg
-                    if lv.tag != "Swing" and (na(tpK) or (s.bull ? lv.price < tpK : lv.price > tpK))
+                    if lv.tag != "Swing" and (na(tpK) or (bull ? lv.price < tpK : lv.price > tpK))
                         tpK    := lv.price
                         tpKTag := tg
         if tpInt
-            arrP = s.bull ? ihP : ilP
-            arrB = s.bull ? ihB : ilB
+            arrP = bull ? ihP : ilP
+            arrB = bull ? ihB : ilB
             for [i, p] in arrP
-                if (s.bull ? p > lim : p < lim) and math.abs(p - s.entry) / risk >= tpMinRR and (na(tpP) or (s.bull ? p < tpP : p > tpP))
+                if (bull ? p > lim : p < lim) and math.abs(p - en) / risk >= tpMinRR and (na(tpP) or (bull ? p < tpP : p > tpP))
                     // internal swing ต้องยังไม่ถูกกวาด
                     kb = bar_index - arrB.get(i)
                     bool taken = false
                     if kb > 0
                         for m = 0 to math.min(kb - 1, 300)
-                            if s.bull ? high[m] > p : low[m] < p
+                            if bull ? high[m] > p : low[m] < p
                                 taken := true
                                 break
                     if not taken
                         tpP   := p
-                        tpTag := s.bull ? "iH" : "iL"
+                        tpTag := bull ? "iH" : "iL"
         if tpPick == "Key liquidity ก่อน" and not na(tpK)
             tpP   := tpK
             tpTag := tpKTag
-    noTp = na(tpP)
-    s.tp := noTp ? s.entry : tpP
-    tpRR  = risk > 0 ? math.abs(s.tp - s.entry) / risk : 0.0
-    tpTxt = "TP " + tpTag + " · " + str.tostring(tpRR, "#.#") + "R"
-    slTxt = "SL · " + str.tostring(slPts, "#") + " pts"
-    reason = slTooBig ? 1 : noEntry ? 3 : noTp ? 2 : 0
-    if reason != 0
-        // ไม่เข้าออเดอร์ ลบ setup ทิ้ง
-        f_delSig(s)
-    else
-        if showTP
-            s.tpl  := line.new(bar_index, s.tp, nx, s.tp, color = col, style = line.style_dashed)
-            s.sll  := line.new(bar_index, s.sl, nx, s.sl, color = color.new(color.gray, 20), style = line.style_dashed)
-            s.tpLb := label.new(nx, s.tp, tpTxt, style = label.style_label_left, color = color.new(col, 80), textcolor = col, size = size.tiny)
-            s.slLb := label.new(nx, s.sl, slTxt, style = label.style_label_left, color = color.new(color.gray, 80), textcolor = color.gray, size = size.tiny)
-        s.filled := false
-        s.rrv    := tpRR
-        trades.push(Trade.new(s.bull, bar_index, s.entry, s.sl, s.tp, false, tpRR, s.ext))
-        s.born := bar_index
-        arr.push(s)
-        if arr.size() > maxShow
-            f_delSig(arr.shift())
-        alert((s.bull ? "Bullish" : "Bearish") + " SFP + MSS | " + syminfo.ticker + " " + timeframe.period + " | " + s.tag + " " + str.tostring(s.lvl, format.mintick) + " | Entry " + str.tostring(s.entry, format.mintick) + " | SL " + str.tostring(s.sl, format.mintick) + " (" + str.tostring(slPts, "#") + " pts) | " + tpTxt + " " + str.tostring(s.tp, format.mintick), alert.freq_once_per_bar_close)
-    reason
+    [tpP, tpTag]
+
+// เข้าออเดอร์แล้ว → ตั้ง TP + วาด TP / SL
+f_onFill(Sig s, float tp, string tag) =>
+    col  = s.bull ? bullCol : bearCol
+    nx   = bar_index + zExt
+    risk = math.abs(s.entry - s.sl)
+    s.tp  := tp
+    s.rrv := risk > 0 ? math.abs(tp - s.entry) / risk : 0.0
+    tpTxt = "TP " + tag + " · " + str.tostring(s.rrv, "#.#") + "R"
+    slTxt = "SL · " + str.tostring(risk / syminfo.mintick, "#") + " pts"
+    if showTP
+        s.tpl  := line.new(bar_index, tp, nx, tp, color = col, style = line.style_dashed)
+        s.sll  := line.new(bar_index, s.sl, nx, s.sl, color = color.new(color.gray, 20), style = line.style_dashed)
+        s.tpLb := label.new(nx, tp, tpTxt, style = label.style_label_left, color = color.new(col, 80), textcolor = col, size = size.tiny)
+        s.slLb := label.new(nx, s.sl, slTxt, style = label.style_label_left, color = color.new(color.gray, 80), textcolor = color.gray, size = size.tiny)
+    if not na(s.m1L)
+        s.m1L.set_text(s.m1N + " · Filled")
+    alert((s.bull ? "Buy" : "Sell") + " filled | " + syminfo.ticker + " " + timeframe.period + " | Entry " + str.tostring(s.entry, format.mintick) + " | SL " + str.tostring(s.sl, format.mintick) + " | " + tpTxt + " " + str.tostring(tp, format.mintick), alert.freq_once_per_bar_close)
 
 f_rejTxt(int r, Sig s) =>
-    r == 1 ? "✖ SL เกิน (" + str.tostring(s.slV, "#.##") + " " + slUnit + ")" : r == 2 ? "✖ ไม่มี TP (liquidity)" : "✖ ไม่มีจุดเข้า"
+    r == 1 ? "✖ SL เกิน (" + str.tostring(s.slV, "#.##") + " " + slUnit + ")" : "✖ ไม่มีจุดเข้า"
 
 // เช็คลำดับ Entry → SL / TP ด้วยแท่ง LTF (ไม่มีข้อมูล LTF = ใช้แท่งปัจจุบัน)
-// คืน [filled, res]  res: 0 ยังไม่จบ · 1 TP · -1 SL · 2 Miss (ถึง TP ก่อนเข้า)
-// แท่งที่เพิ่งเข้า: เช็ค SL ได้ แต่ TP ต้องเป็นแท่งถัดไป (กันนับ TP ที่ลำดับไม่ชัด)
+// คืน [filled, เพิ่งเข้าแท่งนี้, res]  res: 0 ยังไม่จบ · 1 TP · -1 SL
+// ยังไม่เข้า = ไม่สน TP/SL · แท่งที่เพิ่งเข้า: เช็ค SL ได้ แต่ TP เริ่มนับแท่งถัดไป (TP ตั้งตอนเข้า)
 f_resolve(bool bull, float en, float sl, float tp, bool wasFilled) =>
     bool f   = wasFilled
+    bool nf  = false
     int  res = 0
     n   = ltfH.size()
     cnt = n > 0 ? n : 1
@@ -892,21 +905,19 @@ f_resolve(bool bull, float en, float sl, float tp, bool wasFilled) =>
         l = n > 0 ? ltfL.get(i) : low
         if not f
             if bull ? l <= en : h >= en
-                f := true
+                f  := true
+                nf := true
                 if bull ? l <= sl : h >= sl
                     res := -1
                     break
-            else if bull ? h >= tp : l <= tp
-                res := 2
-                break
         else
             if bull ? l <= sl : h >= sl
                 res := -1
                 break
-            if bull ? h >= tp : l <= tp
+            if not nf and not na(tp) and (bull ? h >= tp : l <= tp)
                 res := 1
                 break
-    [f, res]
+    [f, nf, res]
 
 // จบ setup: ทำให้จาง + แปะป้ายผล (หรือลบทิ้งถ้าปิด keepDone)
 f_finish(Sig s, string res, color rc, float ry, array<Sig> doneArr) =>
@@ -970,7 +981,7 @@ f_finish(Sig s, string res, color rc, float ry, array<Sig> doneArr) =>
     else
         f_delSig(s)
 
-// อัปเดต setup ที่ active: เช็ค Entry fill → TP / SL / Miss / ยกเลิก / หมดอายุ  + สถานะ Fresh
+// อัปเดต setup ที่ active: เช็ค Entry fill (→ ตั้ง TP/SL) → TP / SL / ไม่ได้เข้า / หมดอายุ  + สถานะ Fresh
 f_updActive(array<Sig> arr, array<Sig> doneArr, bool canAct) =>
     bool touched = false
     if arr.size() > 0
@@ -981,7 +992,7 @@ f_updActive(array<Sig> arr, array<Sig> doneArr, bool canAct) =>
             color  rc  = color.gray
             float  ry  = close
             if canAct and live
-                [f, r] = f_resolve(s.bull, s.entry, s.sl, s.tp, s.filled)
+                [f, nf, r] = f_resolve(s.bull, s.entry, s.sl, s.tp, s.filled)
                 s.filled := f
                 if r == -1
                     res := "SL ✖ -1R"
@@ -991,9 +1002,13 @@ f_updActive(array<Sig> arr, array<Sig> doneArr, bool canAct) =>
                     res := "TP ✔ +" + str.tostring(s.rrv, "#.#") + "R"
                     rc  := winC
                     ry  := s.tp
-                else if r == 2
-                    res := "Miss · ถึง TP ก่อนเข้า"
-                    ry  := s.tp
+                else if nf
+                    [tpN, tgN] = f_findTp(s.bull, s.entry, s.sl)
+                    if na(tpN)
+                        res := "ยกเลิก · ไม่มีเป้า TP ตอนเข้า"
+                        ry  := s.entry
+                    else
+                        f_onFill(s, tpN, tgN)
                 else if not s.filled and (s.bull ? close < s.ext : close > s.ext)
                     res := "ไม่ได้เข้า · ปิดเลยไส้"
                     ry  := s.ext
@@ -1093,7 +1108,7 @@ if conf and trades.size() > 0
     for i = trades.size() - 1 to 0
         t = trades.get(i)
         if bar_index > t.bar
-            [f, r] = f_resolve(t.bull, t.entry, t.sl, t.tp, t.filled)
+            [f, nf, r] = f_resolve(t.bull, t.entry, t.sl, t.tp, t.filled)
             t.filled := f
             if r == 1
                 nWin    += 1
@@ -1102,9 +1117,16 @@ if conf and trades.size() > 0
             else if r == -1
                 nLoss += 1
                 trades.remove(i)
-            else if r == 2
-                nMiss += 1
-                trades.remove(i)
+            else if nf
+                // เพิ่งเข้า → ตั้ง TP ตอนนี้
+                [tpN, tgN] = f_findTp(t.bull, t.entry, t.sl)
+                if na(tpN)
+                    nNoTp += 1
+                    trades.remove(i)
+                else
+                    rk = math.abs(t.entry - t.sl)
+                    t.tp  := tpN
+                    t.rrv := rk > 0 ? math.abs(tpN - t.entry) / rk : 0.0
             else if not t.filled and ((t.bull ? close < t.ext : close > t.ext) or bar_index - t.bar >= fillBars)
                 nNoFill += 1
                 trades.remove(i)
@@ -1399,9 +1421,9 @@ if showDash and barstate.islast
     dash.cell(0, 9, "Funnel", text_color = sc, text_size = size.small, text_halign = text.align_left)
     dash.cell(1, 9, "Sweep " + str.tostring(cSweep) + " → MSS " + str.tostring(cMss), text_color = tc, text_size = size.small)
     dash.cell(0, 10, "ตกเงื่อนไข", text_color = sc, text_size = size.small, text_halign = text.align_left)
-    dash.cell(1, 10, "ไม่เกิด MSS " + str.tostring(cExp) + " · ตัวกรอง " + str.tostring(cFilt) + " · SL เกิน " + str.tostring(cSlBig) + " · ไม่มี TP/Entry " + str.tostring(cNoTp), text_color = tc, text_size = size.small)
+    dash.cell(1, 10, "ไม่เกิด MSS " + str.tostring(cExp) + " · ตัวกรอง " + str.tostring(cFilt) + " · SL เกิน " + str.tostring(cSlBig) + " · ไม่มีจุดเข้า " + str.tostring(cNoTp), text_color = tc, text_size = size.small)
     dash.cell(0, 11, "ไม่ได้เข้า", text_color = sc, text_size = size.small, text_halign = text.align_left)
-    dash.cell(1, 11, "ไม่ถึง Entry " + str.tostring(nNoFill) + " · Miss (ถึง TP ก่อน) " + str.tostring(nMiss), text_color = tc, text_size = size.small)
+    dash.cell(1, 11, "ไม่ถึง Entry " + str.tostring(nNoFill) + " · ไม่มีเป้า TP ตอนเข้า " + str.tostring(nNoTp), text_color = tc, text_size = size.small)
     dash.cell(1, 8, "▲ " + str.tostring(actBull.size()) + "   ▼ " + str.tostring(actBear.size()) + (useVol ? "  · vol " + (na(lastPct) ? "-" : str.tostring(lastPct, "#.#") + "%") : ""), text_color = tc, text_size = size.small)
 
 // ═════════════════════════ HISTORY MARKERS ═════════════════════════
