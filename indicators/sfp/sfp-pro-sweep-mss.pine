@@ -83,8 +83,10 @@ sdBullCol = input.color(color.new(#00bcd4, 82), "Demand", inline = "zc", group =
 sdBearCol = input.color(color.new(#e040fb, 82), "Supply", inline = "zc", group = grpZ)
 
 grpR = "7) Trade & Stats"
-showTP = input.bool(true, "แสดง TP / SL", group = grpR)
-rr     = input.float(2.0, "RR", minval = 0.5, step = 0.5, group = grpR)
+showTP  = input.bool(true, "แสดง TP / SL", group = grpR)
+tpMode  = input.string("Liquidity", "TP", options = ["Liquidity", "RR"], group = grpR, tooltip = "Liquidity = TP ที่ liquidity ฝั่งตรงข้ามตัวถัดไปที่ยังไม่ถูกกวาด (Swing, EQH/EQL, PDH/PDL, Asia, HTF)\nRR = TP ตาม RR คงที่")
+tpMinRR = input.float(1.0, "Liquidity TP: RR ขั้นต่ำ", minval = 0.1, step = 0.1, group = grpR, tooltip = "ข้าม liquidity ที่ใกล้เกินจนได้ RR ไม่ถึงค่านี้ แล้วไปใช้ตัวถัดไป")
+rr      = input.float(2.0, "RR (โหมด RR / ใช้แทนเมื่อไม่มี liquidity)", minval = 0.5, step = 0.5, group = grpR)
 slBuf  = input.float(0.1, "SL buffer (x ATR)", minval = 0, step = 0.05, group = grpR)
 
 grpD = "Display"
@@ -240,6 +242,7 @@ type Trade
     float sl
     float tp
     bool  filled
+    float rrv
 
 var array<Level> highsLv = array.new<Level>()
 var array<Level> lowsLv  = array.new<Level>()
@@ -260,6 +263,7 @@ var string lastValid = "-"
 var int    nWin      = 0
 var int    nLoss     = 0
 var int    nMiss     = 0
+var float  sumWinR   = 0.0
 
 // ═════════════════════════ SWING ล่าสุด (สำหรับ MSS) ═════════════════════════
 iph = ta.pivothigh(high, intLeft, intRight)
@@ -717,18 +721,32 @@ f_activate(Sig s, array<Sig> arr) =>
     s.entry := na(entryP) ? close : entryP
     s.sl    := s.bull ? s.ext - slBuf * atrV : s.ext + slBuf * atrV
     risk     = math.abs(s.entry - s.sl)
-    s.tp    := s.bull ? s.entry + rr * risk : s.entry - rr * risk
+    // ── TP: liquidity ฝั่งตรงข้ามตัวถัดไป (ที่ได้ RR ≥ ขั้นต่ำ) ──
+    float  tpP   = na
+    string tpTag = ""
+    if tpMode == "Liquidity" and risk > 0
+        arrL = s.bull ? highsLv : lowsLv
+        lim  = s.bull ? math.max(s.entry, close) : math.min(s.entry, close)
+        for lv in arrL
+            if s.bull ? lv.price > lim : lv.price < lim
+                rrv = math.abs(lv.price - s.entry) / risk
+                if rrv >= tpMinRR and (na(tpP) or (s.bull ? lv.price < tpP : lv.price > tpP))
+                    tpP   := lv.price
+                    tpTag := lv.tag == "Swing" ? (s.bull ? "Swing H" : "Swing L") : lv.tag
+    s.tp := na(tpP) ? (s.bull ? s.entry + rr * risk : s.entry - rr * risk) : tpP
+    tpRR  = risk > 0 ? math.abs(s.tp - s.entry) / risk : rr
+    tpTxt = "TP " + (tpTag != "" ? tpTag + " · " : "") + str.tostring(tpRR, "#.#") + "R"
     if showTP
         s.tpl  := line.new(bar_index, s.tp, nx, s.tp, color = col, style = line.style_dashed)
         s.sll  := line.new(bar_index, s.sl, nx, s.sl, color = color.new(color.gray, 20), style = line.style_dashed)
-        s.tpLb := label.new(nx, s.tp, "TP " + str.tostring(rr) + "R", style = label.style_label_left, color = color.new(col, 80), textcolor = col, size = size.tiny)
+        s.tpLb := label.new(nx, s.tp, tpTxt, style = label.style_label_left, color = color.new(col, 80), textcolor = col, size = size.tiny)
         s.slLb := label.new(nx, s.sl, "SL", style = label.style_label_left, color = color.new(color.gray, 80), textcolor = color.gray, size = size.tiny)
-    trades.push(Trade.new(s.bull, bar_index, s.entry, s.sl, s.tp, filledNow))
+    trades.push(Trade.new(s.bull, bar_index, s.entry, s.sl, s.tp, filledNow, tpRR))
     s.born := bar_index
     arr.push(s)
     if arr.size() > maxShow
         f_delSig(arr.shift())
-    alert((s.bull ? "Bullish" : "Bearish") + " SFP + MSS | " + syminfo.ticker + " " + timeframe.period + " | " + s.tag + " " + str.tostring(s.lvl, format.mintick) + " | Entry " + str.tostring(s.entry, format.mintick) + " | SL " + str.tostring(s.sl, format.mintick) + " | TP " + str.tostring(s.tp, format.mintick), alert.freq_once_per_bar_close)
+    alert((s.bull ? "Bullish" : "Bearish") + " SFP + MSS | " + syminfo.ticker + " " + timeframe.period + " | " + s.tag + " " + str.tostring(s.lvl, format.mintick) + " | Entry " + str.tostring(s.entry, format.mintick) + " | SL " + str.tostring(s.sl, format.mintick) + " | " + tpTxt + " " + str.tostring(s.tp, format.mintick), alert.freq_once_per_bar_close)
 
 // ลบเมื่อ: ราคาปิดเลยปลายไส้ / ถึง TP / เก่าเกิน — และอัปเดตสถานะ Fresh ของ MSNR
 f_updActive(array<Sig> arr, bool canAct) =>
@@ -815,7 +833,8 @@ if conf and trades.size() > 0
                     nLoss += 1
                     trades.remove(i)
                 else if winHit
-                    nWin += 1
+                    nWin    += 1
+                    sumWinR += t.rrv
                     trades.remove(i)
 
 // ═════════════════════════ 2) ACTIVE SFP ═════════════════════════
@@ -1030,7 +1049,7 @@ if showDash and barstate.islast
     sc = color.new(color.white, 45)
     total   = nWin + nLoss
     winRate = total > 0 ? nWin * 100.0 / total : na
-    netR    = nWin * rr - nLoss
+    netR    = sumWinR - nLoss
     sessTxt = inLon ? "London ●" : inNy ? "New York ●" : inAsia ? "Asia ●" : "-"
     dash.cell(0, 0, "SFP Pro X DEV · Zone Confluence", text_color = tc, text_size = size.small, bgcolor = color.new(#2962ff, 30))
     dash.merge_cells(0, 0, 1, 0)
@@ -1046,7 +1065,7 @@ if showDash and barstate.islast
     dash.cell(1, 5, (na(lastEntry) ? "-" : str.tostring(lastEntry, format.mintick)) + (lastConf != "" ? "  · " + str.replace_all(lastConf, "Entry · ", "") : ""), text_color = tc, text_size = size.small)
     dash.cell(0, 6, "Status", text_color = sc, text_size = size.small, text_halign = text.align_left)
     dash.cell(1, 6, lastValid, text_color = tc, text_size = size.small)
-    dash.cell(0, 7, "Stats (" + str.tostring(rr) + "R)", text_color = sc, text_size = size.small, text_halign = text.align_left)
+    dash.cell(0, 7, "Stats" + (tpMode == "RR" ? " (" + str.tostring(rr) + "R)" : " (Liq TP)"), text_color = sc, text_size = size.small, text_halign = text.align_left)
     dash.cell(1, 7, "W " + str.tostring(nWin) + " / L " + str.tostring(nLoss) + " / Miss " + str.tostring(nMiss) + (na(winRate) ? "" : "  · " + str.tostring(winRate, "#") + "%") + "  · " + str.tostring(netR, "#.#") + "R", text_color = netR > 0 ? bullCol : netR < 0 ? bearCol : tc, text_size = size.small)
     dash.cell(0, 8, "Active", text_color = sc, text_size = size.small, text_halign = text.align_left)
     dash.cell(1, 8, "▲ " + str.tostring(actBull.size()) + "   ▼ " + str.tostring(actBear.size()) + (useVol ? "  · vol " + (na(lastPct) ? "-" : str.tostring(lastPct, "#.#") + "%") : ""), text_color = tc, text_size = size.small)
