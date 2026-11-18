@@ -92,7 +92,7 @@ showTP  = input.bool(true, "แสดง TP / SL", group = grpR)
 tpPick  = input.string("ใกล้สุด", "TP = Liquidity", options = ["ใกล้สุด", "Key liquidity ก่อน"], group = grpR, tooltip = "TP ที่ liquidity ฝั่งตรงข้ามที่ยังไม่ถูกกวาด: Swing H/L, EQH/EQL, PDH/PDL, PWH/PWL, Asia, HTF, internal swing (iH/iL)\nใกล้สุด = เป้าตัวแรกที่เจอ\nKey liquidity ก่อน = เลือก EQH/EQL, PDH/PDL, PWH/PWL, Asia, HTF ก่อน ถ้าไม่มีค่อยใช้ swing\nไม่มี liquidity เลย = ไม่เข้าออเดอร์ (ไม่ใช้ RR คงที่แล้ว)")
 tpInt   = input.bool(true, "รวม internal swing (iH/iL) เป็นเป้า TP", group = grpR)
 tpMinRR = input.float(1.0, "ข้ามเป้าที่ใกล้จน RR ต่ำกว่า · 0 = ไม่กรอง", minval = 0, step = 0.1, group = grpR, tooltip = "ใช้แค่ข้ามเป้าที่ใกล้เกินไป ไม่ได้ตั้ง TP ตาม RR")
-fillBars = input.int(20, "ต้องถึง Entry ภายใน (แท่ง)", minval = 1, maxval = 300, group = grpR, tooltip = "เกินนี้ราคายังไม่มาที่ Entry = ไม่ได้เข้า · ไม่นับ SL / ไม่นับในสถิติ W/L")
+fillBars = input.int(0, "ต้องถึง Entry ภายใน (แท่ง) · 0 = ไม่จำกัด", minval = 0, maxval = 500, group = grpR, tooltip = "0 = setup ยังใช้ได้จนกว่าราคาจะปิดเลยไส้ sweep หรือมี setup ใหม่ฝั่งเดียวกันมาแทน\nใส่ตัวเลข = เกินจำนวนแท่งนี้ยังไม่ถึง Entry ถือว่าไม่ได้เข้า (ไม่นับ SL / ไม่นับใน W/L)")
 slMode  = input.string("Fixed", "SL", options = ["Fixed", "Zone", "Sweep Wick"], group = grpR, tooltip = "Fixed = ตั้งระยะ SL เอง (นับจากราคา Entry)\nZone = เลยขอบนอกของโซนเข้า (OB / Supply / Demand) + buffer\nSweep Wick = เลยปลายไส้ sweep + buffer\nถ้าไม่มีโซน จะใช้ปลายไส้แทน")
 slFix   = input.float(300, "ระยะ SL (โหมด Fixed)", minval = 0.0001, step = 10, inline = "sf", group = grpR, tooltip = "ระยะจาก Entry ถึง SL")
 slFixU  = input.string("Points", "", options = ["Points", "Price", "ATR"], inline = "sf", group = grpR, tooltip = "Points = จำนวน tick ของสินค้า (เท่ากับ points ใน MT4/MT5)\nPrice = ระยะราคา\nATR = จำนวนเท่าของ ATR(14)")
@@ -238,6 +238,17 @@ type Level
     int    bar
     string tag
 
+type Trade
+    bool  bull
+    int   bar
+    float entry
+    float sl
+    float tp
+    bool  filled
+    float rrv
+    float ext
+    bool  dead = false
+
 type Sig
     bool   bull
     float  lvl
@@ -283,16 +294,7 @@ type Sig
     box    bx
     box    fx
     box    sx
-
-type Trade
-    bool  bull
-    int   bar
-    float entry
-    float sl
-    float tp
-    bool  filled
-    float rrv
-    float ext
+    Trade  tr
 
 var array<Level> highsLv = array.new<Level>()
 var array<Level> lowsLv  = array.new<Level>()
@@ -821,11 +823,17 @@ f_activate(Sig s, array<Sig> arr) =>
         f_delSig(s)
     else
         s.filled := false
-        trades.push(Trade.new(s.bull, bar_index, s.entry, s.sl, na, false, na, s.ext))
+        tr = Trade.new(s.bull, bar_index, s.entry, s.sl, na, false, na, s.ext)
+        trades.push(tr)
+        s.tr   := tr
         s.born := bar_index
         arr.push(s)
         if arr.size() > maxShow
-            f_delSig(arr.shift())
+            old = arr.shift()
+            // setup เก่าที่ยังไม่ได้เข้า ถูก setup ใหม่ฝั่งเดียวกันแทน → ไม่นับในสถิติ
+            if not old.filled and not na(old.tr)
+                old.tr.dead := true
+            f_delSig(old)
         alert((s.bull ? "Bullish" : "Bearish") + " SFP + MSS | " + syminfo.ticker + " " + timeframe.period + " | " + s.tag + " " + str.tostring(s.lvl, format.mintick) + " | Limit Entry " + str.tostring(s.entry, format.mintick) + " | SL " + str.tostring(s.sl, format.mintick) + " (" + str.tostring(slPts, "#") + " pts) · TP ตั้งตอนเข้า", alert.freq_once_per_bar_close)
     reason
 
@@ -1012,11 +1020,13 @@ f_updActive(array<Sig> arr, array<Sig> doneArr, bool canAct) =>
                 else if not s.filled and (s.bull ? close < s.ext : close > s.ext)
                     res := "ไม่ได้เข้า · ปิดเลยไส้"
                     ry  := s.ext
-                else if not s.filled and bar_index - s.born >= fillBars
+                else if not s.filled and fillBars > 0 and bar_index - s.born >= fillBars
                     res := "ไม่ได้เข้า · หมดเวลา"
                     ry  := s.entry
                 else if maxAge > 0 and bar_index - s.bar > maxAge
                     res := "หมดอายุ"
+                    if not s.filled and not na(s.tr)
+                        s.tr.dead := true
             if res != ""
                 f_finish(s, res, rc, ry, doneArr)
                 arr.remove(i)
@@ -1107,7 +1117,10 @@ f_legOrigin(bool bull, float ext) =>
 if conf and trades.size() > 0
     for i = trades.size() - 1 to 0
         t = trades.get(i)
-        if bar_index > t.bar
+        if t.dead and not t.filled
+            nNoFill += 1
+            trades.remove(i)
+        else if bar_index > t.bar
             [f, nf, r] = f_resolve(t.bull, t.entry, t.sl, t.tp, t.filled)
             t.filled := f
             if r == 1
@@ -1127,7 +1140,7 @@ if conf and trades.size() > 0
                     rk = math.abs(t.entry - t.sl)
                     t.tp  := tpN
                     t.rrv := rk > 0 ? math.abs(tpN - t.entry) / rk : 0.0
-            else if not t.filled and ((t.bull ? close < t.ext : close > t.ext) or bar_index - t.bar >= fillBars)
+            else if not t.filled and ((t.bull ? close < t.ext : close > t.ext) or (fillBars > 0 and bar_index - t.bar >= fillBars))
                 nNoFill += 1
                 trades.remove(i)
 
