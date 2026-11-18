@@ -758,6 +758,10 @@ f_activate(Sig s, array<Sig> arr) =>
                     tpP   := lv.price
                     tpTag := lv.tag == "Swing" ? (s.bull ? "Swing H" : "Swing L") : lv.tag
     s.tp := na(tpP) ? (s.bull ? s.entry + rr * risk : s.entry - rr * risk) : tpP
+    // TP ต้องอยู่ไกลกว่าราคาปัจจุบันเสมอ (กัน TP ที่ราคาวิ่งผ่านไปแล้วตอน MSS)
+    if s.bull ? s.tp <= close : s.tp >= close
+        s.tp  := s.bull ? close + rr * risk : close - rr * risk
+        tpTag := ""
     tpRR  = risk > 0 ? math.abs(s.tp - s.entry) / risk : rr
     tpTxt = "TP " + (tpTag != "" ? tpTag + " · " : "") + str.tostring(tpRR, "#.#") + "R"
     slTxt = "SL · " + str.tostring(slPts, "#") + " pts"
