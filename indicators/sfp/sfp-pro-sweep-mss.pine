@@ -39,11 +39,6 @@ breakMode   = input.string("Close", "ทะลุด้วย", options = ["Clos
 dispMode    = input.string("Off", "Displacement (ตัวกรองเสริม)", options = ["Off", "Body ATR", "FVG", "Body ATR หรือ FVG"], group = grpC, tooltip = "Off = ทะลุด้วยเนื้อเทียนอย่างเดียวพอ (แบบเดิม)")
 dispAtr     = input.float(0.8, "Body ขั้นต่ำ (x ATR)", minval = 0.1, step = 0.1, group = grpC)
 wickMss     = input.string("เลื่อนระดับไปปลายไส้", "ถ้ามีไส้ทะลุระดับ MSS ก่อน", options = ["เลื่อนระดับไปปลายไส้", "ยกเลิก Setup", "ไม่สนใจ (แบบเดิม)"], group = grpC, tooltip = "ใช้กับแท่งที่ไส้ทะลุระดับ MSS แต่เนื้อเทียนปิดไม่ผ่าน\nเลื่อนระดับไปปลายไส้ = ระดับ MSS ย้ายไปที่ปลายไส้นั้น ต้องปิดเนื้อเทียนผ่านปลายไส้ถึงจะนับ\nยกเลิก Setup = ไส้ทะลุก่อน ถือว่า setup เสีย\nไม่สนใจ = แบบเดิม (ยังนับแท่งที่ปิดผ่านระดับเดิมได้)\nตอนสร้าง SFP จะเลือกระดับ MSS เป็นปลายไส้ที่ต่ำ/สูงสุดของขาที่วิ่งเข้า sweep เสมอ (ไม่ใช้ swing ที่ถูกไส้ทะลุไปแล้ว)")
-mssDir      = input.bool(true, "แท่ง MSS ต้องเป็นแท่งตามทิศ", group = grpC, tooltip = "Bull MSS ต้องเป็นแท่งเขียว, Bear MSS ต้องเป็นแท่งแดง")
-mssBodyP    = input.float(50, "แท่ง MSS: body ≥ (% ของทั้งแท่ง) · 0 = ปิด", minval = 0, maxval = 100, step = 5, group = grpC, tooltip = "กันแท่งที่ปิดผ่านแบบหางยาว / doji")
-mssBuf      = input.float(0.05, "ต้องปิดเลยระดับอย่างน้อย (x ATR)", minval = 0, step = 0.01, group = grpC, tooltip = "กันแท่งที่ปิดเลยระดับแค่นิดเดียว")
-mssLtf      = input.bool(true, "ยืนยันด้วย LTF (acceptance)", inline = "ml", group = grpC, tooltip = "แท่ง LTF ในแท่ง MSS ต้องปิดเลยระดับอย่างน้อย x% ของจำนวนแท่ง LTF (ราคายอมรับเหนือ/ใต้ระดับจริง ไม่ใช่ทะลุแค่ตอนปิด)\nแท่งที่ไม่มีข้อมูล LTF จะข้ามเงื่อนไขนี้")
-mssLtfP     = input.float(30, "%", minval = 1, maxval = 100, step = 5, inline = "ml", group = grpC)
 confBars    = input.int(20, "ต้องทะลุภายใน (แท่ง)", minval = 1, maxval = 50, group = grpC)
 showPending = input.bool(true, "แสดง SFP ที่รอ MSS (จาง ๆ)", group = grpC)
 
@@ -237,18 +232,6 @@ f_ltfStats() =>
     [fb, fs, tot > 0 ? (up - dn) / tot : 0.0]
 
 [ltfFvgB, ltfFvgS, ltfDelta] = f_ltfStats()
-
-// MSS acceptance: แท่ง LTF ปิดเลยระดับกี่ %
-f_ltfAccept(bool bull, float lvl) =>
-    n = ltfC.size()
-    bool ok = true
-    if mssLtf and n > 0
-        int c = 0
-        for i = 0 to n - 1
-            if bull ? ltfC.get(i) > lvl : ltfC.get(i) < lvl
-                c += 1
-        ok := c * 100.0 / n >= mssLtfP
-    ok
 
 // ═════════════════════════ TYPES ═════════════════════════
 type Level
@@ -1069,16 +1052,9 @@ f_updActive(array<Sig> arr, array<Sig> doneArr, bool canAct) =>
                     s.slLb.set_x(nx)
     touched
 
-// ทะลุ swing ล่าสุดด้วยเนื้อเทียน (+ displacement ถ้าเปิด)
-// + แท่งตามทิศ + body ≥ x% ของแท่ง + ปิดเลยระดับ ≥ buffer + LTF acceptance
+// ทะลุ swing ล่าสุดด้วยเนื้อเทียน (ราคาปิด) + displacement ถ้าเปิด
 f_broke(Sig s) =>
-    bull   = s.bull
-    buf    = mssBuf * atrV
-    rng    = high - low
-    bodyOk = mssBodyP == 0 or (rng > 0 and body / rng * 100 >= mssBodyP)
-    dirOk  = not mssDir or (bull ? close > open : close < open)
-    brk    = bull ? (fullBody ? bb : close) > s.trig + buf : (fullBody ? bt : close) < s.trig - buf
-    brk and (bull ? dispBull : dispBear) and dirOk and bodyOk and f_ltfAccept(bull, s.trig)
+    s.bull ? ((fullBody ? bb > s.trig : close > s.trig) and dispBull) : ((fullBody ? bt < s.trig : close < s.trig) and dispBear)
 
 // ไส้ทะลุระดับ MSS แต่ราคาปิดยังไม่ผ่าน
 f_wickPierce(Sig s) =>
