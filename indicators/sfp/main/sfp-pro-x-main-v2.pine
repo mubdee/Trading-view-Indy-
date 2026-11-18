@@ -92,6 +92,7 @@ fibLvl    = input.float(0.618, "ระดับ Fib", minval = 0.1, maxval = 1.0
 fibHow    = input.string("แตะ", "โซนต้อง", options = ["แตะ", "ทั้งโซนเลย"], inline = "fb", group = grpZ, tooltip = "แตะ = มีส่วนใดของโซนอยู่ต่ำกว่า (Bull) / สูงกว่า (Bear) ระดับ Fib\nทั้งโซนเลย = ทั้งโซนอยู่ระหว่างระดับ Fib กับ 1 (ไส้ sweep)")
 fibTol    = input.float(0.05, "Fib tolerance (x ATR)", minval = 0, step = 0.05, group = grpZ)
 showFib   = input.bool(true, "แสดงเส้น Fib (0 / ระดับ / 1)", group = grpZ)
+fallMode  = input.string("ต้องผ่าน Fib", "ระดับสำรอง (ไม่มีโซนผ่านเกณฑ์)", options = ["ต้องผ่าน Fib", "ไม่สน Fib", "ไม่ใช้"], group = grpZ, tooltip = "ถ้าไม่มีโซน OB / Demand-Supply ผ่านเกณฑ์ → ใช้ระดับ confluence (A/V, SBR/RBS, QM) ที่ใกล้สุดเป็น Entry แทน\nต้องผ่าน Fib = ระดับต้องอยู่ลึกถึง Fib ด้วย (ยังไม่ถึง = รอ Fib)\nไม่สน Fib = เข้าที่ระดับใกล้สุดได้เลย\nไม่ใช้ = ไม่มีโซน = ไม่เข้าออเดอร์")
 minScore  = input.int(4, "คะแนนขั้นต่ำ (★)", minval = 0, maxval = 13, group = grpZ, tooltip = "★ = Fresh + Displacement + Premium/Discount + ขนาดพอดี + อยู่ที่จุด Sweep + Leg-out + LTF FVG + LTF delta + Fib (โหมดคะแนน) + ระดับ confluence ในโซน (สูงสุด 3) + OB ซ้อน D/S")
 sdBullCol = input.color(color.new(#00bcd4, 82), "Demand", inline = "zc", group = grpZ)
 sdBearCol = input.color(color.new(#e040fb, 82), "Supply", inline = "zc", group = grpZ)
@@ -809,14 +810,15 @@ f_activate(Sig s, array<Sig> arr) =>
                 pickB := bar_index - zK.get(best)
             ovTxt = overlap ? " + " + zN.get(best == 0 ? 1 : 0) : ""
             pickN := zN.get(best) + ovTxt + " ★" + str.tostring(zS.get(best)) + cfTxt
-        else if cP.size() > 0
-            // ไม่มีโซน → ใช้ระดับ confluence ที่ใกล้สุด · โหมดตัวกรอง: ระดับต้องผ่าน Fib ด้วย
+        else if cP.size() > 0 and fallMode != "ไม่ใช้"
+            // ไม่มีโซน → ใช้ระดับ confluence ที่ใกล้สุด · "ต้องผ่าน Fib": ระดับต้องผ่าน Fib ด้วย
+            fibFall = fibF and fallMode == "ต้องผ่าน Fib"
             for [i, p] in cP
-                if (not fibF or f_fibOk(s.bull, p, p, fibP, fTolV)) and (na(pick) or (s.bull ? p > pick : p < pick))
+                if (not fibFall or f_fibOk(s.bull, p, p, fibP, fTolV)) and (na(pick) or (s.bull ? p > pick : p < pick))
                     pick  := p
                     pickB := cB.get(i)
                     pickN := cN.get(i) + " (ไม่มีโซนผ่านเกณฑ์)"
-            if fibF and na(pick)
+            if fibFall and na(pick)
                 // ยังไม่มีระดับไหนถึง Fib → ใช้ระดับลึกสุดแบบ "รอ Fib"
                 for [i, p] in cP
                     if na(pick) or (s.bull ? p < pick : p > pick)
