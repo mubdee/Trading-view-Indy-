@@ -24,6 +24,7 @@ eqTol     = input.float(0.1, "Tolerance (x ATR)", minval = 0.01, step = 0.01, in
 usePD     = input.bool(true, "PDH/PDL", inline = "k", group = grpL)
 useAsia   = input.bool(true, "Asia H/L", inline = "k", group = grpL)
 useHtfLv  = input.bool(false, "HTF candle H/L", inline = "k", group = grpL)
+usePW     = input.bool(true, "PWH/PWL", inline = "k", group = grpL)
 asiaSess  = input.session("0000-0700", "Asia session", group = grpL)
 
 grpS = "2) Sweep"
@@ -38,6 +39,11 @@ breakMode   = input.string("Close", "ทะลุด้วย", options = ["Clos
 dispMode    = input.string("Off", "Displacement (ตัวกรองเสริม)", options = ["Off", "Body ATR", "FVG", "Body ATR หรือ FVG"], group = grpC, tooltip = "Off = ทะลุด้วยเนื้อเทียนอย่างเดียวพอ (แบบเดิม)")
 dispAtr     = input.float(0.8, "Body ขั้นต่ำ (x ATR)", minval = 0.1, step = 0.1, group = grpC)
 wickMss     = input.string("เลื่อนระดับไปปลายไส้", "ถ้ามีไส้ทะลุระดับ MSS ก่อน", options = ["เลื่อนระดับไปปลายไส้", "ยกเลิก Setup", "ไม่สนใจ (แบบเดิม)"], group = grpC, tooltip = "ใช้กับแท่งที่ไส้ทะลุระดับ MSS แต่เนื้อเทียนปิดไม่ผ่าน\nเลื่อนระดับไปปลายไส้ = ระดับ MSS ย้ายไปที่ปลายไส้นั้น ต้องปิดเนื้อเทียนผ่านปลายไส้ถึงจะนับ\nยกเลิก Setup = ไส้ทะลุก่อน ถือว่า setup เสีย\nไม่สนใจ = แบบเดิม (ยังนับแท่งที่ปิดผ่านระดับเดิมได้)\nตอนสร้าง SFP จะเลือกระดับ MSS เป็นปลายไส้ที่ต่ำ/สูงสุดของขาที่วิ่งเข้า sweep เสมอ (ไม่ใช้ swing ที่ถูกไส้ทะลุไปแล้ว)")
+mssDir      = input.bool(true, "แท่ง MSS ต้องเป็นแท่งตามทิศ", group = grpC, tooltip = "Bull MSS ต้องเป็นแท่งเขียว, Bear MSS ต้องเป็นแท่งแดง")
+mssBodyP    = input.float(50, "แท่ง MSS: body ≥ (% ของทั้งแท่ง) · 0 = ปิด", minval = 0, maxval = 100, step = 5, group = grpC, tooltip = "กันแท่งที่ปิดผ่านแบบหางยาว / doji")
+mssBuf      = input.float(0.05, "ต้องปิดเลยระดับอย่างน้อย (x ATR)", minval = 0, step = 0.01, group = grpC, tooltip = "กันแท่งที่ปิดเลยระดับแค่นิดเดียว")
+mssLtf      = input.bool(true, "ยืนยันด้วย LTF (acceptance)", inline = "ml", group = grpC, tooltip = "แท่ง LTF ในแท่ง MSS ต้องปิดเลยระดับอย่างน้อย x% ของจำนวนแท่ง LTF (ราคายอมรับเหนือ/ใต้ระดับจริง ไม่ใช่ทะลุแค่ตอนปิด)\nแท่งที่ไม่มีข้อมูล LTF จะข้ามเงื่อนไขนี้")
+mssLtfP     = input.float(30, "%", minval = 1, maxval = 100, step = 5, inline = "ml", group = grpC)
 confBars    = input.int(20, "ต้องทะลุภายใน (แท่ง)", minval = 1, maxval = 50, group = grpC)
 showPending = input.bool(true, "แสดง SFP ที่รอ MSS (จาง ๆ)", group = grpC)
 
@@ -79,15 +85,20 @@ reqFresh  = input.bool(true, "ต้อง Fresh (ยังไม่ถูก mi
 reqDisp   = input.bool(true, "ต้องมี Displacement ออกจากโซน", group = grpZ, tooltip = "OB: ภายใน 3 แท่งหลัง OB ต้องมีแท่ง impulse หรือ FVG\nDemand/Supply: มี impulse อยู่แล้วตามนิยาม")
 reqPD     = input.bool(false, "ต้องอยู่ Premium / Discount ของขา", group = grpZ, tooltip = "Supply ต้องอยู่ครึ่งบนของขา, Demand ต้องอยู่ครึ่งล่าง")
 maxZAtr   = input.float(3.0, "ขนาดโซนไม่เกิน (x ATR) · 0 = ปิด", minval = 0, step = 0.5, group = grpZ)
-minScore  = input.int(3, "คะแนนขั้นต่ำ (★)", minval = 0, maxval = 9, group = grpZ, tooltip = "★ = Fresh + Displacement + Premium/Discount + ขนาดพอดี + อยู่ที่จุด Sweep + ระดับ confluence ในโซน (สูงสุด 3) + OB ซ้อน D/S")
+depMin    = input.float(1.0, "Leg-out ≥ (x ความสูงโซน) · 0 = ปิด", minval = 0, step = 0.25, group = grpZ, tooltip = "ราคาต้องวิ่งออกจากโซนอย่างน้อยกี่เท่าของความสูงโซน = แรงออกจากโซนจริง")
+useLtfZ   = input.bool(true, "ใช้ LTF ช่วยกรองโซน", group = grpZ, tooltip = "ดูแท่ง LTF ในแท่งที่พุ่งออกจากโซน (impulse):\n• มี FVG บน LTF ไหม (imbalance จริง)\n• volume delta ไปทางเดียวกับ impulse ไหม\nแท่งที่ไม่มีข้อมูล LTF จะไม่ถูกตัดทิ้ง")
+reqLtfImb = input.bool(true, "ต้องมี FVG บน LTF ตอนออกจากโซน", group = grpZ)
+ltfDMin   = input.float(30, "LTF volume delta ≥ (%) ได้ ★", minval = 0, maxval = 100, step = 5, group = grpZ, tooltip = "(volume แท่ง LTF ตามทิศ − สวนทิศ) / volume ทั้งหมด ในแท่ง impulse")
+minScore  = input.int(4, "คะแนนขั้นต่ำ (★)", minval = 0, maxval = 12, group = grpZ, tooltip = "★ = Fresh + Displacement + Premium/Discount + ขนาดพอดี + อยู่ที่จุด Sweep + Leg-out + LTF FVG + LTF delta + ระดับ confluence ในโซน (สูงสุด 3) + OB ซ้อน D/S")
 sdBullCol = input.color(color.new(#00bcd4, 82), "Demand", inline = "zc", group = grpZ)
 sdBearCol = input.color(color.new(#e040fb, 82), "Supply", inline = "zc", group = grpZ)
 
 grpR = "7) Trade & Stats"
 showTP  = input.bool(true, "แสดง TP / SL", group = grpR)
-tpMode  = input.string("Liquidity", "TP", options = ["Liquidity", "RR"], group = grpR, tooltip = "Liquidity = TP ที่ liquidity ฝั่งตรงข้ามตัวถัดไปที่ยังไม่ถูกกวาด (Swing, EQH/EQL, PDH/PDL, Asia, HTF)\nRR = TP ตาม RR คงที่")
-tpMinRR = input.float(1.0, "Liquidity TP: RR ขั้นต่ำ", minval = 0.1, step = 0.1, group = grpR, tooltip = "ข้าม liquidity ที่ใกล้เกินจนได้ RR ไม่ถึงค่านี้ แล้วไปใช้ตัวถัดไป")
-rr      = input.float(2.0, "RR (โหมด RR / ใช้แทนเมื่อไม่มี liquidity)", minval = 0.5, step = 0.5, group = grpR)
+tpPick  = input.string("ใกล้สุด", "TP = Liquidity", options = ["ใกล้สุด", "Key liquidity ก่อน"], group = grpR, tooltip = "TP ที่ liquidity ฝั่งตรงข้ามที่ยังไม่ถูกกวาด: Swing H/L, EQH/EQL, PDH/PDL, PWH/PWL, Asia, HTF, internal swing (iH/iL)\nใกล้สุด = เป้าตัวแรกที่เจอ\nKey liquidity ก่อน = เลือก EQH/EQL, PDH/PDL, PWH/PWL, Asia, HTF ก่อน ถ้าไม่มีค่อยใช้ swing\nไม่มี liquidity เลย = ไม่เข้าออเดอร์ (ไม่ใช้ RR คงที่แล้ว)")
+tpInt   = input.bool(true, "รวม internal swing (iH/iL) เป็นเป้า TP", group = grpR)
+tpMinRR = input.float(1.0, "ข้ามเป้าที่ใกล้จน RR ต่ำกว่า · 0 = ไม่กรอง", minval = 0, step = 0.1, group = grpR, tooltip = "ใช้แค่ข้ามเป้าที่ใกล้เกินไป ไม่ได้ตั้ง TP ตาม RR")
+fillBars = input.int(20, "ต้องถึง Entry ภายใน (แท่ง)", minval = 1, maxval = 300, group = grpR, tooltip = "เกินนี้ราคายังไม่มาที่ Entry = ไม่ได้เข้า · ไม่นับ SL / ไม่นับในสถิติ W/L")
 slMode  = input.string("Fixed", "SL", options = ["Fixed", "Zone", "Sweep Wick"], group = grpR, tooltip = "Fixed = ตั้งระยะ SL เอง (นับจากราคา Entry)\nZone = เลยขอบนอกของโซนเข้า (OB / Supply / Demand) + buffer\nSweep Wick = เลยปลายไส้ sweep + buffer\nถ้าไม่มีโซน จะใช้ปลายไส้แทน")
 slFix   = input.float(300, "ระยะ SL (โหมด Fixed)", minval = 0.0001, step = 10, inline = "sf", group = grpR, tooltip = "ระยะจาก Entry ถึง SL")
 slFixU  = input.string("Points", "", options = ["Points", "Price", "ATR"], inline = "sf", group = grpR, tooltip = "Points = จำนวน tick ของสินค้า (เท่ากับ points ใน MT4/MT5)\nPrice = ระยะราคา\nATR = จำนวนเท่าของ ATR(14)")
@@ -112,7 +123,7 @@ maxDone  = input.int(5, "จำนวน setup ที่จบแล้วที
 winC     = input.color(#26a69a, "สีผล: TP", inline = "rc", group = grpD)
 lossC    = input.color(#ef5350, "SL", inline = "rc", group = grpD)
 
-grpV = "Volume Validation (LTF)"
+grpV = "LTF (Volume / MSS / Zone)"
 useVol  = input.bool(false, "ใช้ Volume กรอง SFP", group = grpV)
 volThr  = input.float(25, "Volume เลยระดับได้ไม่เกิน (%)", minval = 1, maxval = 100, group = grpV)
 ltfMode = input.string("Auto", "LTF Resolution", options = ["Auto", "Manual"], group = grpV)
@@ -159,6 +170,7 @@ sessOk = not useSess or inLon or inNy
 // ═════════════════════════ HTF DATA (non-repaint) ═════════════════════════
 [hC, hE, hHi, hLo, hH1, hL1] = request.security(syminfo.tickerid, htfTf, [close[1], ta.ema(close, htfEmaLen)[1], ta.highest(high, pdLen)[1], ta.lowest(low, pdLen)[1], high[1], low[1]], lookahead = barmerge.lookahead_on)
 [pdh, pdl] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+[pwh, pwl] = request.security(syminfo.tickerid, "W", [high[1], low[1]], lookahead = barmerge.lookahead_on)
 
 pdMid   = (hHi + hLo) / 2
 emaBull = hC > hE
@@ -174,6 +186,7 @@ pdTxt   = inPrem ? "Premium" : "Discount"
 biasTxt = biasMode == "Off" ? "Off" : biasMode == "EMA" ? emaTxt : biasMode == "Premium/Discount" ? pdTxt : emaTxt + " · " + pdTxt
 
 newDay = timeframe.change("D")
+newWk  = timeframe.change("W")
 newHtf = timeframe.change(htfTf)
 
 // ═════════════════════════ DISPLACEMENT ═════════════════════════
@@ -187,7 +200,8 @@ dispBull = dispMode == "Off" ? true : dispMode == "Body ATR" ? dispBodyBull : di
 dispBear = dispMode == "Off" ? true : dispMode == "Body ATR" ? dispBodyBear : dispMode == "FVG" ? bearFvgRec : (dispBodyBear or bearFvgRec)
 
 // ═════════════════════════ LTF VOLUME ═════════════════════════
-[ltfH, ltfL, ltfV] = request.security_lower_tf(syminfo.tickerid, ltf, [high, low, volume])
+[ltfH, ltfL, ltfV, ltfO, ltfC] = request.security_lower_tf(syminfo.tickerid, ltf, [high, low, volume, open, close])
+ltfHas = ltfH.size() > 0
 
 f_beyondPct(float level, bool isBear) =>
     float tot = 0.0
@@ -198,6 +212,43 @@ f_beyondPct(float level, bool isBear) =>
         if isBear ? ltfH.get(i) > level : ltfL.get(i) < level
             out += vv
     tot > 0 ? out / tot * 100 : na
+
+// ต่อแท่ง: มี FVG บน LTF ไหม (ขึ้น/ลง) + volume delta (-1..1)
+f_ltfStats() =>
+    bool  fb = false
+    bool  fs = false
+    float up = 0.0
+    float dn = 0.0
+    n = ltfH.size()
+    if n >= 3
+        for i = 2 to n - 1
+            if ltfH.get(i - 2) < ltfL.get(i)
+                fb := true
+            if ltfL.get(i - 2) > ltfH.get(i)
+                fs := true
+    if n > 0
+        for i = 0 to n - 1
+            v = nz(ltfV.get(i))
+            if ltfC.get(i) > ltfO.get(i)
+                up += v
+            else if ltfC.get(i) < ltfO.get(i)
+                dn += v
+    tot = up + dn
+    [fb, fs, tot > 0 ? (up - dn) / tot : 0.0]
+
+[ltfFvgB, ltfFvgS, ltfDelta] = f_ltfStats()
+
+// MSS acceptance: แท่ง LTF ปิดเลยระดับกี่ %
+f_ltfAccept(bool bull, float lvl) =>
+    n = ltfC.size()
+    bool ok = true
+    if mssLtf and n > 0
+        int c = 0
+        for i = 0 to n - 1
+            if bull ? ltfC.get(i) > lvl : ltfC.get(i) < lvl
+                c += 1
+        ok := c * 100.0 / n >= mssLtfP
+    ok
 
 // ═════════════════════════ TYPES ═════════════════════════
 type Level
@@ -259,6 +310,7 @@ type Trade
     float tp
     bool  filled
     float rrv
+    float ext
 
 var array<Level> highsLv = array.new<Level>()
 var array<Level> lowsLv  = array.new<Level>()
@@ -287,6 +339,8 @@ var int    cMss      = 0
 var int    cFilt     = 0
 var int    cExp      = 0
 var int    cSlBig    = 0
+var int    cNoTp     = 0
+var int    nNoFill   = 0
 
 // ═════════════════════════ SWING ล่าสุด (สำหรับ MSS) ═════════════════════════
 iph = ta.pivothigh(high, intLeft, intRight)
@@ -533,7 +587,28 @@ f_zoneEval(bool bull, float top, float bot, int kAfter, bool isSD, float legMid,
     pd = bull ? (top + bot) / 2 <= legMid : (top + bot) / 2 >= legMid
     sz = maxZAtr == 0 or (top - bot) <= maxZAtr * atrV
     sw = bull ? bot <= swLvl : top >= swLvl
-    [fr, dp, pd, sz, sw]
+    // LTF: แท่ง impulse ที่ออกจากโซน (offset kAfter-2 .. kAfter)
+    bool  la = false
+    bool  li = false
+    float ld = 0.0
+    // Leg-out: ราคาวิ่งออกจากโซนไกลแค่ไหน
+    float lx = na
+    if kAfter >= 0
+        lo2 = math.max(0, kAfter - 2)
+        for m = lo2 to kAfter
+            if ltfHas[m]
+                la := true
+                if bull ? ltfFvgB[m] : ltfFvgS[m]
+                    li := true
+                ld := math.max(ld, bull ? ltfDelta[m] : -ltfDelta[m])
+        for m = 0 to kAfter
+            lx := na(lx) ? (bull ? high[m] : low[m]) : (bull ? math.max(lx, high[m]) : math.min(lx, low[m]))
+    zh  = top - bot
+    dep = depMin == 0 or (zh > 0 and not na(lx) and (bull ? lx - top : bot - lx) >= depMin * zh)
+    lOk = not (useLtfZ and reqLtfImb) or not la or li
+    lI  = useLtfZ and li
+    lD  = useLtfZ and la and ld * 100 >= ltfDMin
+    [fr, dp, pd, sz, sw, lOk, lI, lD, dep]
 
 f_activate(Sig s, array<Sig> arr) =>
     col = s.bull ? bullCol : bearCol
@@ -622,24 +697,24 @@ f_activate(Sig s, array<Sig> arr) =>
         if useOBz
             [k, t, b] = f_findOB(s.bull, n)
             if not na(k)
-                [fr, dp, pd, sz, sw] = f_zoneEval(s.bull, t, b, k - 1, false, legMid, s.lvl)
-                if (not reqFresh or fr) and (not reqDisp or dp) and (not reqPD or pd) and sz
+                [fr, dp, pd, sz, sw, lOk, lI, lD, dep] = f_zoneEval(s.bull, t, b, k - 1, false, legMid, s.lvl)
+                if (not reqFresh or fr) and (not reqDisp or dp) and (not reqPD or pd) and sz and lOk and dep
                     zT.push(t)
                     zB.push(b)
                     zK.push(k)
                     zN.push("OB")
-                    zS.push((fr ? 1 : 0) + (dp ? 1 : 0) + (pd ? 1 : 0) + (sz ? 1 : 0) + (sw ? 1 : 0))
+                    zS.push((fr ? 1 : 0) + (dp ? 1 : 0) + (pd ? 1 : 0) + (sz ? 1 : 0) + (sw ? 1 : 0) + (lI ? 1 : 0) + (lD ? 1 : 0) + (dep and depMin > 0 ? 1 : 0))
                     zO.push(true)
         if useSDz
             [st, sb2, sk, si, sty] = f_findSD(s.bull, n)
             if not na(sk)
-                [fr, dp, pd, sz, sw] = f_zoneEval(s.bull, st, sb2, si, true, legMid, s.lvl)
-                if (not reqFresh or fr) and (not reqDisp or dp) and (not reqPD or pd) and sz
+                [fr, dp, pd, sz, sw, lOk, lI, lD, dep] = f_zoneEval(s.bull, st, sb2, si, true, legMid, s.lvl)
+                if (not reqFresh or fr) and (not reqDisp or dp) and (not reqPD or pd) and sz and lOk and dep
                     zT.push(st)
                     zB.push(sb2)
                     zK.push(sk)
                     zN.push((s.bull ? "Demand " : "Supply ") + sty)
-                    zS.push((fr ? 1 : 0) + (dp ? 1 : 0) + (pd ? 1 : 0) + (sz ? 1 : 0) + (sw ? 1 : 0))
+                    zS.push((fr ? 1 : 0) + (dp ? 1 : 0) + (pd ? 1 : 0) + (sz ? 1 : 0) + (sw ? 1 : 0) + (lI ? 1 : 0) + (lD ? 1 : 0) + (dep and depMin > 0 ? 1 : 0))
                     zO.push(false)
         // + คะแนนจากระดับ confluence ในโซน (สูงสุด 3)
         for [zi, zt] in zT
@@ -742,8 +817,8 @@ f_activate(Sig s, array<Sig> arr) =>
             if na(entryP)
                 entryP := s.bull ? t2 : b2
     // ── Entry / SL / TP ──
-    filledNow = na(entryP)
-    s.entry := na(entryP) ? close : entryP
+    noEntry = na(entryP)
+    s.entry := noEntry ? close : entryP
     // SL: เลยขอบนอกของโซนเข้า (หรือปลายไส้ sweep)
     if slMode == "Fixed"
         fixDist = slFixU == "Points" ? slFix * syminfo.mintick : slFixU == "Price" ? slFix : slFix * atrV
@@ -757,28 +832,51 @@ f_activate(Sig s, array<Sig> arr) =>
     slPts = risk / syminfo.mintick
     s.slV := slUnit == "Points" ? slPts : slUnit == "Price" ? risk : risk / atrV
     slTooBig = slMax > 0 and s.slV > slMax
-    // ── TP: liquidity ฝั่งตรงข้ามตัวถัดไป (ที่ได้ RR ≥ ขั้นต่ำ) ──
-    float  tpP   = na
-    string tpTag = ""
-    if tpMode == "Liquidity" and risk > 0
+    // ── TP: liquidity ฝั่งตรงข้ามที่ยังไม่ถูกกวาด (ไม่ใช้ RR คงที่) ──
+    float  tpP    = na
+    string tpTag  = ""
+    float  tpK    = na
+    string tpKTag = ""
+    lim = s.bull ? math.max(s.entry, close) : math.min(s.entry, close)
+    if risk > 0
         arrL = s.bull ? highsLv : lowsLv
-        lim  = s.bull ? math.max(s.entry, close) : math.min(s.entry, close)
         for lv in arrL
             if s.bull ? lv.price > lim : lv.price < lim
-                rrv = math.abs(lv.price - s.entry) / risk
-                if rrv >= tpMinRR and (na(tpP) or (s.bull ? lv.price < tpP : lv.price > tpP))
-                    tpP   := lv.price
-                    tpTag := lv.tag == "Swing" ? (s.bull ? "Swing H" : "Swing L") : lv.tag
-    s.tp := na(tpP) ? (s.bull ? s.entry + rr * risk : s.entry - rr * risk) : tpP
-    // TP ต้องอยู่ไกลกว่าราคาปัจจุบันเสมอ (กัน TP ที่ราคาวิ่งผ่านไปแล้วตอน MSS)
-    if s.bull ? s.tp <= close : s.tp >= close
-        s.tp  := s.bull ? close + rr * risk : close - rr * risk
-        tpTag := ""
-    tpRR  = risk > 0 ? math.abs(s.tp - s.entry) / risk : rr
-    tpTxt = "TP " + (tpTag != "" ? tpTag + " · " : "") + str.tostring(tpRR, "#.#") + "R"
+                if math.abs(lv.price - s.entry) / risk >= tpMinRR
+                    tg = lv.tag == "Swing" ? (s.bull ? "Swing H" : "Swing L") : lv.tag
+                    if na(tpP) or (s.bull ? lv.price < tpP : lv.price > tpP)
+                        tpP   := lv.price
+                        tpTag := tg
+                    if lv.tag != "Swing" and (na(tpK) or (s.bull ? lv.price < tpK : lv.price > tpK))
+                        tpK    := lv.price
+                        tpKTag := tg
+        if tpInt
+            arrP = s.bull ? ihP : ilP
+            arrB = s.bull ? ihB : ilB
+            for [i, p] in arrP
+                if (s.bull ? p > lim : p < lim) and math.abs(p - s.entry) / risk >= tpMinRR and (na(tpP) or (s.bull ? p < tpP : p > tpP))
+                    // internal swing ต้องยังไม่ถูกกวาด
+                    kb = bar_index - arrB.get(i)
+                    bool taken = false
+                    if kb > 0
+                        for m = 0 to math.min(kb - 1, 300)
+                            if s.bull ? high[m] > p : low[m] < p
+                                taken := true
+                                break
+                    if not taken
+                        tpP   := p
+                        tpTag := s.bull ? "iH" : "iL"
+        if tpPick == "Key liquidity ก่อน" and not na(tpK)
+            tpP   := tpK
+            tpTag := tpKTag
+    noTp = na(tpP)
+    s.tp := noTp ? s.entry : tpP
+    tpRR  = risk > 0 ? math.abs(s.tp - s.entry) / risk : 0.0
+    tpTxt = "TP " + tpTag + " · " + str.tostring(tpRR, "#.#") + "R"
     slTxt = "SL · " + str.tostring(slPts, "#") + " pts"
-    if slTooBig
-        // SL ไกลเกิน → ไม่เข้าออเดอร์ ลบ setup ทิ้ง
+    reason = slTooBig ? 1 : noEntry ? 3 : noTp ? 2 : 0
+    if reason != 0
+        // ไม่เข้าออเดอร์ ลบ setup ทิ้ง
         f_delSig(s)
     else
         if showTP
@@ -786,15 +884,47 @@ f_activate(Sig s, array<Sig> arr) =>
             s.sll  := line.new(bar_index, s.sl, nx, s.sl, color = color.new(color.gray, 20), style = line.style_dashed)
             s.tpLb := label.new(nx, s.tp, tpTxt, style = label.style_label_left, color = color.new(col, 80), textcolor = col, size = size.tiny)
             s.slLb := label.new(nx, s.sl, slTxt, style = label.style_label_left, color = color.new(color.gray, 80), textcolor = color.gray, size = size.tiny)
-        s.filled := filledNow
+        s.filled := false
         s.rrv    := tpRR
-        trades.push(Trade.new(s.bull, bar_index, s.entry, s.sl, s.tp, filledNow, tpRR))
+        trades.push(Trade.new(s.bull, bar_index, s.entry, s.sl, s.tp, false, tpRR, s.ext))
         s.born := bar_index
         arr.push(s)
         if arr.size() > maxShow
             f_delSig(arr.shift())
         alert((s.bull ? "Bullish" : "Bearish") + " SFP + MSS | " + syminfo.ticker + " " + timeframe.period + " | " + s.tag + " " + str.tostring(s.lvl, format.mintick) + " | Entry " + str.tostring(s.entry, format.mintick) + " | SL " + str.tostring(s.sl, format.mintick) + " (" + str.tostring(slPts, "#") + " pts) | " + tpTxt + " " + str.tostring(s.tp, format.mintick), alert.freq_once_per_bar_close)
-    not slTooBig
+    reason
+
+f_rejTxt(int r, Sig s) =>
+    r == 1 ? "✖ SL เกิน (" + str.tostring(s.slV, "#.##") + " " + slUnit + ")" : r == 2 ? "✖ ไม่มี TP (liquidity)" : "✖ ไม่มีจุดเข้า"
+
+// เช็คลำดับ Entry → SL / TP ด้วยแท่ง LTF (ไม่มีข้อมูล LTF = ใช้แท่งปัจจุบัน)
+// คืน [filled, res]  res: 0 ยังไม่จบ · 1 TP · -1 SL · 2 Miss (ถึง TP ก่อนเข้า)
+// แท่งที่เพิ่งเข้า: เช็ค SL ได้ แต่ TP ต้องเป็นแท่งถัดไป (กันนับ TP ที่ลำดับไม่ชัด)
+f_resolve(bool bull, float en, float sl, float tp, bool wasFilled) =>
+    bool f   = wasFilled
+    int  res = 0
+    n   = ltfH.size()
+    cnt = n > 0 ? n : 1
+    for i = 0 to cnt - 1
+        h = n > 0 ? ltfH.get(i) : high
+        l = n > 0 ? ltfL.get(i) : low
+        if not f
+            if bull ? l <= en : h >= en
+                f := true
+                if bull ? l <= sl : h >= sl
+                    res := -1
+                    break
+            else if bull ? h >= tp : l <= tp
+                res := 2
+                break
+        else
+            if bull ? l <= sl : h >= sl
+                res := -1
+                break
+            if bull ? h >= tp : l <= tp
+                res := 1
+                break
+    [f, res]
 
 // จบ setup: ทำให้จาง + แปะป้ายผล (หรือลบทิ้งถ้าปิด keepDone)
 f_finish(Sig s, string res, color rc, float ry, array<Sig> doneArr) =>
@@ -869,21 +999,25 @@ f_updActive(array<Sig> arr, array<Sig> doneArr, bool canAct) =>
             color  rc  = color.gray
             float  ry  = close
             if canAct and live
-                if not s.filled and (s.bull ? low <= s.entry : high >= s.entry)
-                    s.filled := true
-                slHit = s.bull ? low <= s.sl : high >= s.sl
-                tpHit = s.bull ? high >= s.tp : low <= s.tp
-                if s.filled and slHit
+                [f, r] = f_resolve(s.bull, s.entry, s.sl, s.tp, s.filled)
+                s.filled := f
+                if r == -1
                     res := "SL ✖ -1R"
                     rc  := lossC
                     ry  := s.sl
-                else if tpHit
-                    res := s.filled ? "TP ✔ +" + str.tostring(s.rrv, "#.#") + "R" : "Miss · ไม่ถึง Entry"
-                    rc  := s.filled ? winC : color.gray
+                else if r == 1
+                    res := "TP ✔ +" + str.tostring(s.rrv, "#.#") + "R"
+                    rc  := winC
+                    ry  := s.tp
+                else if r == 2
+                    res := "Miss · ถึง TP ก่อนเข้า"
                     ry  := s.tp
                 else if not s.filled and (s.bull ? close < s.ext : close > s.ext)
-                    res := "✖ ยกเลิก · ปิดเลยไส้"
+                    res := "ไม่ได้เข้า · ปิดเลยไส้"
                     ry  := s.ext
+                else if not s.filled and bar_index - s.born >= fillBars
+                    res := "ไม่ได้เข้า · หมดเวลา"
+                    ry  := s.entry
                 else if maxAge > 0 and bar_index - s.bar > maxAge
                     res := "หมดอายุ"
             if res != ""
@@ -936,8 +1070,15 @@ f_updActive(array<Sig> arr, array<Sig> doneArr, bool canAct) =>
     touched
 
 // ทะลุ swing ล่าสุดด้วยเนื้อเทียน (+ displacement ถ้าเปิด)
+// + แท่งตามทิศ + body ≥ x% ของแท่ง + ปิดเลยระดับ ≥ buffer + LTF acceptance
 f_broke(Sig s) =>
-    s.bull ? ((fullBody ? bb > s.trig : close > s.trig) and dispBull) : ((fullBody ? bt < s.trig : close < s.trig) and dispBear)
+    bull   = s.bull
+    buf    = mssBuf * atrV
+    rng    = high - low
+    bodyOk = mssBodyP == 0 or (rng > 0 and body / rng * 100 >= mssBodyP)
+    dirOk  = not mssDir or (bull ? close > open : close < open)
+    brk    = bull ? (fullBody ? bb : close) > s.trig + buf : (fullBody ? bt : close) < s.trig - buf
+    brk and (bull ? dispBull : dispBear) and dirOk and bodyOk and f_ltfAccept(bull, s.trig)
 
 // ไส้ทะลุระดับ MSS แต่ราคาปิดยังไม่ผ่าน
 f_wickPierce(Sig s) =>
@@ -966,30 +1107,26 @@ f_legExtreme(bool bull, float p, int b) =>
     [ep, eb]
 
 // ═════════════════════════ 1) STATS (limit order ที่ระดับ Entry) ═════════════════════════
+// ไม่ได้เข้า (ไม่ถึง Entry) = ไม่นับ SL · ไม่นับใน W/L
 if conf and trades.size() > 0
     for i = trades.size() - 1 to 0
         t = trades.get(i)
         if bar_index > t.bar
-            if not t.filled
-                hitEntry = t.bull ? low <= t.entry : high >= t.entry
-                if hitEntry
-                    t.filled := true
-                    if t.bull ? low <= t.sl : high >= t.sl
-                        nLoss += 1
-                        trades.remove(i)
-                else if t.bull ? high >= t.tp : low <= t.tp
-                    nMiss += 1
-                    trades.remove(i)
-            else
-                lossHit = t.bull ? low <= t.sl : high >= t.sl
-                winHit  = t.bull ? high >= t.tp : low <= t.tp
-                if lossHit
-                    nLoss += 1
-                    trades.remove(i)
-                else if winHit
-                    nWin    += 1
-                    sumWinR += t.rrv
-                    trades.remove(i)
+            [f, r] = f_resolve(t.bull, t.entry, t.sl, t.tp, t.filled)
+            t.filled := f
+            if r == 1
+                nWin    += 1
+                sumWinR += t.rrv
+                trades.remove(i)
+            else if r == -1
+                nLoss += 1
+                trades.remove(i)
+            else if r == 2
+                nMiss += 1
+                trades.remove(i)
+            else if not t.filled and ((t.bull ? close < t.ext : close > t.ext) or bar_index - t.bar >= fillBars)
+                nNoFill += 1
+                trades.remove(i)
 
 // ═════════════════════════ 2) ACTIVE SFP ═════════════════════════
 bullRetest = f_updActive(actBull, doneBull, conf)
@@ -1006,15 +1143,17 @@ if not na(pBull) and not na(pBull.cl)
 
 if conf and not na(pBear)
     if bar_index > pBear.bar and f_broke(pBear)
-        if f_activate(pBear, actBear)
+        r = f_activate(pBear, actBear)
+        if r == 0
             bearConfSig := true
             cMss += 1
             lastValid := "✔ MSS Confirmed"
             lastEntry := pBear.entry
             lastConf  := pBear.m1N
         else
-            cSlBig += 1
-            lastValid := "✖ SL เกิน (" + str.tostring(pBear.slV, "#.##") + " " + slUnit + ")"
+            cSlBig += r == 1 ? 1 : 0
+            cNoTp  += r >= 2 ? 1 : 0
+            lastValid := f_rejTxt(r, pBear)
         pBear := na
     else if close > pBear.ext or bar_index >= pBear.expire
         f_delSig(pBear)
@@ -1033,15 +1172,17 @@ if conf and not na(pBear)
 
 if conf and not na(pBull)
     if bar_index > pBull.bar and f_broke(pBull)
-        if f_activate(pBull, actBull)
+        r = f_activate(pBull, actBull)
+        if r == 0
             bullConfSig := true
             cMss += 1
             lastValid := "✔ MSS Confirmed"
             lastEntry := pBull.entry
             lastConf  := pBull.m1N
         else
-            cSlBig += 1
-            lastValid := "✖ SL เกิน (" + str.tostring(pBull.slV, "#.##") + " " + slUnit + ")"
+            cSlBig += r == 1 ? 1 : 0
+            cNoTp  += r >= 2 ? 1 : 0
+            lastValid := f_rejTxt(r, pBull)
         pBull := na
     else if close < pBull.ext or bar_index >= pBull.expire
         f_delSig(pBull)
@@ -1085,6 +1226,10 @@ if conf and not na(pl)
 if conf and usePD and newDay and not na(pdh)
     f_pushLv(highsLv, pdh, bar_index, "PDH")
     f_pushLv(lowsLv, pdl, bar_index, "PDL")
+
+if conf and usePW and newWk and not na(pwh)
+    f_pushLv(highsLv, pwh, bar_index, "PWH")
+    f_pushLv(lowsLv, pwl, bar_index, "PWL")
 
 if conf and useHtfLv and newHtf and not na(hH1)
     f_pushLv(highsLv, hH1, bar_index, "HTF H")
@@ -1193,15 +1338,17 @@ if showBearS and not na(bearSwept)
                 cExp += 1
                 lastValid := "✖ ไส้ทะลุ MSS ก่อน"
             else if f_broke(s)
-                if f_activate(s, actBear)
+                r = f_activate(s, actBear)
+                if r == 0
                     bearConfSig := true
                     cMss += 1
                     lastValid := "✔ MSS Confirmed"
                     lastEntry := s.entry
                     lastConf  := s.m1N
                 else
-                    cSlBig += 1
-                    lastValid := "✖ SL เกิน (" + str.tostring(s.slV, "#.##") + " " + slUnit + ")"
+                    cSlBig += r == 1 ? 1 : 0
+                    cNoTp  += r >= 2 ? 1 : 0
+                    lastValid := f_rejTxt(r, s)
             else
                 if showPending
                     f_draw(s, true)
@@ -1247,15 +1394,17 @@ if showBullS and not na(bullSwept)
                 cExp += 1
                 lastValid := "✖ ไส้ทะลุ MSS ก่อน"
             else if f_broke(s)
-                if f_activate(s, actBull)
+                r = f_activate(s, actBull)
+                if r == 0
                     bullConfSig := true
                     cMss += 1
                     lastValid := "✔ MSS Confirmed"
                     lastEntry := s.entry
                     lastConf  := s.m1N
                 else
-                    cSlBig += 1
-                    lastValid := "✖ SL เกิน (" + str.tostring(s.slV, "#.##") + " " + slUnit + ")"
+                    cSlBig += r == 1 ? 1 : 0
+                    cNoTp  += r >= 2 ? 1 : 0
+                    lastValid := f_rejTxt(r, s)
             else
                 if showPending
                     f_draw(s, true)
@@ -1263,7 +1412,7 @@ if showBullS and not na(bullSwept)
                 lastValid := "⏳ รอ MSS"
 
 // ═════════════════════════ DASHBOARD ═════════════════════════
-var table dash = table.new(f_pos(dashPos), 2, 11, bgcolor = color.new(#131722, 8), border_color = color.new(color.gray, 75), border_width = 1, frame_color = color.new(color.gray, 50), frame_width = 1)
+var table dash = table.new(f_pos(dashPos), 2, 12, bgcolor = color.new(#131722, 8), border_color = color.new(color.gray, 75), border_width = 1, frame_color = color.new(color.gray, 50), frame_width = 1)
 if showDash and barstate.islast
     tc = color.new(color.white, 5)
     sc = color.new(color.white, 45)
@@ -1285,13 +1434,15 @@ if showDash and barstate.islast
     dash.cell(1, 5, (na(lastEntry) ? "-" : str.tostring(lastEntry, format.mintick)) + (lastConf != "" ? "  · " + str.replace_all(lastConf, "Entry · ", "") : ""), text_color = tc, text_size = size.small)
     dash.cell(0, 6, "Status", text_color = sc, text_size = size.small, text_halign = text.align_left)
     dash.cell(1, 6, lastValid, text_color = tc, text_size = size.small)
-    dash.cell(0, 7, "Stats" + (tpMode == "RR" ? " (" + str.tostring(rr) + "R)" : " (Liq TP)"), text_color = sc, text_size = size.small, text_halign = text.align_left)
-    dash.cell(1, 7, "W " + str.tostring(nWin) + " / L " + str.tostring(nLoss) + " / Miss " + str.tostring(nMiss) + (na(winRate) ? "" : "  · " + str.tostring(winRate, "#") + "%") + "  · " + str.tostring(netR, "#.#") + "R", text_color = netR > 0 ? bullCol : netR < 0 ? bearCol : tc, text_size = size.small)
+    dash.cell(0, 7, "Stats (เข้าแล้ว)", text_color = sc, text_size = size.small, text_halign = text.align_left)
+    dash.cell(1, 7, "W " + str.tostring(nWin) + " / L " + str.tostring(nLoss) + (na(winRate) ? "" : "  · " + str.tostring(winRate, "#") + "%") + "  · " + str.tostring(netR, "#.#") + "R", text_color = netR > 0 ? bullCol : netR < 0 ? bearCol : tc, text_size = size.small)
     dash.cell(0, 8, "Active", text_color = sc, text_size = size.small, text_halign = text.align_left)
     dash.cell(0, 9, "Funnel", text_color = sc, text_size = size.small, text_halign = text.align_left)
     dash.cell(1, 9, "Sweep " + str.tostring(cSweep) + " → MSS " + str.tostring(cMss), text_color = tc, text_size = size.small)
     dash.cell(0, 10, "ตกเงื่อนไข", text_color = sc, text_size = size.small, text_halign = text.align_left)
-    dash.cell(1, 10, "ไม่เกิด MSS " + str.tostring(cExp) + " · ตัวกรอง " + str.tostring(cFilt) + " · SL เกิน " + str.tostring(cSlBig), text_color = tc, text_size = size.small)
+    dash.cell(1, 10, "ไม่เกิด MSS " + str.tostring(cExp) + " · ตัวกรอง " + str.tostring(cFilt) + " · SL เกิน " + str.tostring(cSlBig) + " · ไม่มี TP/Entry " + str.tostring(cNoTp), text_color = tc, text_size = size.small)
+    dash.cell(0, 11, "ไม่ได้เข้า", text_color = sc, text_size = size.small, text_halign = text.align_left)
+    dash.cell(1, 11, "ไม่ถึง Entry " + str.tostring(nNoFill) + " · Miss (ถึง TP ก่อน) " + str.tostring(nMiss), text_color = tc, text_size = size.small)
     dash.cell(1, 8, "▲ " + str.tostring(actBull.size()) + "   ▼ " + str.tostring(actBear.size()) + (useVol ? "  · vol " + (na(lastPct) ? "-" : str.tostring(lastPct, "#.#") + "%") : ""), text_color = tc, text_size = size.small)
 
 // ═════════════════════════ HISTORY MARKERS ═════════════════════════

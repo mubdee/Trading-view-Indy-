@@ -53,7 +53,10 @@ HTF Bias · Session · SFP ล่าสุด + ชนิด liquidity · Liquid
 - **ตัวกรองโซน** (ทั้ง OB และ D/S): Fresh · Displacement · Premium/Discount ของขา · ขนาดไม่เกิน 3 ATR
 - **คะแนน ★** = Fresh + Displacement + P/D + ขนาดพอดี + อยู่ที่จุด Sweep + ระดับ A/V·SBR·QM ในโซน (สูงสุด 3) + OB ซ้อน D/S
 - เลือกโซนที่ ★ สูงสุด (ต้อง ≥ 3) แล้วเข้าที่ระดับ confluence ในโซนนั้น เช่น `Entry · Supply RBD + OB ★7 + QM + A`
-- **TP = Liquidity** (ค่าเริ่มต้น) — TP ที่ liquidity ฝั่งตรงข้ามตัวถัดไปที่ยังไม่ถูกกวาด (Swing, EQH/EQL, PDH/PDL, Asia, HTF) ที่ได้ RR ≥ 1 · ถ้าไม่มี ใช้ RR คงที่แทน · ป้ายบอกชนิดและ RR จริง เช่น `TP PDL · 2.7R` · สถิติ Net R คิดตาม RR จริงของแต่ละเทรด
+- **TP = Liquidity เท่านั้น** — ไม่ใช้ RR คงที่แล้ว · เป้าคือ liquidity ฝั่งตรงข้ามที่ยังไม่ถูกกวาด: Swing, EQH/EQL, PDH/PDL, PWH/PWL, Asia, HTF, internal swing (iH/iL) · เลือก `ใกล้สุด` หรือ `Key liquidity ก่อน` · ข้ามเป้าที่ใกล้จน RR < ค่าที่ตั้ง (0 = ไม่กรอง) · ไม่มีเป้า = ไม่เข้าออเดอร์
+- **MSS กรองเพิ่ม** — แท่ง MSS ต้องเป็นแท่งตามทิศ · body ≥ 50% ของแท่ง · ปิดเลยระดับ ≥ 0.05 ATR · LTF acceptance: แท่ง LTF ในแท่ง MSS ปิดเลยระดับ ≥ 30%
+- **โซนกรองด้วย LTF** — แท่ง impulse ที่ออกจากโซนต้องมี FVG บน LTF (ตั้งเป็นเงื่อนไขบังคับได้) · LTF volume delta ตามทิศได้ ★ · Leg-out ≥ 1× ความสูงโซน · คะแนนขั้นต่ำ 4 ★ (สูงสุด 12)
+- **สถิติเฉพาะที่เข้าจริง** — ต้องถึง Entry ภายใน 20 แท่ง ไม่งั้น = ไม่ได้เข้า (ไม่นับ SL) · ลำดับ Entry → SL/TP เช็คด้วยแท่ง LTF · ถึง TP ก่อนเข้า = Miss · ไม่มี market entry แล้ว
 - **SL = Fixed** (ค่าเริ่มต้น) — ตั้งระยะ SL เองจาก Entry (Points / Price / ATR, ค่าเริ่มต้น 300 points)
 - **SL = Zone** — SL เลยขอบนอกของโซนเข้า (OB/Supply/Demand) + buffer · ไม่มีโซน → ปลายไส้ sweep · ป้ายบอกระยะเป็น points
 - **SL สูงสุด** — ถ้าระยะ Entry→SL เกินค่าที่ตั้ง (Points / Price / ATR) = ไม่เข้าออเดอร์ ลบ setup ทิ้ง (0 = ปิด)
