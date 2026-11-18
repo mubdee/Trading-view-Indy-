@@ -2,6 +2,7 @@
 // SFP Pro X — MAIN v2 · Sweep + MSS + OB / Demand-Supply Confluence  (Pine Script v6)
 // เวอร์ชันหลักล่าสุด (สำเนาจาก DEV 2026-11-18) · แก้/เพิ่มเงื่อนไขใหม่ที่ indicators/sfp/sfp-pro-sweep-mss.pine
 // Sweep liquidity → MSS → เข้าที่ OB / Demand-Supply ที่ผ่านตัวกรอง + ซ้อนกับ MSNR A/V, SBR/RBS, QM
+// คัดโซนด้วย Fib 0.786 ของขา sweep → MSS (เปิดเป็นตัวกรองค่าเริ่มต้น)
 // ตัวกรองเสริม (ปิดไว้เป็นค่าเริ่มต้น): HTF Bias, Displacement, Session, ความลึก sweep, Volume LTF
 // ดูคำอธิบาย: indicators/sfp/README.md
 // ════════════════════════════════════════════════════════════════
@@ -86,7 +87,12 @@ depMin    = input.float(1.0, "Leg-out ≥ (x ความสูงโซน) · 
 useLtfZ   = input.bool(true, "ใช้ LTF ช่วยกรองโซน", group = grpZ, tooltip = "ดูแท่ง LTF ในแท่งที่พุ่งออกจากโซน (impulse):\n• มี FVG บน LTF ไหม (imbalance จริง)\n• volume delta ไปทางเดียวกับ impulse ไหม\nแท่งที่ไม่มีข้อมูล LTF จะไม่ถูกตัดทิ้ง")
 reqLtfImb = input.bool(true, "ต้องมี FVG บน LTF ตอนออกจากโซน", group = grpZ)
 ltfDMin   = input.float(30, "LTF volume delta ≥ (%) ได้ ★", minval = 0, maxval = 100, step = 5, group = grpZ, tooltip = "(volume แท่ง LTF ตามทิศ − สวนทิศ) / volume ทั้งหมด ในแท่ง impulse")
-minScore  = input.int(4, "คะแนนขั้นต่ำ (★)", minval = 0, maxval = 12, group = grpZ, tooltip = "★ = Fresh + Displacement + Premium/Discount + ขนาดพอดี + อยู่ที่จุด Sweep + Leg-out + LTF FVG + LTF delta + ระดับ confluence ในโซน (สูงสุด 3) + OB ซ้อน D/S")
+fibMode   = input.string("ตัวกรอง", "Fib คัดโซน", options = ["Off", "ตัวกรอง", "คะแนน ★"], group = grpZ, tooltip = "ลาก Fib จากปลายไส้ sweep (1) ไปยอดขา MSS (0)\nตัวกรอง = โซนต้องอยู่ลึกถึงระดับ Fib ที่ตั้ง ไม่งั้นตัดทิ้ง\nคะแนน ★ = ไม่ตัดทิ้ง แต่ได้ +1 ★ ถ้าอยู่ลึกถึง")
+fibLvl    = input.float(0.786, "ระดับ Fib", minval = 0.1, maxval = 1.0, step = 0.001, inline = "fb", group = grpZ)
+fibHow    = input.string("แตะ", "โซนต้อง", options = ["แตะ", "ทั้งโซนเลย"], inline = "fb", group = grpZ, tooltip = "แตะ = ขอบโซนด้านใน (ใกล้ราคา) หรือส่วนใดของโซนอยู่ลึกถึงระดับ Fib\nทั้งโซนเลย = ทั้งโซนอยู่ระหว่างระดับ Fib กับ 1 (ไส้ sweep)")
+fibTol    = input.float(0.05, "Fib tolerance (x ATR)", minval = 0, step = 0.05, group = grpZ)
+showFib   = input.bool(true, "แสดงเส้น Fib (0 / ระดับ / 1)", group = grpZ)
+minScore  = input.int(4, "คะแนนขั้นต่ำ (★)", minval = 0, maxval = 13, group = grpZ, tooltip = "★ = Fresh + Displacement + Premium/Discount + ขนาดพอดี + อยู่ที่จุด Sweep + Leg-out + LTF FVG + LTF delta + Fib (โหมดคะแนน) + ระดับ confluence ในโซน (สูงสุด 3) + OB ซ้อน D/S")
 sdBullCol = input.color(color.new(#00bcd4, 82), "Demand", inline = "zc", group = grpZ)
 sdBearCol = input.color(color.new(#e040fb, 82), "Supply", inline = "zc", group = grpZ)
 
@@ -597,6 +603,10 @@ f_zoneEval(bool bull, float top, float bot, int kAfter, bool isSD, float legMid,
     lD  = useLtfZ and la and ld * 100 >= ltfDMin
     [fr, dp, pd, sz, sw, lOk, lI, lD, dep]
 
+// Fib คัดโซน: Bull = โซนต้องลงไปถึงระดับ Fib (ฝั่ง Discount ลึก) · Bear = ขึ้นไปถึง (Premium ลึก)
+f_fibOk(bool bull, float top, float bot, float fibP, float tol) =>
+    fibHow == "แตะ" ? (bull ? bot <= fibP + tol : top >= fibP - tol) : (bull ? top <= fibP + tol : bot >= fibP - tol)
+
 f_activate(Sig s, array<Sig> arr) =>
     col = s.bull ? bullCol : bearCol
     nx  = bar_index + zExt
@@ -674,6 +684,10 @@ f_activate(Sig s, array<Sig> arr) =>
         for m = 0 to n
             legY := na(legY) ? (s.bull ? high[m] : low[m]) : (s.bull ? math.max(legY, high[m]) : math.min(legY, low[m]))
         legMid = (s.ext + legY) / 2
+        // Fib: 1 = ปลายไส้ sweep · 0 = ยอดขา MSS
+        fibP  = legY + fibLvl * (s.ext - legY)
+        fTolV = fibTol * atrV
+        useFb = fibMode != "Off"
         // 3) หาโซน + กรอง + ให้คะแนน
         array<float>  zT = array.new<float>()
         array<float>  zB = array.new<float>()
@@ -685,23 +699,25 @@ f_activate(Sig s, array<Sig> arr) =>
             [k, t, b] = f_findOB(s.bull, n)
             if not na(k)
                 [fr, dp, pd, sz, sw, lOk, lI, lD, dep] = f_zoneEval(s.bull, t, b, k - 1, false, legMid, s.lvl)
-                if (not reqFresh or fr) and (not reqDisp or dp) and (not reqPD or pd) and sz and lOk and dep
+                fb = f_fibOk(s.bull, t, b, fibP, fTolV)
+                if (not reqFresh or fr) and (not reqDisp or dp) and (not reqPD or pd) and sz and lOk and dep and (fibMode != "ตัวกรอง" or fb)
                     zT.push(t)
                     zB.push(b)
                     zK.push(k)
                     zN.push("OB")
-                    zS.push((fr ? 1 : 0) + (dp ? 1 : 0) + (pd ? 1 : 0) + (sz ? 1 : 0) + (sw ? 1 : 0) + (lI ? 1 : 0) + (lD ? 1 : 0) + (dep and depMin > 0 ? 1 : 0))
+                    zS.push((fr ? 1 : 0) + (dp ? 1 : 0) + (pd ? 1 : 0) + (sz ? 1 : 0) + (sw ? 1 : 0) + (lI ? 1 : 0) + (lD ? 1 : 0) + (dep and depMin > 0 ? 1 : 0) + (fibMode == "คะแนน ★" and fb ? 1 : 0))
                     zO.push(true)
         if useSDz
             [st, sb2, sk, si, sty] = f_findSD(s.bull, n)
             if not na(sk)
                 [fr, dp, pd, sz, sw, lOk, lI, lD, dep] = f_zoneEval(s.bull, st, sb2, si, true, legMid, s.lvl)
-                if (not reqFresh or fr) and (not reqDisp or dp) and (not reqPD or pd) and sz and lOk and dep
+                fb = f_fibOk(s.bull, st, sb2, fibP, fTolV)
+                if (not reqFresh or fr) and (not reqDisp or dp) and (not reqPD or pd) and sz and lOk and dep and (fibMode != "ตัวกรอง" or fb)
                     zT.push(st)
                     zB.push(sb2)
                     zK.push(sk)
                     zN.push((s.bull ? "Demand " : "Supply ") + sty)
-                    zS.push((fr ? 1 : 0) + (dp ? 1 : 0) + (pd ? 1 : 0) + (sz ? 1 : 0) + (sw ? 1 : 0) + (lI ? 1 : 0) + (lD ? 1 : 0) + (dep and depMin > 0 ? 1 : 0))
+                    zS.push((fr ? 1 : 0) + (dp ? 1 : 0) + (pd ? 1 : 0) + (sz ? 1 : 0) + (sw ? 1 : 0) + (lI ? 1 : 0) + (lD ? 1 : 0) + (dep and depMin > 0 ? 1 : 0) + (fibMode == "คะแนน ★" and fb ? 1 : 0))
                     zO.push(false)
         // + คะแนนจากระดับ confluence ในโซน (สูงสุด 3)
         for [zi, zt] in zT
@@ -770,6 +786,8 @@ f_activate(Sig s, array<Sig> arr) =>
                 tipL := tipL + "\n" + zN.get(zi) + " ★" + str.tostring(zS.get(zi)) + ": " + str.tostring(zB.get(zi), format.mintick) + " – " + str.tostring(zt, format.mintick)
             for [i, p] in cP
                 tipL := tipL + "\n" + cN.get(i) + ": " + str.tostring(p, format.mintick)
+            if useFb
+                tipL := tipL + "\nFib " + str.tostring(fibLvl) + ": " + str.tostring(fibP, format.mintick) + " (" + fibMode + " · " + fibHow + ")"
             s.m1P := pick
             s.m1N := "Entry · " + pickN
             s.m1  := line.new(pickB, pick, nx, pick, color = col, width = 2)
@@ -782,6 +800,18 @@ f_activate(Sig s, array<Sig> arr) =>
                 if p != pick
                     s.xl.push(line.new(cB.get(i), p, nx, p, color = color.new(col, 60), style = line.style_dotted))
                     s.xb.push(label.new(nx, p, cN.get(i), style = label.style_label_left, color = color.new(col, 92), textcolor = color.new(col, 30), size = size.tiny))
+        if showFib and useFb
+            if na(s.xl)
+                s.xl := array.new<line>()
+            if na(s.xb)
+                s.xb := array.new<label>()
+            fc = color.new(chart.fg_color, 40)
+            s.xl.push(line.new(s.bar, legY, nx, legY, color = fc, style = line.style_solid))
+            s.xl.push(line.new(s.bar, fibP, nx, fibP, color = color.new(bearCol, 20), width = 2))
+            s.xl.push(line.new(s.bar, s.ext, nx, s.ext, color = fc, style = line.style_solid))
+            s.xb.push(label.new(nx, legY, "0 (" + str.tostring(legY, format.mintick) + ")", style = label.style_label_left, color = color.new(color.black, 100), textcolor = fc, size = size.tiny))
+            s.xb.push(label.new(nx, fibP, str.tostring(fibLvl) + " (" + str.tostring(fibP, format.mintick) + ")", style = label.style_label_left, color = color.new(color.black, 100), textcolor = bearCol, size = size.tiny))
+            s.xb.push(label.new(nx, s.ext, "1 (" + str.tostring(s.ext, format.mintick) + ")", style = label.style_label_left, color = color.new(color.black, 100), textcolor = fc, size = size.tiny))
     // ── Sweep wick / OB / FVG ──
     if wickZone
         top = s.bull ? s.edge : s.ext
