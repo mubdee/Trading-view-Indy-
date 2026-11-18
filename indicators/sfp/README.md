@@ -57,3 +57,4 @@ HTF Bias · Session · SFP ล่าสุด + ชนิด liquidity · Liquid
 - **SL = Fixed** (ค่าเริ่มต้น) — ตั้งระยะ SL เองจาก Entry (Points / Price / ATR, ค่าเริ่มต้น 300 points)
 - **SL = Zone** — SL เลยขอบนอกของโซนเข้า (OB/Supply/Demand) + buffer · ไม่มีโซน → ปลายไส้ sweep · ป้ายบอกระยะเป็น points
 - **SL สูงสุด** — ถ้าระยะ Entry→SL เกินค่าที่ตั้ง (Points / Price / ATR) = ไม่เข้าออเดอร์ ลบ setup ทิ้ง (0 = ปิด)
+- **เก็บ setup ที่จบแล้ว** (ค่าเริ่มต้นเปิด, ฝั่งละ 5) — ไม่ลบทิ้ง แต่ทำให้จางและแปะผล: `TP ✔ +2.4R` · `SL ✖ -1R` · `Miss · ไม่ถึง Entry` · `✖ ยกเลิก · ปิดเลยไส้` · `หมดอายุ` · setup จบเมื่อโดน SL ด้วย (หลัง Entry fill)

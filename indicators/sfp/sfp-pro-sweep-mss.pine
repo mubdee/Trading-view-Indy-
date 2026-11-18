@@ -106,6 +106,10 @@ bearCol  = input.color(#f23645, "Bear", inline = "d2", group = grpD)
 txtSize  = input.string("small", "ขนาดตัวอักษร", options = ["tiny", "small", "normal"], group = grpD)
 showHist = input.bool(true, "ลูกศรประวัติสัญญาณ (SFP + MSS)", group = grpD, tooltip = "ลูกศรเล็กที่แท่ง MSS ของทุกสัญญาณในอดีต — อยู่ถาวร ไม่ถูกลบตามกล่อง/เส้น")
 showSwp  = input.bool(false, "จุดประวัติ Sweep (รวมที่ไม่เกิด MSS)", group = grpD)
+keepDone = input.bool(true, "เก็บ setup ที่จบแล้ว (จาง + ป้ายผล)", group = grpD, tooltip = "ไม่ลบ setup ที่ถึง TP / โดน SL / Miss / ยกเลิก แต่ทำให้จางและแปะผลไว้")
+maxDone  = input.int(5, "จำนวน setup ที่จบแล้วที่แสดง (ต่อฝั่ง)", minval = 1, maxval = 30, group = grpD)
+winC     = input.color(#26a69a, "สีผล: TP", inline = "rc", group = grpD)
+lossC    = input.color(#ef5350, "SL", inline = "rc", group = grpD)
 
 grpV = "Volume Validation (LTF)"
 useVol  = input.bool(false, "ใช้ Volume กรอง SFP", group = grpV)
@@ -217,6 +221,8 @@ type Sig
     float  tp
     float  entry
     float  slV
+    float  rrv
+    bool   filled  = false
     bool   drawn   = false
     float  m1P
     float  m2P
@@ -232,6 +238,7 @@ type Sig
     label  slLb
     label  m1L
     label  m2L
+    label  rl
     line   ln
     line   wk
     line   cl
@@ -256,6 +263,8 @@ var array<Level> highsLv = array.new<Level>()
 var array<Level> lowsLv  = array.new<Level>()
 var array<Sig>   actBull = array.new<Sig>()
 var array<Sig>   actBear = array.new<Sig>()
+var array<Sig>   doneBull = array.new<Sig>()
+var array<Sig>   doneBear = array.new<Sig>()
 var array<Trade> trades  = array.new<Trade>()
 var Sig pBull = na
 var Sig pBear = na
@@ -331,6 +340,8 @@ f_delSig(Sig s) =>
         s.m1L.delete()
     if not na(s.m2L)
         s.m2L.delete()
+    if not na(s.rl)
+        s.rl.delete()
     if not na(s.ln)
         s.ln.delete()
     if not na(s.wk)
@@ -774,6 +785,8 @@ f_activate(Sig s, array<Sig> arr) =>
             s.sll  := line.new(bar_index, s.sl, nx, s.sl, color = color.new(color.gray, 20), style = line.style_dashed)
             s.tpLb := label.new(nx, s.tp, tpTxt, style = label.style_label_left, color = color.new(col, 80), textcolor = col, size = size.tiny)
             s.slLb := label.new(nx, s.sl, slTxt, style = label.style_label_left, color = color.new(color.gray, 80), textcolor = color.gray, size = size.tiny)
+        s.filled := filledNow
+        s.rrv    := tpRR
         trades.push(Trade.new(s.bull, bar_index, s.entry, s.sl, s.tp, filledNow, tpRR))
         s.born := bar_index
         arr.push(s)
@@ -782,21 +795,101 @@ f_activate(Sig s, array<Sig> arr) =>
         alert((s.bull ? "Bullish" : "Bearish") + " SFP + MSS | " + syminfo.ticker + " " + timeframe.period + " | " + s.tag + " " + str.tostring(s.lvl, format.mintick) + " | Entry " + str.tostring(s.entry, format.mintick) + " | SL " + str.tostring(s.sl, format.mintick) + " (" + str.tostring(slPts, "#") + " pts) | " + tpTxt + " " + str.tostring(s.tp, format.mintick), alert.freq_once_per_bar_close)
     not slTooBig
 
-// ลบเมื่อ: ราคาปิดเลยปลายไส้ / ถึง TP / เก่าเกิน — และอัปเดตสถานะ Fresh ของ MSNR
-f_updActive(array<Sig> arr, bool canAct) =>
+// จบ setup: ทำให้จาง + แปะป้ายผล (หรือลบทิ้งถ้าปิด keepDone)
+f_finish(Sig s, string res, color rc, float ry, array<Sig> doneArr) =>
+    if keepDone
+        gc = color.new(color.gray, 55)
+        if not na(s.lb)
+            s.lb.set_color(color.new(color.gray, 60))
+            s.lb.set_textcolor(color.new(color.white, 40))
+        if not na(s.ln)
+            s.ln.set_color(gc)
+        if not na(s.wk)
+            s.wk.set_color(gc)
+        if not na(s.cl)
+            s.cl.set_color(gc)
+        if not na(s.ml)
+            s.ml.set_textcolor(gc)
+        if not na(s.m1)
+            s.m1.set_x2(bar_index)
+            s.m1.set_color(gc)
+        if not na(s.m2)
+            s.m2.set_x2(bar_index)
+            s.m2.set_color(gc)
+        if not na(s.tpl)
+            s.tpl.set_x2(bar_index)
+            s.tpl.set_color(gc)
+        if not na(s.sll)
+            s.sll.set_x2(bar_index)
+            s.sll.set_color(gc)
+        if not na(s.bx)
+            s.bx.set_right(bar_index)
+            s.bx.set_bgcolor(color.new(rc, 90))
+            s.bx.set_border_color(color.new(rc, 65))
+            s.bx.set_text_color(color.new(color.gray, 40))
+        if not na(s.sx)
+            s.sx.set_right(bar_index)
+            s.sx.set_bgcolor(color.new(color.gray, 92))
+            s.sx.set_border_color(color.new(color.gray, 75))
+            s.sx.set_text_color(color.new(color.gray, 50))
+        if not na(s.fx)
+            s.fx.set_right(bar_index)
+            s.fx.set_bgcolor(color.new(color.gray, 92))
+        if not na(s.xl)
+            for l in s.xl
+                l.set_x2(bar_index)
+                l.set_color(gc)
+        if not na(s.xb)
+            for x in s.xb
+                x.delete()
+        if not na(s.tpLb)
+            s.tpLb.delete()
+        if not na(s.slLb)
+            s.slLb.delete()
+        if not na(s.m1L)
+            s.m1L.delete()
+        if not na(s.m2L)
+            s.m2L.delete()
+        s.rl := label.new(bar_index, ry, res, style = label.style_label_left, color = color.new(rc, 75), textcolor = rc, size = size.tiny, tooltip = s.m1N)
+        doneArr.push(s)
+        if doneArr.size() > maxDone
+            f_delSig(doneArr.shift())
+    else
+        f_delSig(s)
+
+// อัปเดต setup ที่ active: เช็ค Entry fill → TP / SL / Miss / ยกเลิก / หมดอายุ  + สถานะ Fresh
+f_updActive(array<Sig> arr, array<Sig> doneArr, bool canAct) =>
     bool touched = false
     if arr.size() > 0
         for i = arr.size() - 1 to 0
             s = arr.get(i)
-            dead  = s.bull ? close < s.ext : close > s.ext
-            tpHit = s.bull ? high >= s.tp : low <= s.tp
-            old   = maxAge > 0 and bar_index - s.bar > maxAge
-            if canAct and bar_index > s.born and (dead or tpHit or old)
-                f_delSig(s)
+            live = bar_index > s.born
+            string res = ""
+            color  rc  = color.gray
+            float  ry  = close
+            if canAct and live
+                if not s.filled and (s.bull ? low <= s.entry : high >= s.entry)
+                    s.filled := true
+                slHit = s.bull ? low <= s.sl : high >= s.sl
+                tpHit = s.bull ? high >= s.tp : low <= s.tp
+                if s.filled and slHit
+                    res := "SL ✖ -1R"
+                    rc  := lossC
+                    ry  := s.sl
+                else if tpHit
+                    res := s.filled ? "TP ✔ +" + str.tostring(s.rrv, "#.#") + "R" : "Miss · ไม่ถึง Entry"
+                    rc  := s.filled ? winC : color.gray
+                    ry  := s.tp
+                else if not s.filled and (s.bull ? close < s.ext : close > s.ext)
+                    res := "✖ ยกเลิก · ปิดเลยไส้"
+                    ry  := s.ext
+                else if maxAge > 0 and bar_index - s.bar > maxAge
+                    res := "หมดอายุ"
+            if res != ""
+                f_finish(s, res, rc, ry, doneArr)
                 arr.remove(i)
             else
-                nx   = bar_index + zExt
-                live = bar_index > s.born
+                nx = bar_index + zExt
                 if not na(s.m1)
                     if live and s.m1Fresh and (s.bull ? low <= s.m1P : high >= s.m1P)
                         s.m1Fresh := false
@@ -872,8 +965,8 @@ if conf and trades.size() > 0
                     trades.remove(i)
 
 // ═════════════════════════ 2) ACTIVE SFP ═════════════════════════
-bullRetest = f_updActive(actBull, conf)
-bearRetest = f_updActive(actBear, conf)
+bullRetest = f_updActive(actBull, doneBull, conf)
+bearRetest = f_updActive(actBear, doneBear, conf)
 
 // ═════════════════════════ 3) PENDING → MSS / ลบทิ้ง ═════════════════════════
 bool bullConfSig = false
