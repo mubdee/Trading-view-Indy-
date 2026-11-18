@@ -87,8 +87,10 @@ showTP  = input.bool(true, "แสดง TP / SL", group = grpR)
 tpMode  = input.string("Liquidity", "TP", options = ["Liquidity", "RR"], group = grpR, tooltip = "Liquidity = TP ที่ liquidity ฝั่งตรงข้ามตัวถัดไปที่ยังไม่ถูกกวาด (Swing, EQH/EQL, PDH/PDL, Asia, HTF)\nRR = TP ตาม RR คงที่")
 tpMinRR = input.float(1.0, "Liquidity TP: RR ขั้นต่ำ", minval = 0.1, step = 0.1, group = grpR, tooltip = "ข้าม liquidity ที่ใกล้เกินจนได้ RR ไม่ถึงค่านี้ แล้วไปใช้ตัวถัดไป")
 rr      = input.float(2.0, "RR (โหมด RR / ใช้แทนเมื่อไม่มี liquidity)", minval = 0.5, step = 0.5, group = grpR)
-slMode  = input.string("Zone", "SL", options = ["Zone", "Sweep Wick"], group = grpR, tooltip = "Zone = เลยขอบนอกของโซนเข้า (OB / Supply / Demand) + buffer\nSweep Wick = เลยปลายไส้ sweep + buffer\nถ้าไม่มีโซน จะใช้ปลายไส้แทน")
-slBuf   = input.float(0.1, "SL buffer (x ATR)", minval = 0, step = 0.05, group = grpR)
+slMode  = input.string("Fixed", "SL", options = ["Fixed", "Zone", "Sweep Wick"], group = grpR, tooltip = "Fixed = ตั้งระยะ SL เอง (นับจากราคา Entry)\nZone = เลยขอบนอกของโซนเข้า (OB / Supply / Demand) + buffer\nSweep Wick = เลยปลายไส้ sweep + buffer\nถ้าไม่มีโซน จะใช้ปลายไส้แทน")
+slFix   = input.float(300, "ระยะ SL (โหมด Fixed)", minval = 0.0001, step = 10, inline = "sf", group = grpR, tooltip = "ระยะจาก Entry ถึง SL")
+slFixU  = input.string("Points", "", options = ["Points", "Price", "ATR"], inline = "sf", group = grpR, tooltip = "Points = จำนวน tick ของสินค้า (เท่ากับ points ใน MT4/MT5)\nPrice = ระยะราคา\nATR = จำนวนเท่าของ ATR(14)")
+slBuf   = input.float(0.1, "SL buffer (x ATR) · โหมด Zone / Sweep Wick", minval = 0, step = 0.05, group = grpR)
 slMax   = input.float(0, "SL สูงสุด · 0 = ปิด", minval = 0, step = 10, inline = "sm", group = grpR, tooltip = "ถ้าระยะ Entry → SL เกินค่านี้ = ไม่เข้าออเดอร์ (ลบ setup ทิ้ง)")
 slUnit  = input.string("Points", "", options = ["Points", "Price", "ATR"], inline = "sm", group = grpR, tooltip = "Points = จำนวน tick ของสินค้า (เท่ากับ points ใน MT4/MT5)\nPrice = ระยะราคา\nATR = จำนวนเท่าของ ATR(14)")
 
@@ -724,10 +726,14 @@ f_activate(Sig s, array<Sig> arr) =>
     filledNow = na(entryP)
     s.entry := na(entryP) ? close : entryP
     // SL: เลยขอบนอกของโซนเข้า (หรือปลายไส้ sweep)
-    float distal = s.ext
-    if slMode == "Zone" and not na(s.bx)
-        distal := s.bull ? s.bx.get_bottom() : s.bx.get_top()
-    s.sl := s.bull ? math.min(distal, s.entry) - slBuf * atrV : math.max(distal, s.entry) + slBuf * atrV
+    if slMode == "Fixed"
+        fixDist = slFixU == "Points" ? slFix * syminfo.mintick : slFixU == "Price" ? slFix : slFix * atrV
+        s.sl := s.bull ? s.entry - fixDist : s.entry + fixDist
+    else
+        float distal = s.ext
+        if slMode == "Zone" and not na(s.bx)
+            distal := s.bull ? s.bx.get_bottom() : s.bx.get_top()
+        s.sl := s.bull ? math.min(distal, s.entry) - slBuf * atrV : math.max(distal, s.entry) + slBuf * atrV
     risk  = math.abs(s.entry - s.sl)
     slPts = risk / syminfo.mintick
     s.slV := slUnit == "Points" ? slPts : slUnit == "Price" ? risk : risk / atrV

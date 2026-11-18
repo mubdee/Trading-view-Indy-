@@ -54,5 +54,6 @@ HTF Bias · Session · SFP ล่าสุด + ชนิด liquidity · Liquid
 - **คะแนน ★** = Fresh + Displacement + P/D + ขนาดพอดี + อยู่ที่จุด Sweep + ระดับ A/V·SBR·QM ในโซน (สูงสุด 3) + OB ซ้อน D/S
 - เลือกโซนที่ ★ สูงสุด (ต้อง ≥ 3) แล้วเข้าที่ระดับ confluence ในโซนนั้น เช่น `Entry · Supply RBD + OB ★7 + QM + A`
 - **TP = Liquidity** (ค่าเริ่มต้น) — TP ที่ liquidity ฝั่งตรงข้ามตัวถัดไปที่ยังไม่ถูกกวาด (Swing, EQH/EQL, PDH/PDL, Asia, HTF) ที่ได้ RR ≥ 1 · ถ้าไม่มี ใช้ RR คงที่แทน · ป้ายบอกชนิดและ RR จริง เช่น `TP PDL · 2.7R` · สถิติ Net R คิดตาม RR จริงของแต่ละเทรด
-- **SL = Zone** (ค่าเริ่มต้น) — SL เลยขอบนอกของโซนเข้า (OB/Supply/Demand) + buffer · ไม่มีโซน → ปลายไส้ sweep · ป้ายบอกระยะเป็น points
+- **SL = Fixed** (ค่าเริ่มต้น) — ตั้งระยะ SL เองจาก Entry (Points / Price / ATR, ค่าเริ่มต้น 300 points)
+- **SL = Zone** — SL เลยขอบนอกของโซนเข้า (OB/Supply/Demand) + buffer · ไม่มีโซน → ปลายไส้ sweep · ป้ายบอกระยะเป็น points
 - **SL สูงสุด** — ถ้าระยะ Entry→SL เกินค่าที่ตั้ง (Points / Price / ATR) = ไม่เข้าออเดอร์ ลบ setup ทิ้ง (0 = ปิด)
