@@ -5,6 +5,7 @@
 // คัดโซนด้วย Fib ของขา sweep → ยอดขา MSS (ค่าเริ่มต้น 0.618 · ยอดขาเลื่อนตาม high/low ใหม่จนกว่าจะเข้า Entry)
 // ตัวกรองเสริม (ปิดไว้เป็นค่าเริ่มต้น): HTF Bias, Displacement, Session, ความลึก sweep, Volume LTF
 // ดูคำอธิบาย: indicators/sfp/README.md
+// เงื่อนไข Sweep: แท่ง sweep ต้องเว้นห่างจากแท่ง swing อย่างน้อย 1 แท่ง (แท่งติดกันกวาด = ไม่นับ)
 // ════════════════════════════════════════════════════════════════
 //@version=6
 indicator("SFP Pro X DEV — OB / Demand-Supply Confluence", "SFP Pro X DEV", overlay = true, max_boxes_count = 200, max_lines_count = 400, max_labels_count = 300, max_bars_back = 500)
@@ -35,6 +36,7 @@ grpS = "2) Sweep"
 rejMode  = input.string("Close", "แท่ง Sweep ต้องปิดกลับด้วย", options = ["Close", "Body"], group = grpS, tooltip = "Close = ราคาปิดกลับเข้ามาในระดับ\nBody = ทั้ง open และ close ต้องอยู่ในระดับ")
 sweepMin = input.float(0.0, "ลึกอย่างน้อย (x ATR)", minval = 0, step = 0.05, group = grpS)
 sweepMax = input.float(0.0, "ลึกไม่เกิน (x ATR) · 0 = ปิด", minval = 0, step = 0.1, group = grpS, tooltip = "ไส้ลึกเกินไปมักเป็น breakout จริง ไม่ใช่ SFP")
+sweepGap = input.int(1, "เว้นแท่งระหว่าง swing กับแท่ง Sweep อย่างน้อย", minval = 0, maxval = 20, group = grpS, tooltip = "แท่ง sweep ต้องห่างจากแท่ง swing ที่ถูกกวาดอย่างน้อยกี่แท่ง (นับแท่งที่อยู่ตรงกลาง)\n1 = ต้องมีอย่างน้อย 1 แท่งคั่น · แท่งที่ติดกับ swing กวาดไส้ = ไม่นับเป็น sweep\n0 = ปิด\nใช้กับ Swing, EQH/EQL, Asia H/L (PDH/PDL · PWH/PWL · HTF ไม่เช็ค)")
 
 grpC = "3) MSS Confirmation"
 intLeft     = input.int(2, "Swing ล่าสุด: Left", minval = 1, inline = "i", group = grpC)
@@ -1420,6 +1422,12 @@ f_fresh(Level lv) =>
     isSwing = lv.tag == "Swing" or lv.tag == "EQH" or lv.tag == "EQL"
     liqAge == 0 or (not isSwing and not liqAgeKey) or bar_index - lv.bar <= liqAge
 
+// ระยะห่างแท่ง: แท่ง sweep ต้องห่างจากแท่ง swing อย่างน้อย sweepGap แท่ง (แท่งติดกันกวาด = ไม่นับ)
+// PDH/PDL · PWH/PWL · HTF ไม่เช็ค (lv.bar เป็นแท่งที่บันทึกระดับ ไม่ใช่แท่งที่ทำ high/low จริง)
+f_gapOk(Level lv) =>
+    hasBar = lv.tag == "Swing" or lv.tag == "EQH" or lv.tag == "EQL" or lv.tag == "Asia H" or lv.tag == "Asia L"
+    sweepGap == 0 or not hasBar or bar_index - lv.bar - 1 >= sweepGap
+
 float  bearSwept    = na
 int    bearSweptBar = na
 string bearTag      = ""
@@ -1437,7 +1445,7 @@ if conf and highsLv.size() > 0
         else if high > lv.price and high - lv.price >= minDist
             depthOk  = sweepMax == 0 or high - lv.price <= maxDist
             rejected = rejBody ? bt < lv.price : close < lv.price
-            keyOk    = (liqMode == "All" or lv.tag != "Swing") and f_fresh(lv)
+            keyOk    = (liqMode == "All" or lv.tag != "Swing") and f_fresh(lv) and f_gapOk(lv)
             if depthOk and rejected and keyOk and (na(bearSwept) or lv.price > bearSwept)
                 bearSwept    := lv.price
                 bearSweptBar := lv.bar
@@ -1452,7 +1460,7 @@ if conf and lowsLv.size() > 0
         else if low < lv.price and lv.price - low >= minDist
             depthOk  = sweepMax == 0 or lv.price - low <= maxDist
             rejected = rejBody ? bb > lv.price : close > lv.price
-            keyOk    = (liqMode == "All" or lv.tag != "Swing") and f_fresh(lv)
+            keyOk    = (liqMode == "All" or lv.tag != "Swing") and f_fresh(lv) and f_gapOk(lv)
             if depthOk and rejected and keyOk and (na(bullSwept) or lv.price < bullSwept)
                 bullSwept    := lv.price
                 bullSweptBar := lv.bar
