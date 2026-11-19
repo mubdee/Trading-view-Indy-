@@ -1,15 +1,15 @@
 // ════════════════════════════════════════════════════════════════
 // SFP Pro X — DEV · Sweep + MSS + OB / Demand-Supply Confluence  (Pine Script v6)
-// ✏️ ไฟล์สำรองสำหรับแก้/ทดลองเงื่อนไขใหม่ (สำเนาจาก MAIN v2 2026-11-19 · มี Fib คัดโซน + เว้นแท่ง sweep) · ไฟล์หลัก (ห้ามแก้): indicators/sfp/main/sfp-pro-x-main-v2.pine
+// ✏️ ไฟล์สำรองสำหรับแก้/ทดลองเงื่อนไขใหม่ (สำเนาเดียวกับ MAIN v2 ล่าสุด 2026-11-19) · ไฟล์หลัก (ห้ามแก้): indicators/sfp/main/sfp-pro-x-main-v2.pine
 // Sweep liquidity → MSS → เข้าที่ OB / Demand-Supply ที่ผ่านตัวกรอง + ซ้อนกับ MSNR A/V, SBR/RBS, QM
 // คัดโซนด้วย Fib ของขา sweep → ยอดขา MSS (ค่าเริ่มต้น 0.618 · ยอดขาเลื่อนตาม high/low ใหม่จนกว่าจะเข้า Entry)
-// ค่าเริ่มต้น (2026-11-19): real-time · SL Zone · TP Key liquidity ก่อน · ไม่บังคับ LTF FVG · แสดง 2 setup/ฝั่ง · เก็บที่จบแล้ว 10 · ตัวอักษร tiny
+// ค่าเริ่มต้น (2026-11-19 ชุดล่าสุด): real-time · Swing 5/2 · อายุ swing 25 · เว้นแท่ง 2 · Swing MSS 3/1 · SL Zone (หน่วย Price) · TP Key liquidity ก่อน · ไม่บังคับ LTF FVG · แสดง 2 setup/ฝั่ง · เก็บที่จบแล้ว 30 · ตัวอักษร tiny
 // ตัวกรองเสริม (ปิดไว้เป็นค่าเริ่มต้น): HTF Bias, Displacement, Session, ความลึก sweep, Volume LTF
 // SBR / RBS = body ของแท่ง Sweep (แก้ 2026-11-19 · เดิมใช้ body ของแท่งที่เป็นระดับ MSS)
 // ระดับ MSS = low/high สุดขั้วระหว่างแท่ง liquidity ที่ถูก sweep กับแท่ง sweep (แก้ 2026-11-19 · แบบเดิมเลือกได้ใน Input)
 // รอ MSS: แท่งหลัง Sweep ห้ามมีไส้เลยปลายไส้แท่ง Sweep (เลย = ยกเลิก · แก้ 2026-11-19)
 // ดูคำอธิบาย: indicators/sfp/README.md
-// เงื่อนไข Sweep: แท่ง sweep ต้องเว้นห่างจากแท่ง swing อย่างน้อย 1 แท่ง (แท่งติดกันกวาด = ไม่นับ)
+// เงื่อนไข Sweep: แท่ง sweep ต้องเว้นห่างจากแท่ง swing อย่างน้อย 2 แท่ง (ค่าเริ่มต้น · ปรับได้)
 // ════════════════════════════════════════════════════════════════
 //@version=6
 indicator("SFP Pro X DEV — OB / Demand-Supply Confluence", "SFP Pro X DEV", overlay = true, max_boxes_count = 200, max_lines_count = 400, max_labels_count = 300, max_bars_back = 500)
@@ -24,8 +24,8 @@ showBullS = input.bool(true, "Bullish SFP", inline = "s0", group = grpL)
 showBearS = input.bool(true, "Bearish SFP", inline = "s0", group = grpL)
 liqMode   = input.string("All", "ใช้ Liquidity", options = ["All", "Key only"], group = grpL, tooltip = "Key only = เฉพาะ EQH/EQL, PDH/PDL, Asia H/L, HTF H/L")
 pivLeft   = input.int(5, "Swing: Left", minval = 1, inline = "p", group = grpL)
-pivRight  = input.int(1, "Right", minval = 1, inline = "p", group = grpL)
-liqAge    = input.int(10, "Sweep เฉพาะ swing ที่เกิดภายใน (แท่ง) · 0 = ไม่จำกัด", minval = 0, maxval = 500, group = grpL, tooltip = "นับ SFP เฉพาะตอนกวาด swing high/low (รวม EQH/EQL) ที่เกิดภายในจำนวนแท่งนี้ก่อนแท่ง sweep\nswing ที่เก่ากว่านี้ยังใช้เป็นเป้า TP ได้ แต่ไม่นับเป็น SFP")
+pivRight  = input.int(2, "Right", minval = 1, inline = "p", group = grpL)
+liqAge    = input.int(25, "Sweep เฉพาะ swing ที่เกิดภายใน (แท่ง) · 0 = ไม่จำกัด", minval = 0, maxval = 500, group = grpL, tooltip = "นับ SFP เฉพาะตอนกวาด swing high/low (รวม EQH/EQL) ที่เกิดภายในจำนวนแท่งนี้ก่อนแท่ง sweep\nswing ที่เก่ากว่านี้ยังใช้เป็นเป้า TP ได้ แต่ไม่นับเป็น SFP")
 liqAgeKey = input.bool(false, "ใช้กับ PDH/PDL · PWH/PWL · Asia · HTF ด้วย", group = grpL, tooltip = "ปิด = ระดับสำคัญพวกนี้ sweep ได้ตลอด ไม่นับอายุ")
 maxLv     = input.int(10, "จำนวนระดับที่ติดตาม (ต่อฝั่ง)", minval = 1, maxval = 40, group = grpL)
 useEq     = input.bool(true, "Equal Highs/Lows", inline = "eq", group = grpL)
@@ -41,10 +41,10 @@ rejMode  = input.string("Close", "แท่ง Sweep ต้องปิดกล
 sweepMin = input.float(0.0, "ลึกอย่างน้อย (x ATR)", minval = 0, step = 0.05, group = grpS)
 sweepMax = input.float(0.0, "ลึกไม่เกิน (x ATR) · 0 = ปิด", minval = 0, step = 0.1, group = grpS, tooltip = "ไส้ลึกเกินไปมักเป็น breakout จริง ไม่ใช่ SFP")
 noWickX  = input.bool(true, "ยกเลิกถ้าแท่งหลัง Sweep มีไส้เลยแท่ง Sweep (ก่อน MSS)", group = grpS, tooltip = "ระหว่างรอ MSS ถ้ามีแท่งไหนไส้เลยปลายไส้แท่ง Sweep (Bear: high สูงกว่า · Bull: low ต่ำกว่า) = ยกเลิก setup\nถ้าแท่งนั้นกวาด liquidity อื่นด้วย จะกลายเป็น SFP ตัวใหม่แทน")
-sweepGap = input.int(1, "เว้นแท่งระหว่าง swing กับแท่ง Sweep อย่างน้อย", minval = 0, maxval = 20, group = grpS, tooltip = "แท่ง sweep ต้องห่างจากแท่ง swing ที่ถูกกวาดอย่างน้อยกี่แท่ง (นับแท่งที่อยู่ตรงกลาง)\n1 = ต้องมีอย่างน้อย 1 แท่งคั่น · แท่งที่ติดกับ swing กวาดไส้ = ไม่นับเป็น sweep\n0 = ปิด\nใช้กับ Swing, EQH/EQL, Asia H/L (PDH/PDL · PWH/PWL · HTF ไม่เช็ค)")
+sweepGap = input.int(2, "เว้นแท่งระหว่าง swing กับแท่ง Sweep อย่างน้อย", minval = 0, maxval = 20, group = grpS, tooltip = "แท่ง sweep ต้องห่างจากแท่ง swing ที่ถูกกวาดอย่างน้อยกี่แท่ง (นับแท่งที่อยู่ตรงกลาง)\n1 = ต้องมีอย่างน้อย 1 แท่งคั่น · แท่งที่ติดกับ swing กวาดไส้ = ไม่นับเป็น sweep\n0 = ปิด\nใช้กับ Swing, EQH/EQL, Asia H/L (PDH/PDL · PWH/PWL · HTF ไม่เช็ค)")
 
 grpC = "3) MSS Confirmation"
-intLeft     = input.int(2, "Swing ล่าสุด: Left", minval = 1, inline = "i", group = grpC)
+intLeft     = input.int(3, "Swing ล่าสุด: Left", minval = 1, inline = "i", group = grpC)
 intRight    = input.int(1, "Right", minval = 1, inline = "i", group = grpC)
 mssMode     = input.string("Swing ที่ถูก Sweep", "ระดับ MSS", options = ["Swing ที่ถูก Sweep", "Pullback ล่าสุด ≥ 1 ATR"], group = grpC, tooltip = "Swing ที่ถูก Sweep = low ต่ำสุด (Bear) / high สูงสุด (Bull) ระหว่างแท่งที่ทำ liquidity (swing / PDH / Asia ฯลฯ) กับแท่ง sweep = ตามโครงสร้างจริง\nPullback ล่าสุด ≥ 1 ATR = แบบเดิม: ใช้ swing เล็ก (Left/Right ด้านบน) ล่าสุดที่ห่างไส้ sweep ≥ 1 ATR\nถ้าหาแบบแรกไม่ได้ (แท่งติดกัน / liquidity เก่าเกิน 400 แท่ง) จะใช้แบบเดิมแทน")
 breakMode   = input.string("Close", "ทะลุด้วย", options = ["Close", "Full Body"], group = grpC, tooltip = "Close = ราคาปิด (เนื้อเทียน) ทะลุ\nFull Body = ทั้ง open และ close ต้องเลยระดับ")
@@ -116,7 +116,7 @@ slFix   = input.float(300, "ระยะ SL (โหมด Fixed)", minval = 0.00
 slFixU  = input.string("Points", "", options = ["Points", "Price", "ATR"], inline = "sf", group = grpR, tooltip = "Points = จำนวน tick ของสินค้า (เท่ากับ points ใน MT4/MT5)\nPrice = ระยะราคา\nATR = จำนวนเท่าของ ATR(14)")
 slBuf   = input.float(0.1, "SL buffer (x ATR) · โหมด Zone / Sweep Wick", minval = 0, step = 0.05, group = grpR)
 slMax   = input.float(0, "SL สูงสุด · 0 = ปิด", minval = 0, step = 10, inline = "sm", group = grpR, tooltip = "ถ้าระยะ Entry → SL เกินค่านี้ = ไม่เข้าออเดอร์ (ลบ setup ทิ้ง)")
-slUnit  = input.string("Points", "", options = ["Points", "Price", "ATR"], inline = "sm", group = grpR, tooltip = "Points = จำนวน tick ของสินค้า (เท่ากับ points ใน MT4/MT5)\nPrice = ระยะราคา\nATR = จำนวนเท่าของ ATR(14)")
+slUnit  = input.string("Price", "", options = ["Points", "Price", "ATR"], inline = "sm", group = grpR, tooltip = "Points = จำนวน tick ของสินค้า (เท่ากับ points ใน MT4/MT5)\nPrice = ระยะราคา\nATR = จำนวนเท่าของ ATR(14)")
 
 grpD = "Display"
 maxShow  = input.int(2, "แสดง SFP ล่าสุด (ต่อฝั่ง)", minval = 1, maxval = 10, group = grpD)
@@ -131,7 +131,7 @@ txtSize  = input.string("tiny", "ขนาดตัวอักษร", options 
 showHist = input.bool(true, "ลูกศรประวัติสัญญาณ (SFP + MSS)", group = grpD, tooltip = "ลูกศรเล็กที่แท่ง MSS ของทุกสัญญาณในอดีต — อยู่ถาวร ไม่ถูกลบตามกล่อง/เส้น")
 showSwp  = input.bool(false, "จุดประวัติ Sweep (รวมที่ไม่เกิด MSS)", group = grpD)
 keepDone = input.bool(true, "เก็บ setup ที่จบแล้ว (จาง + ป้ายผล)", group = grpD, tooltip = "ไม่ลบ setup ที่ถึง TP / โดน SL / ไม่ได้เข้า / ยกเลิก แต่ทำให้จางและแปะผลไว้")
-maxDone  = input.int(10, "จำนวน setup ที่จบแล้วที่แสดง (ต่อฝั่ง)", minval = 1, maxval = 30, group = grpD)
+maxDone  = input.int(30, "จำนวน setup ที่จบแล้วที่แสดง (ต่อฝั่ง)", minval = 1, maxval = 30, group = grpD)
 winC     = input.color(#26a69a, "สีผล: TP", inline = "rc", group = grpD)
 lossC    = input.color(#ef5350, "SL", inline = "rc", group = grpD)
 
