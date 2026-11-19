@@ -1,6 +1,7 @@
 // ════════════════════════════════════════════════════════════════
 // SFP Pro X — MAIN v2 · Sweep + MSS + OB / Demand-Supply Confluence  (Pine Script v6)
-// เวอร์ชันหลักล่าสุด (สำเนาจาก DEV 2026-11-18) · แก้/เพิ่มเงื่อนไขใหม่ที่ indicators/sfp/sfp-pro-sweep-mss.pine
+// ⛔ ไฟล์หลัก — ห้ามแก้ไฟล์นี้ (บันทึก 2026-11-19 · รวมเงื่อนไขเว้นแท่ง sweep)
+// แก้/ทดลองเงื่อนไขใหม่ที่ไฟล์สำรอง indicators/sfp/sfp-pro-sweep-mss.pine แล้วค่อยคัดลอกมาทับเมื่อสั่ง
 // Sweep liquidity → MSS → เข้าที่ OB / Demand-Supply ที่ผ่านตัวกรอง + ซ้อนกับ MSNR A/V, SBR/RBS, QM
 // คัดโซนด้วย Fib ของขา sweep → ยอดขา MSS (ค่าเริ่มต้น 0.618 · ยอดขาเลื่อนตาม high/low ใหม่จนกว่าจะเข้า Entry)
 // ตัวกรองเสริม (ปิดไว้เป็นค่าเริ่มต้น): HTF Bias, Displacement, Session, ความลึก sweep, Volume LTF

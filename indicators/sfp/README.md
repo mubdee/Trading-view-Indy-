@@ -9,6 +9,7 @@
 ## ลำดับเงื่อนไข (ตัวอย่างฝั่ง Bearish)
 1. **Liquidity** — swing high, EQH, PDH, Asia High หรือ HTF High
 2. **Sweep** — ไส้เลยระดับแล้วปิดกลับลงมา → "SFP ?" จาง ๆ
+   - แท่ง sweep ต้องเว้นห่างจากแท่ง swing อย่างน้อย 1 แท่ง (แท่งที่ติดกับ swing กวาด = ไม่นับ) · ปรับที่ "เว้นแท่งระหว่าง swing กับแท่ง Sweep อย่างน้อย" (0 = ปิด) · ใช้กับ Swing, EQH/EQL, Asia H/L
 3. **MSS** — ภายใน 20 แท่ง ต้องมีแท่งที่ราคาปิด (เนื้อเทียน) ทะลุ swing low ล่าสุด
 4. **Entry (OB + Confluence)** — หา OB ในขา MSS แล้วหาระดับที่ **ซ้อนอยู่ใน OB**
    - **A-level** (MSNR) — ยอดของ line chart ที่ยัง Fresh
