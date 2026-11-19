@@ -8,7 +8,7 @@
 //  ใช้กับกราฟ M5 (หรือ M1 ถ้าใช้วิธีเข้าแบบ Confirm)
 // ════════════════════════════════════════════════════════════════
 //@version=6
-indicator("SMC CB — Top-down BOS Cascade", "SMC CB", overlay = true, max_boxes_count = 200, max_lines_count = 500, max_labels_count = 500, max_bars_back = 2000)
+indicator("SMC CB — Top-down BOS Cascade", "SMC CB", overlay = true, max_boxes_count = 200, max_lines_count = 500, max_labels_count = 500, max_bars_back = 4500)
 
 // ═════════════════════════ INPUTS ═════════════════════════
 grpB = "① Bias D1"
@@ -28,6 +28,7 @@ dispAtr   = input.float(1.0, "x ATR", minval = 0.1, step = 0.1, inline = "dp", g
 cancelOpp = input.bool(true, "[9] ยกเลิกถ้า Structure TF ทะลุสวนทาง (ก่อนเข้า)", group = grpS)
 
 grpI = "③ Confirm TF + IDM"
+cfWick = input.string("ไม่เข้า", "Confirm TF ทะลุด้วยไส้", options = ["ไม่เข้า", "TP ที่ POI"], group = grpI, tooltip = "TF ใหญ่ทะลุด้วยเนื้อ → TF ถัดลงมาต้องทะลุด้วยเนื้อด้วย (หลังต้นขา) ถึงจะเข้า\nไม่เข้า = TF ถัดลงมาทะลุแค่ไส้ / ยังไม่ทะลุ = ไม่เข้าออเดอร์ที่โซนนั้น (กราฟมีโอกาสกลับตัว)\nTP ที่ POI = ยังเข้าได้ แต่ตั้ง TP ที่ POI ก่อนถึง Low/High")
 iLen = input.int(2, "IDM swing Left/Right", minval = 1, group = grpI, tooltip = "Confirm TF = ถัดลงจาก Structure TF 1 ขั้น (H4 → H1)\n• การทะลุ swing ครั้งล่าสุดของ Confirm TF ปิดด้วยเนื้อ = Body → TP ที่ Low/High ของขา\n• หลังจากนั้นมีแท่งไส้กวาด swing แล้วปิดกลับ = Wick → TP ที่ POI ก่อนถึง Low/High\nEntry TF = ถัดลงอีก 1 ขั้น (ต่ำสุด M5) · IDM = swing เล็กล่าสุดก่อนแท่งที่ทะลุ")
 
 grpZ = "④ โซนเข้า (กราฟ M5)"
@@ -108,6 +109,8 @@ type St
     int    idDnT
     float  idUp
     int    idUpT
+    int    bDnT
+    int    bUpT
 
 type Setup
     bool   buy    = false
@@ -119,10 +122,12 @@ type Setup
     float  lvl
     int    lvlT
     int    bT
+    int    bTc
     float  org
     int    orgT
     float  ext
     int    extT
+    int    cSt    = 0
     float  idm
     int    idmT
     bool   idmSw  = false
@@ -317,7 +322,7 @@ f_struct(int len, int il, bool fb, float dk) =>
             wickUpT := time
     bool cDn = not na(bodyDnT) and (na(wickDnT) or bodyDnT >= wickDnT)
     bool cUp = not na(bodyUpT) and (na(wickUpT) or bodyUpT >= wickUpT)
-    [trend[1], bDir[1], bT[1], bLvl[1], bLvlT[1], bOrg[1], bOrgT[1], bCh[1], bDisp[1], cDn[1], cUp[1], idDn[1], idDnT[1], idUp[1], idUpT[1]]
+    [trend[1], bDir[1], bT[1], bLvl[1], bLvlT[1], bOrg[1], bOrgT[1], bCh[1], bDisp[1], cDn[1], cUp[1], idDn[1], idDnT[1], idUp[1], idUpT[1], bodyDnT[1], bodyUpT[1]]
 
 // Bias จากแท่ง D1 เมื่อวาน: 1 = ขึ้น · -1 = ลง · 0 = กลาง
 f_candle() =>
@@ -333,19 +338,19 @@ f_isNew(int t) =>
 
 // ═════════════════════════ HTF DATA (non-repaint) ═════════════════════════
 fb = breakMode == "Full Body"
-[dTr, dBd, dBt, dLv, dLvt, dOg, dOgt, dCh, dDp, dCd, dCu, dId, dIdt, dIu, dIut]                = request.security(syminfo.tickerid, "D", f_struct(dLen, iLen, fb, dispAtr), lookahead = barmerge.lookahead_on)
+[dTr, dBd, dBt, dLv, dLvt, dOg, dOgt, dCh, dDp, dCd, dCu, dId, dIdt, dIu, dIut, dBdt, dBut] = request.security(syminfo.tickerid, "D", f_struct(dLen, iLen, fb, dispAtr), lookahead = barmerge.lookahead_on)
 dCandle = request.security(syminfo.tickerid, "D", f_candle(), lookahead = barmerge.lookahead_on)
-[h4Tr, h4Bd, h4Bt, h4Lv, h4Lvt, h4Og, h4Ogt, h4Ch, h4Dp, h4Cd, h4Cu, h4Id, h4Idt, h4Iu, h4Iut] = request.security(syminfo.tickerid, "240", f_struct(sLen, iLen, fb, dispAtr), lookahead = barmerge.lookahead_on)
-[h1Tr, h1Bd, h1Bt, h1Lv, h1Lvt, h1Og, h1Ogt, h1Ch, h1Dp, h1Cd, h1Cu, h1Id, h1Idt, h1Iu, h1Iut] = request.security(syminfo.tickerid, "60", f_struct(sLen, iLen, fb, dispAtr), lookahead = barmerge.lookahead_on)
-[m3Tr, m3Bd, m3Bt, m3Lv, m3Lvt, m3Og, m3Ogt, m3Ch, m3Dp, m3Cd, m3Cu, m3Id, m3Idt, m3Iu, m3Iut] = request.security(syminfo.tickerid, "30", f_struct(sLen, iLen, fb, dispAtr), lookahead = barmerge.lookahead_on)
-[m1Tr, m1Bd, m1Bt, m1Lv, m1Lvt, m1Og, m1Ogt, m1Ch, m1Dp, m1Cd, m1Cu, m1Id, m1Idt, m1Iu, m1Iut] = request.security(syminfo.tickerid, "15", f_struct(sLen, iLen, fb, dispAtr), lookahead = barmerge.lookahead_on)
-[m5Tr, m5Bd, m5Bt, m5Lv, m5Lvt, m5Og, m5Ogt, m5Ch, m5Dp, m5Cd, m5Cu, m5Id, m5Idt, m5Iu, m5Iut] = request.security(syminfo.tickerid, "5", f_struct(sLen, iLen, fb, dispAtr), lookahead = barmerge.lookahead_on)
+[h4Tr, h4Bd, h4Bt, h4Lv, h4Lvt, h4Og, h4Ogt, h4Ch, h4Dp, h4Cd, h4Cu, h4Id, h4Idt, h4Iu, h4Iut, h4Bdt, h4But] = request.security(syminfo.tickerid, "240", f_struct(sLen, iLen, fb, dispAtr), lookahead = barmerge.lookahead_on)
+[h1Tr, h1Bd, h1Bt, h1Lv, h1Lvt, h1Og, h1Ogt, h1Ch, h1Dp, h1Cd, h1Cu, h1Id, h1Idt, h1Iu, h1Iut, h1Bdt, h1But] = request.security(syminfo.tickerid, "60", f_struct(sLen, iLen, fb, dispAtr), lookahead = barmerge.lookahead_on)
+[m3Tr, m3Bd, m3Bt, m3Lv, m3Lvt, m3Og, m3Ogt, m3Ch, m3Dp, m3Cd, m3Cu, m3Id, m3Idt, m3Iu, m3Iut, m3Bdt, m3But] = request.security(syminfo.tickerid, "30", f_struct(sLen, iLen, fb, dispAtr), lookahead = barmerge.lookahead_on)
+[m1Tr, m1Bd, m1Bt, m1Lv, m1Lvt, m1Og, m1Ogt, m1Ch, m1Dp, m1Cd, m1Cu, m1Id, m1Idt, m1Iu, m1Iut, m1Bdt, m1But] = request.security(syminfo.tickerid, "15", f_struct(sLen, iLen, fb, dispAtr), lookahead = barmerge.lookahead_on)
+[m5Tr, m5Bd, m5Bt, m5Lv, m5Lvt, m5Og, m5Ogt, m5Ch, m5Dp, m5Cd, m5Cu, m5Id, m5Idt, m5Iu, m5Iut, m5Bdt, m5But] = request.security(syminfo.tickerid, "5", f_struct(sLen, iLen, fb, dispAtr), lookahead = barmerge.lookahead_on)
 
-stH4  = St.new("240", h4Tr, h4Bd, h4Bt, h4Lv, h4Lvt, h4Og, h4Ogt, h4Ch, h4Dp, h4Cd, h4Cu, h4Id, h4Idt, h4Iu, h4Iut)
-stH1  = St.new("60", h1Tr, h1Bd, h1Bt, h1Lv, h1Lvt, h1Og, h1Ogt, h1Ch, h1Dp, h1Cd, h1Cu, h1Id, h1Idt, h1Iu, h1Iut)
-stM30 = St.new("30", m3Tr, m3Bd, m3Bt, m3Lv, m3Lvt, m3Og, m3Ogt, m3Ch, m3Dp, m3Cd, m3Cu, m3Id, m3Idt, m3Iu, m3Iut)
-stM15 = St.new("15", m1Tr, m1Bd, m1Bt, m1Lv, m1Lvt, m1Og, m1Ogt, m1Ch, m1Dp, m1Cd, m1Cu, m1Id, m1Idt, m1Iu, m1Iut)
-stM5  = St.new("5", m5Tr, m5Bd, m5Bt, m5Lv, m5Lvt, m5Og, m5Ogt, m5Ch, m5Dp, m5Cd, m5Cu, m5Id, m5Idt, m5Iu, m5Iut)
+stH4  = St.new("240", h4Tr, h4Bd, h4Bt, h4Lv, h4Lvt, h4Og, h4Ogt, h4Ch, h4Dp, h4Cd, h4Cu, h4Id, h4Idt, h4Iu, h4Iut, h4Bdt, h4But)
+stH1  = St.new("60", h1Tr, h1Bd, h1Bt, h1Lv, h1Lvt, h1Og, h1Ogt, h1Ch, h1Dp, h1Cd, h1Cu, h1Id, h1Idt, h1Iu, h1Iut, h1Bdt, h1But)
+stM30 = St.new("30", m3Tr, m3Bd, m3Bt, m3Lv, m3Lvt, m3Og, m3Ogt, m3Ch, m3Dp, m3Cd, m3Cu, m3Id, m3Idt, m3Iu, m3Iut, m3Bdt, m3But)
+stM15 = St.new("15", m1Tr, m1Bd, m1Bt, m1Lv, m1Lvt, m1Og, m1Ogt, m1Ch, m1Dp, m1Cd, m1Cu, m1Id, m1Idt, m1Iu, m1Iut, m1Bdt, m1But)
+stM5  = St.new("5", m5Tr, m5Bd, m5Bt, m5Lv, m5Lvt, m5Og, m5Ogt, m5Ch, m5Dp, m5Cd, m5Cu, m5Id, m5Idt, m5Iu, m5Iut, m5Bdt, m5But)
 
 nH4  = f_isNew(h4Bt)
 nH1  = f_isNew(h1Bt)
@@ -452,7 +457,7 @@ f_sl(Setup s, Zone z) =>
 f_tp(Setup s, float en, float sl) =>
     float  tp = s.ext
     string tx = s.buy ? "TP High" : "TP Low"
-    if not s.cBody
+    if not s.cBody and cfWick == "TP ที่ POI"
         rk = math.abs(en - sl)
         arr = s.buy ? supA : demA
         float  best = na
@@ -540,6 +545,41 @@ f_toZ2(Setup s) =>
         s.entry  := na
     ok
 
+// หาเวลาแท่งจริงบนกราฟ ที่ราคา = ระดับของ TF ใหญ่ (เส้นจะตรงแท่ง)
+f_mapT(float p, int t0, int span, bool hi) =>
+    int r = t0
+    if not na(p) and not na(t0)
+        tol = syminfo.mintick * 0.5
+        lim = math.min(bar_index, 4400)
+        for k = 0 to lim
+            tk = time[k]
+            if tk < t0
+                break
+            if tk < t0 + span and math.abs((hi ? high[k] : low[k]) - p) <= tol
+                r := tk
+    r
+
+// แท่งแรกบนกราฟที่ปิดทะลุระดับ ภายในแท่งทะลุของ TF ใหญ่
+f_mapBrk(float p, int t0, int span, bool buy) =>
+    int r = t0
+    if not na(p) and not na(t0)
+        lim = math.min(bar_index, 4400)
+        for k = 0 to lim
+            tk = time[k]
+            if tk < t0
+                break
+            if tk < t0 + span and (buy ? close[k] > p : close[k] < p)
+                r := tk
+    r
+
+// Confirm TF: 1 = ทะลุด้วยเนื้อ (หลังต้นขา) · -1 = ล่าสุดเป็นไส้ · 0 = ยังไม่ทะลุ
+f_cState(Setup s) =>
+    stC = f_st(s.tfC)
+    bt  = s.buy ? stC.bUpT : stC.bDnT
+    ok  = s.buy ? stC.cUp : stC.cDn
+    recent = not na(bt) and bt >= s.orgT
+    recent and ok ? 1 : recent ? -1 : 0
+
 f_create(St st, bool buy) =>
     s = Setup.new()
     s.buy   := buy
@@ -572,7 +612,15 @@ f_create(St st, bool buy) =>
     bool okId = not na(id) and not na(idT) and idT >= st.orgT and idT <= st.bT + f_sec(st.tf) * 1000 and (buy ? (id > s.org and id < s.ext) : (id < s.org and id > s.ext))
     s.idm   := okId ? id : na
     s.idmT  := okId ? idT : na
-    s.cBody := buy ? stC.cUp : stC.cDn
+    spS = f_sec(st.tf) * 1000
+    spE = f_sec(s.tfE) * 1000
+    s.bTc  := f_mapBrk(st.lvl, st.bT, spS, buy)
+    s.lvlT := f_mapT(st.lvl, st.lvlT, spS, buy)
+    s.orgT := f_mapT(st.org, st.orgT, spS, not buy)
+    if okId
+        s.idmT := f_mapT(id, idT, spE, not buy)
+    s.cSt   := f_cState(s)
+    s.cBody := s.cSt == 1
     s
 
 f_del(line l) =>
@@ -613,8 +661,8 @@ f_draw(Setup s, bool faded, int rt) =>
     sz  = f_size(txtSize)
     lbC = color.new(color.black, 100)
     if showBos and not na(s.lvlT)
-        s.lBos := line.new(s.lvlT, s.lvl, s.bT, s.lvl, xloc = xloc.bar_time, color = col)
-        s.bBos := label.new(math.round((s.lvlT + s.bT) / 2), s.lvl, f_tfName(s.tfS) + (s.choch ? " CHoCH" : " BOS"), xloc = xloc.bar_time, style = s.buy ? label.style_label_down : label.style_label_up, color = lbC, textcolor = col, size = sz)
+        s.lBos := line.new(s.lvlT, s.lvl, s.bTc, s.lvl, xloc = xloc.bar_time, color = col)
+        s.bBos := label.new(math.round((s.lvlT + s.bTc) / 2), s.lvl, f_tfName(s.tfS) + (s.choch ? " CHoCH" : " BOS"), xloc = xloc.bar_time, style = s.buy ? label.style_label_down : label.style_label_up, color = lbC, textcolor = col, size = sz)
     if showIdm and not na(s.idm)
         s.lIdm := line.new(s.idmT, s.idm, rt, s.idm, xloc = xloc.bar_time, color = color.new(col, 40), style = line.style_dashed)
         if not faded
@@ -653,7 +701,7 @@ f_finish(Setup s, string res, color rc) =>
     s.st  := 3
     s.why := res
     f_clear(s)
-    if keepDone
+    if keepDone and (s.hadZ or s.filled)
         f_draw(s, true, time)
         y = s.filled ? s.entry : na(s.z) ? s.lvl : f_near(s, s.z)
         s.rl := label.new(time, y, res, xloc = xloc.bar_time, style = label.style_label_left, color = color.new(rc, 75), textcolor = rc, size = size.tiny)
@@ -670,7 +718,7 @@ f_status(Setup s) =>
             3 => s.why
             2 => "● เข้าแล้ว · โซน " + str.tostring(s.zLvl)
             1 => "⏳ รอแท่งยืนยัน · ปิดเลย " + str.tostring(s.cfLvl, format.mintick)
-            => na(s.z) ? "⏳ ไม่มีโซนผ่านเกณฑ์ (Fib · Fresh · IDM · RR)" : reqLiq and not f_liq(s, s.z) ? "⏳ โซน " + str.tostring(s.zLvl) + " · รอ swing ที่โซน" : "⏳ รอราคาถึงโซน " + str.tostring(s.zLvl)
+            => cfWick == "ไม่เข้า" and s.cSt != 1 ? "⏳ รอ " + f_tfName(s.tfC) + " ทะลุด้วยเนื้อ (ยังไม่ตั้งออเดอร์)" : na(s.z) ? "⏳ ไม่มีโซนผ่านเกณฑ์ (Fib · Fresh · IDM · RR)" : reqLiq and not f_liq(s, s.z) ? "⏳ โซน " + str.tostring(s.zLvl) + " · รอ swing ที่โซน" : "⏳ รอราคาถึงโซน " + str.tostring(s.zLvl)
     r
 
 // ═════════════════════════ COUNTERS ═════════════════════════
@@ -691,6 +739,7 @@ var int   nOpp   = 0
 var int   nSess  = 0
 var int   nBreak = 0
 var int   nRR    = 0
+var int   nCf    = 0
 
 bool aNewBuy  = false
 bool aNewSell = false
@@ -762,8 +811,8 @@ if not na(cur) and cur.st < 3
             s.frozen := true
             cIdm += 1
         if s.st < 2
-            stC = f_st(s.tfC)
-            s.cBody := buy ? stC.cUp : stC.cDn
+            s.cSt   := f_cState(s)
+            s.cBody := s.cSt == 1
 
         // เลือกโซน + คำนวณ Entry / SL / TP
         if s.st == 0
@@ -791,7 +840,11 @@ if not na(cur) and cur.st < 3
                 f_finish(s, "✖ ถึง TP ก่อนเข้า", color.gray)
             else if not na(s.z) and (buy ? low <= s.entry : high >= s.entry)
                 s.frozen := true
-                if useSess and not sessOk
+                if cfWick == "ไม่เข้า" and not s.cBody
+                    nCf += 1
+                    if not f_toZ2(s)
+                        f_finish(s, s.cSt == -1 ? "✖ " + f_tfName(s.tfC) + " ทะลุด้วยไส้ → ไม่เข้า" : "✖ " + f_tfName(s.tfC) + " ยังไม่ทะลุด้วยเนื้อ", color.gray)
+                else if useSess and not sessOk
                     nSess += 1
                     if not f_toZ2(s)
                         f_finish(s, "✖ ถึงโซนนอก Session", color.gray)
@@ -969,7 +1022,8 @@ if showDash and barstate.islast
     hasS  = not na(cur)
     sCol  = hasS ? (cur.buy ? bullCol : bearCol) : tc
     strTxt = hasS ? f_tfName(cur.tfS) + (cur.choch ? " CHoCH " : " BOS ") + (cur.buy ? "▲" : "▼") + " @ " + str.tostring(cur.lvl, format.mintick) + (cur.disp ? " · แรง" : "") : "-"
-    cfTxt  = hasS ? f_tfName(cur.tfC) + (cur.cBody ? " Body ✔ → TP " + (cur.buy ? "High" : "Low") : " Wick → TP POI") : "-"
+    cfTxt  = not hasS ? "-" : f_tfName(cur.tfC) + (cur.cSt == 1 ? " Body ✔ → TP " + (cur.buy ? "High" : "Low") : cur.cSt == -1 ? (cfWick == "ไม่เข้า" ? " ไส้ ✖ → ไม่เข้า (กลับตัว)" : " ไส้ → TP POI") : " ⏳ ยังไม่ทะลุด้วยเนื้อ")
+    cfCol  = not hasS ? tc : cur.cSt == 1 ? bullCol : cur.cSt == -1 ? color.orange : tc
     idTxt  = hasS ? (na(cur.idm) ? f_tfName(cur.tfE) + " · ไม่พบ IDM" : f_tfName(cur.tfE) + " @ " + str.tostring(cur.idm, format.mintick) + (cur.idmSw ? " · Swept ✔" : " · ⏳ รอ sweep")) : "-"
     fbTxt  = hasS ? "1 = " + str.tostring(cur.org, format.mintick) + "  /  0 = " + str.tostring(cur.ext, format.mintick) : "-"
     hasZ   = hasS and not na(cur.z) and not na(cur.entry)
@@ -982,7 +1036,7 @@ if showDash and barstate.islast
     dash.cell(0, 2, "Structure", text_color = sc, text_size = size.small, text_halign = text.align_left)
     dash.cell(1, 2, strTxt, text_color = sCol, text_size = size.small)
     dash.cell(0, 3, "Confirm", text_color = sc, text_size = size.small, text_halign = text.align_left)
-    dash.cell(1, 3, cfTxt, text_color = tc, text_size = size.small)
+    dash.cell(1, 3, cfTxt, text_color = cfCol, text_size = size.small)
     dash.cell(0, 4, "IDM", text_color = sc, text_size = size.small, text_halign = text.align_left)
     dash.cell(1, 4, idTxt, text_color = tc, text_size = size.small)
     dash.cell(0, 5, "Fib leg", text_color = sc, text_size = size.small, text_halign = text.align_left)
@@ -1000,7 +1054,7 @@ if showDash and barstate.islast
     dash.cell(0, 11, "ตกเงื่อนไข", text_color = sc, text_size = size.small, text_halign = text.align_left)
     dash.cell(1, 11, "สวน Bias " + str.tostring(cBias) + " · ตัวกรอง " + str.tostring(cFilt) + " · ถูกแทน " + str.tostring(nRepl), text_color = tc, text_size = size.small)
     dash.cell(0, 12, "ไม่ได้เข้า", text_color = sc, text_size = size.small, text_halign = text.align_left)
-    dash.cell(1, 12, "TP ก่อนเข้า " + str.tostring(nTpF) + " · ไม่มี liq " + str.tostring(nNoLiq) + " · เลยจุด 1 " + str.tostring(nOrg) + " · สวนทาง " + str.tostring(nOpp) + " · อื่น ๆ " + str.tostring(nSess + nBreak + nRR), text_color = tc, text_size = size.small)
+    dash.cell(1, 12, "TP ก่อนเข้า " + str.tostring(nTpF) + " · ไม่มี liq " + str.tostring(nNoLiq) + " · เลยจุด 1 " + str.tostring(nOrg) + " · สวนทาง " + str.tostring(nOpp) + " · Confirm ไส้ " + str.tostring(nCf) + " · อื่น ๆ " + str.tostring(nSess + nBreak + nRR), text_color = tc, text_size = size.small)
     warn = chSec > 300
     dash.cell(0, 13, "กราฟ", text_color = sc, text_size = size.small, text_halign = text.align_left)
     dash.cell(1, 13, warn ? "⚠ ใช้กับกราฟ M5 หรือต่ำกว่า" : f_tfName(timeframe.period) + " ✔", text_color = warn ? color.orange : tc, text_size = size.small)
