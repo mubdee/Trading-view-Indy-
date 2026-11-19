@@ -1,4 +1,4 @@
-# SMC CB — Top-down BOS Cascade
+# SMC CB — Top-down BOS Cascade (v2)
 
 ไฟล์สคริปต์: [`smc-cb.pine`](./smc-cb.pine) (Pine Script v6) · แดชบอร์ด / หน้าตาเหมือน SFP Pro X v2
 
@@ -32,3 +32,11 @@
 | 11 | SL buffer เป็น Points | ATR 0.1 |
 
 ข้อ 6 (โซนตรงกับ POI ของ H1/H4) ยังไม่มีในเวอร์ชันนี้
+
+## v2 (2026-11-19)
+- แต่ละ TF (H4 / H1 / M30 / M15) มี setup ของตัวเองพร้อมกัน · ติ๊ก "แสดงทุก TF" หรือเลือก TF เอง
+- ลำดับ TF: H4→H1→M30 · H1→M30→M15 · M30→M15→M5 · M15→M5→M3 (แนะนำกราฟ M1)
+- Confirm TF ต้องทะลุด้วยเนื้อ · ไส้ = ไม่เข้า
+- Confirm TF ทำ Low/High ใหม่ → เช็คด้วย TF ถัดลง: เนื้อ = ย้ายขา · ไส้ = ใช้โซนเก่า + ขาใหม่เป็น IDM/LQ
+- โซนเข้าแบบ SFP Pro X: OB + Demand/Supply + MSNR A/V + SBR/RBS + QM · ★ ขั้นต่ำ · เข้าที่ระดับ confluence (Nearest / Main)
+- เส้น BOS / Fib / IDM ตรงแท่งจริงบนกราฟ
