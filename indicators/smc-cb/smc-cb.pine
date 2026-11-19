@@ -868,16 +868,19 @@ if not na(cur) and cur.st < 3
 
 // ═════════════════════════ 3) ZONES (OB / Supply / Demand บนกราฟ) ═════════════════════════
 f_updZ(array<Zone> arr, bool dem) =>
-    if arr.size() > 0
-        for i = arr.size() - 1 to 0
+    int n = arr.size()
+    if n > 0
+        for i = n - 1 to 0
             z = arr.get(i)
-            if z.dead or bar_index - z.born > zoneAge
+            bool rm = z.dead or bar_index - z.born > zoneAge
+            if rm
                 arr.remove(i)
-            else if bar_index > z.born
+            if not rm and bar_index > z.born
                 if dem ? low <= z.top : high >= z.bot
                     z.touched := true
                 if dem ? close < z.bot : close > z.top
                     z.dead := true
+    n
 
 f_updZ(supA, false)
 f_updZ(demA, true)
