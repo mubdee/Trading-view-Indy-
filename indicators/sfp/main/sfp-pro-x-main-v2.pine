@@ -1,9 +1,10 @@
 // ════════════════════════════════════════════════════════════════
 // SFP Pro X — MAIN v2 · Sweep + MSS + OB / Demand-Supply Confluence  (Pine Script v6)
-// ⛔ ไฟล์หลัก — ห้ามแก้ไฟล์นี้ (บันทึก 2026-11-19 · รวมเงื่อนไขเว้นแท่ง sweep)
+// ⛔ ไฟล์หลัก — ห้ามแก้ไฟล์นี้ (บันทึก 2026-11-19 · รวมเงื่อนไขเว้นแท่ง sweep + ค่าเริ่มต้นชุดใหม่)
 // แก้/ทดลองเงื่อนไขใหม่ที่ไฟล์สำรอง indicators/sfp/sfp-pro-sweep-mss.pine แล้วค่อยคัดลอกมาทับเมื่อสั่ง
 // Sweep liquidity → MSS → เข้าที่ OB / Demand-Supply ที่ผ่านตัวกรอง + ซ้อนกับ MSNR A/V, SBR/RBS, QM
 // คัดโซนด้วย Fib ของขา sweep → ยอดขา MSS (ค่าเริ่มต้น 0.618 · ยอดขาเลื่อนตาม high/low ใหม่จนกว่าจะเข้า Entry)
+// ค่าเริ่มต้น (2026-11-19): real-time · SL Zone · TP Key liquidity ก่อน · ไม่บังคับ LTF FVG · แสดง 2 setup/ฝั่ง · เก็บที่จบแล้ว 10 · ตัวอักษร tiny
 // ตัวกรองเสริม (ปิดไว้เป็นค่าเริ่มต้น): HTF Bias, Displacement, Session, ความลึก sweep, Volume LTF
 // เงื่อนไข Sweep: แท่ง sweep ต้องเว้นห่างจากแท่ง swing อย่างน้อย 1 แท่ง (แท่งติดกันกวาด = ไม่นับ)
 // ดูคำอธิบาย: indicators/sfp/README.md
@@ -13,7 +14,7 @@ indicator("SFP Pro X v2 — Sweep + MSS + Zone Confluence", "SFP Pro X v2", over
 
 // ═════════════════════════ INPUTS ═════════════════════════
 grpG = "General"
-confirmClose = input.bool(true, "ยืนยันเมื่อแท่งปิด", group = grpG, tooltip = "ปิด = เห็นสัญญาณ real-time ระหว่างแท่ง")
+confirmClose = input.bool(false, "ยืนยันเมื่อแท่งปิด", group = grpG, tooltip = "ปิด = เห็นสัญญาณ real-time ระหว่างแท่ง")
 sessTz       = input.string("UTC", "Timezone ของ Session", group = grpG, tooltip = "เช่น UTC, Asia/Bangkok, America/New_York")
 
 grpL = "1) Liquidity"
@@ -88,7 +89,7 @@ reqPD     = input.bool(false, "ต้องอยู่ Premium / Discount ข�
 maxZAtr   = input.float(3.0, "ขนาดโซนไม่เกิน (x ATR) · 0 = ปิด", minval = 0, step = 0.5, group = grpZ)
 depMin    = input.float(1.0, "Leg-out ≥ (x ความสูงโซน) · 0 = ปิด", minval = 0, step = 0.25, group = grpZ, tooltip = "ราคาต้องวิ่งออกจากโซนอย่างน้อยกี่เท่าของความสูงโซน = แรงออกจากโซนจริง")
 useLtfZ   = input.bool(true, "ใช้ LTF ช่วยกรองโซน", group = grpZ, tooltip = "ดูแท่ง LTF ในแท่งที่พุ่งออกจากโซน (impulse):\n• มี FVG บน LTF ไหม (imbalance จริง)\n• volume delta ไปทางเดียวกับ impulse ไหม\nแท่งที่ไม่มีข้อมูล LTF จะไม่ถูกตัดทิ้ง")
-reqLtfImb = input.bool(true, "ต้องมี FVG บน LTF ตอนออกจากโซน", group = grpZ)
+reqLtfImb = input.bool(false, "ต้องมี FVG บน LTF ตอนออกจากโซน", group = grpZ)
 ltfDMin   = input.float(30, "LTF volume delta ≥ (%) ได้ ★", minval = 0, maxval = 100, step = 5, group = grpZ, tooltip = "(volume แท่ง LTF ตามทิศ − สวนทิศ) / volume ทั้งหมด ในแท่ง impulse")
 fibMode   = input.string("ตัวกรอง", "Fib คัดโซน", options = ["Off", "ตัวกรอง", "คะแนน ★"], group = grpZ, tooltip = "ลาก Fib จากปลายไส้ sweep (1) ไปยอดขา MSS (0) · ยอดขาเลื่อนตามราคาที่ทำ high ใหม่ (low ใหม่) จนกว่าจะเข้า Entry\nตัวกรอง = โซนต้องอยู่ลึกถึงระดับ Fib · ถ้าตอน MSS ยังไม่ถึง จะรอขา MSS วิ่งต่อจนโซนผ่าน (รอ Fib) · ราคาย้อนลงมาแตะโซนก่อนผ่าน = ยกเลิก\nคะแนน ★ = ไม่ตัดทิ้ง แต่ได้ +1 ★ ถ้าอยู่ลึกถึงตอน MSS")
 fibLvl    = input.float(0.618, "ระดับ Fib", minval = 0.1, maxval = 1.0, step = 0.001, inline = "fb", group = grpZ)
@@ -102,11 +103,11 @@ sdBearCol = input.color(color.new(#e040fb, 82), "Supply", inline = "zc", group =
 
 grpR = "7) Trade & Stats"
 showTP  = input.bool(true, "แสดง TP / SL", group = grpR)
-tpPick  = input.string("ใกล้สุด", "TP = Liquidity", options = ["ใกล้สุด", "Key liquidity ก่อน"], group = grpR, tooltip = "TP ที่ liquidity ฝั่งตรงข้ามที่ยังไม่ถูกกวาด: Swing H/L, EQH/EQL, PDH/PDL, PWH/PWL, Asia, HTF, internal swing (iH/iL)\nใกล้สุด = เป้าตัวแรกที่เจอ\nKey liquidity ก่อน = เลือก EQH/EQL, PDH/PDL, PWH/PWL, Asia, HTF ก่อน ถ้าไม่มีค่อยใช้ swing\nไม่มี liquidity เลย = ไม่เข้าออเดอร์ (ไม่ใช้ RR คงที่แล้ว)")
+tpPick  = input.string("Key liquidity ก่อน", "TP = Liquidity", options = ["ใกล้สุด", "Key liquidity ก่อน"], group = grpR, tooltip = "TP ที่ liquidity ฝั่งตรงข้ามที่ยังไม่ถูกกวาด: Swing H/L, EQH/EQL, PDH/PDL, PWH/PWL, Asia, HTF, internal swing (iH/iL)\nใกล้สุด = เป้าตัวแรกที่เจอ\nKey liquidity ก่อน = เลือก EQH/EQL, PDH/PDL, PWH/PWL, Asia, HTF ก่อน ถ้าไม่มีค่อยใช้ swing\nไม่มี liquidity เลย = ไม่เข้าออเดอร์ (ไม่ใช้ RR คงที่แล้ว)")
 tpInt   = input.bool(true, "รวม internal swing (iH/iL) เป็นเป้า TP", group = grpR)
 tpMinRR = input.float(1.0, "ข้ามเป้าที่ใกล้จน RR ต่ำกว่า · 0 = ไม่กรอง", minval = 0, step = 0.1, group = grpR, tooltip = "ใช้แค่ข้ามเป้าที่ใกล้เกินไป ไม่ได้ตั้ง TP ตาม RR")
 fillBars = input.int(0, "ต้องถึง Entry ภายใน (แท่ง) · 0 = ไม่จำกัด", minval = 0, maxval = 500, group = grpR, tooltip = "0 = setup ยังใช้ได้จนกว่าราคาจะปิดเลยไส้ sweep หรือมี setup ใหม่ฝั่งเดียวกันมาแทน\nใส่ตัวเลข = เกินจำนวนแท่งนี้ยังไม่ถึง Entry ถือว่าไม่ได้เข้า (ไม่นับ SL / ไม่นับใน W/L)")
-slMode  = input.string("Fixed", "SL", options = ["Fixed", "Zone", "Sweep Wick"], group = grpR, tooltip = "Fixed = ตั้งระยะ SL เอง (นับจากราคา Entry)\nZone = เลยขอบนอกของโซนเข้า (OB / Supply / Demand) + buffer\nSweep Wick = เลยปลายไส้ sweep + buffer\nถ้าไม่มีโซน จะใช้ปลายไส้แทน")
+slMode  = input.string("Zone", "SL", options = ["Fixed", "Zone", "Sweep Wick"], group = grpR, tooltip = "Fixed = ตั้งระยะ SL เอง (นับจากราคา Entry)\nZone = เลยขอบนอกของโซนเข้า (OB / Supply / Demand) + buffer\nSweep Wick = เลยปลายไส้ sweep + buffer\nถ้าไม่มีโซน จะใช้ปลายไส้แทน")
 slFix   = input.float(300, "ระยะ SL (โหมด Fixed)", minval = 0.0001, step = 10, inline = "sf", group = grpR, tooltip = "ระยะจาก Entry ถึง SL")
 slFixU  = input.string("Points", "", options = ["Points", "Price", "ATR"], inline = "sf", group = grpR, tooltip = "Points = จำนวน tick ของสินค้า (เท่ากับ points ใน MT4/MT5)\nPrice = ระยะราคา\nATR = จำนวนเท่าของ ATR(14)")
 slBuf   = input.float(0.1, "SL buffer (x ATR) · โหมด Zone / Sweep Wick", minval = 0, step = 0.05, group = grpR)
@@ -114,7 +115,7 @@ slMax   = input.float(0, "SL สูงสุด · 0 = ปิด", minval = 0, s
 slUnit  = input.string("Points", "", options = ["Points", "Price", "ATR"], inline = "sm", group = grpR, tooltip = "Points = จำนวน tick ของสินค้า (เท่ากับ points ใน MT4/MT5)\nPrice = ระยะราคา\nATR = จำนวนเท่าของ ATR(14)")
 
 grpD = "Display"
-maxShow  = input.int(1, "แสดง SFP ล่าสุด (ต่อฝั่ง)", minval = 1, maxval = 10, group = grpD)
+maxShow  = input.int(2, "แสดง SFP ล่าสุด (ต่อฝั่ง)", minval = 1, maxval = 10, group = grpD)
 maxAge   = input.int(150, "ลบเมื่อเก่าเกิน (แท่ง) · 0 = ไม่จำกัด", minval = 0, group = grpD)
 showLbl  = input.bool(true, "Label SFP", inline = "d0", group = grpD)
 showLn   = input.bool(true, "เส้น Liquidity", inline = "d0", group = grpD)
@@ -122,11 +123,11 @@ showMss  = input.bool(true, "เส้น MSS", inline = "d1", group = grpD)
 showWick = input.bool(false, "ไฮไลต์ไส้", inline = "d1", group = grpD)
 bullCol  = input.color(#089981, "Bull", inline = "d2", group = grpD)
 bearCol  = input.color(#f23645, "Bear", inline = "d2", group = grpD)
-txtSize  = input.string("small", "ขนาดตัวอักษร", options = ["tiny", "small", "normal"], group = grpD)
+txtSize  = input.string("tiny", "ขนาดตัวอักษร", options = ["tiny", "small", "normal"], group = grpD)
 showHist = input.bool(true, "ลูกศรประวัติสัญญาณ (SFP + MSS)", group = grpD, tooltip = "ลูกศรเล็กที่แท่ง MSS ของทุกสัญญาณในอดีต — อยู่ถาวร ไม่ถูกลบตามกล่อง/เส้น")
 showSwp  = input.bool(false, "จุดประวัติ Sweep (รวมที่ไม่เกิด MSS)", group = grpD)
 keepDone = input.bool(true, "เก็บ setup ที่จบแล้ว (จาง + ป้ายผล)", group = grpD, tooltip = "ไม่ลบ setup ที่ถึง TP / โดน SL / ไม่ได้เข้า / ยกเลิก แต่ทำให้จางและแปะผลไว้")
-maxDone  = input.int(5, "จำนวน setup ที่จบแล้วที่แสดง (ต่อฝั่ง)", minval = 1, maxval = 30, group = grpD)
+maxDone  = input.int(10, "จำนวน setup ที่จบแล้วที่แสดง (ต่อฝั่ง)", minval = 1, maxval = 30, group = grpD)
 winC     = input.color(#26a69a, "สีผล: TP", inline = "rc", group = grpD)
 lossC    = input.color(#ef5350, "SL", inline = "rc", group = grpD)
 
