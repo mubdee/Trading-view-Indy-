@@ -1001,9 +1001,9 @@ f_same(int loBT, float loLvl, string hiTf, int hiBT, float hiLvl) =>
     (loBT >= hiBT and loBT < hiBT + f_sec(hiTf) * 1000) or math.abs(loLvl - hiLvl) <= 0.1 * atrC
 
 // รวม setup ของ TF เล็กเข้ากับ TF ใหญ่ (ลบออกเงียบ ๆ)
-f_drop(Setup s, string by) =>
+f_drop(Setup s, string byTf) =>
     s.st  := 3
-    s.why := "รวมเป็น setup " + by
+    s.why := "รวมเป็น setup " + byTf
     f_clear(s)
 
 // ═════════════════════════ COUNTERS ═════════════════════════
