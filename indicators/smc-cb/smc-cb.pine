@@ -6,7 +6,7 @@
 //     Confirm TF ทำ Low/High ใหม่ → เช็คซ้ำด้วย TF ถัดลงอีกขั้น:
 //       เนื้อ = ย้ายขา (Fib / โซนใหม่) · ไส้ = ใช้โซนเก่า + ขาใหม่กลายเป็น IDM / LQ
 //  4) IDM = swing ของชุดที่ส่งแรงทะลุ (Entry TF = ถัดลง 2 ขั้น)
-//  5) โซนเข้า (กราฟ): OB + Demand/Supply + MSNR A/V + SBR/RBS + QM คัดด้วย Fib + ★
+//  5) โซนเข้า: OB + Demand/Supply + A/V จาก M30 → M1 + SBR/RBS + QM · เลือกจุดที่ซ้อนมากสุด + ใกล้ 0.786
 //  ลำดับ TF: H4→H1→M30 · H1→M30→M15 · M30→M15→M5 · M15→M5→M3
 //  กราฟที่แนะนำ: M1 (setup M15 ต้องเห็นถึง M3) · M5 ใช้ได้กับ setup H4 / H1 / M30
 // ════════════════════════════════════════════════════════════════
@@ -31,6 +31,7 @@ sLeft     = input.int(5, "Swing: Left", minval = 1, inline = "sw", group = grpS)
 sRight    = input.int(2, "Right", minval = 1, inline = "sw", group = grpS, tooltip = "ใช้กับทุก TF\nLeft = จำนวนแท่งก่อน swing · Right = จำนวนแท่งหลัง swing ที่ต้องไม่ทำ Low/High ใหม่")
 bGap      = input.int(1, "เว้นแท่งระหว่าง swing กับแท่งทะลุ อย่างน้อย", minval = 0, maxval = 20, group = grpS, tooltip = "แท่งที่ทะลุต้องห่างจากแท่ง swing อย่างน้อยกี่แท่ง (นับแท่งที่อยู่ตรงกลาง)\n1 = ต้องมีอย่างน้อย 1 แท่งคั่น · แท่งที่ติดกับ swing ทะลุ = ไม่นับเป็น BOS/CHoCH และ swing นั้นใช้ไม่ได้\n0 = ปิด")
 breakMode = input.string("Close", "ทะลุด้วย", options = ["Close", "Full Body"], group = grpS, tooltip = "Close = ราคาปิดเลย swing\nFull Body = ทั้ง open และ close เลย swing\nทะลุแค่ไส้ = ไม่นับ")
+brkAtr    = input.float(0.05, "ต้องปิดเลยระดับอย่างน้อย (x ATR) · 0 = ปิด", minval = 0, step = 0.01, group = grpS, tooltip = "กันแท่งที่ปิดเลย swing แค่นิดเดียว (ดูด้วยตาเหมือนไม่ทะลุ) · ใช้ ATR(14) ของ TF นั้น\nแท่งที่เลยไม่ถึงระยะนี้ = นับเป็นไส้")
 useChoch  = input.bool(true, "นับ CHoCH ด้วย", group = grpS)
 useDisp   = input.bool(false, "[5] Displacement: แท่งทะลุ body ≥", inline = "dp", group = grpS)
 dispAtr   = input.float(1.0, "x ATR", minval = 0.1, step = 0.1, inline = "dp", group = grpS)
@@ -42,6 +43,8 @@ reAnchor = input.bool(true, "เช็คขาใหม่ของ Confirm TF 
 iLen     = input.int(2, "IDM swing Left/Right", minval = 1, group = grpI, tooltip = "IDM = swing เล็กล่าสุดบน Entry TF ก่อนแท่งที่ทะลุ (High ฝั่ง Sell / Low ฝั่ง Buy)")
 
 grpZ = "④ โซนเข้า (OB + Demand/Supply + MSNR)"
+zTfMode   = input.bool(true, "หาโซนจากหลาย TF (M30 → กราฟ)", group = grpZ, tooltip = "หา OB / Demand / Supply / A·V จาก M30 · M15 · M5 · M3 และ TF ของกราฟ (เฉพาะ TF ที่เล็กกว่า Structure TF)\nเช่น H4 / H1 ทะลุ → หาจาก M30 ลงไปถึง M1 (เปิดกราฟ M1)")
+pickMode  = input.string("ซ้อนมากสุด + ใกล้ 0.786", "เลือกโซน", options = ["ซ้อนมากสุด + ใกล้ 0.786", "★ สูงสุด"], group = grpZ, tooltip = "ซ้อนมากสุด + ใกล้ 0.786 = เลือกโซนที่มีโซน TF อื่น / A·V · SBR · QM ซ้อนทับมากที่สุด · เท่ากัน = ใกล้ระดับ Fib โซน 2 (0.786) ที่สุด\n★ สูงสุด = แบบเดิม")
 useOBz    = input.bool(true, "OB", inline = "zz", group = grpZ)
 useSDz    = input.bool(true, "Demand / Supply", inline = "zz", group = grpZ)
 useA      = input.bool(true, "A / V (MSNR)", inline = "cf", group = grpZ)
@@ -49,7 +52,7 @@ useSBR    = input.bool(true, "SBR / RBS", inline = "cf", group = grpZ)
 useQM     = input.bool(true, "QM", inline = "cf", group = grpZ, tooltip = "A / V = ยอด / ก้นของ line chart ที่ยัง Fresh\nSBR / RBS = body ของ swing ที่ถูกทะลุ (แนวรับเดิม → แนวต้าน / กลับกัน)\nQM = ไหล่ซ้าย (body ของ swing ก่อน swing ที่ถูกทะลุ)\nระดับที่อยู่ในโซน = +★ (สูงสุด 3) และใช้เป็นราคาเข้า")
 confTol   = input.float(0.1, "ระดับซ้อนโซน: ห่างขอบได้ (x ATR)", minval = 0, step = 0.05, group = grpZ)
 entryAt   = input.string("Nearest", "เข้าที่ระดับ", options = ["Nearest", "Main"], group = grpZ, tooltip = "Nearest = ระดับ confluence ที่ใกล้ราคาที่สุดในโซน (โดนง่าย)\nMain = ระดับที่ลึกสุดในโซน (RR ดีกว่า)\nไม่มีระดับในโซน = ขอบโซนด้านใกล้ราคา")
-minScore  = input.int(4, "คะแนนขั้นต่ำ (★)", minval = 0, maxval = 12, group = grpZ, tooltip = "★ = Fresh + เลย IDM + มี swing ที่โซน + ลึกถึง Fib โซน 2 + Displacement + Confirm เนื้อ + ระดับ A/V · SBR · QM ในโซน (สูงสุด 3) + OB ซ้อน Demand/Supply")
+minScore  = input.int(3, "คะแนนขั้นต่ำ (★)", minval = 0, maxval = 12, group = grpZ, tooltip = "★ = Fresh + เลย IDM + มี swing ที่โซน + ลึกถึง Fib โซน 2 + Displacement + Confirm เนื้อ + ระดับ A/V · SBR · QM ในโซน (สูงสุด 3) + โซน TF อื่นซ้อนทับ (สูงสุด 3)")
 fib1      = input.float(0.618, "โซน 1: ต้องแตะ Fib ≥", minval = 0.1, maxval = 1.0, step = 0.001, group = grpZ, tooltip = "Fib ลากจากต้นขา (1) ไปปลายขา (0) · ปลายขาเลื่อนตามราคาที่ทำ Low/High ใหม่ จนกว่าจะ sweep IDM")
 useZ2     = input.bool(true, "โซน 2 ถ้าโซน 1 ใช้ไม่ได้ / โดน SL · Fib ≥", inline = "z2", group = grpZ)
 fib2      = input.float(0.786, "", minval = 0.1, maxval = 1.0, step = 0.001, inline = "z2", group = grpZ)
@@ -108,6 +111,7 @@ type Zone
     string kind    = ""
     bool   touched = false
     bool   dead    = false
+    string tf      = ""
 
 // ระดับ confluence (A / V / SBR / RBS) หรือ swing ที่รอถูกทะลุ
 type Lvl
@@ -248,7 +252,7 @@ f_inSess(string s) =>
     not na(time(timeframe.period, s, sessTz))
 
 // โครงสร้างของ TF หนึ่ง (เรียกผ่าน request.security · ส่งค่าแท่งที่ปิดแล้ว = ไม่ repaint)
-f_struct(int lft, int rgt, int il, bool fb, float dk, int gap) =>
+f_struct(int lft, int rgt, int il, bool fb, float dk, int gap, float mb) =>
     var int   trend   = 0
     var float sH      = na
     var float sL      = na
@@ -313,8 +317,9 @@ f_struct(int lft, int rgt, int il, bool fb, float dk, int gap) =>
     if not na(sH) and low < loH
         loH  := low
         loHt := time
-    bool rawDn = not na(sL) and (fb ? math.max(open, close) < sL : close < sL)
-    bool rawUp = not na(sH) and (fb ? math.min(open, close) > sH : close > sH)
+    dep = mb * atr
+    bool rawDn = not na(sL) and (fb ? math.max(open, close) < sL - dep : close < sL - dep)
+    bool rawUp = not na(sH) and (fb ? math.min(open, close) > sH + dep : close > sH + dep)
     // แท่งทะลุต้องห่างจากแท่ง swing อย่างน้อย gap แท่ง · ติดกันเกิน = swing นั้นใช้ไม่ได้
     bool gapDn = na(sLb) or bar_index - sLb - 1 >= gap
     bool gapUp = na(sHb) or bar_index - sHb - 1 >= gap
@@ -381,16 +386,91 @@ f_candle() =>
 f_isNew(int t) =>
     not na(t) and (na(t[1]) or t != t[1])
 
+// โซน OB / Supply / Demand + A / V ของ TF หนึ่ง (เรียกผ่าน request.security)
+f_zdet(float ia, float ba, int mbs, float mz) =>
+    atr = ta.atr(14)
+    bodyC = math.abs(close - open)
+    float st = na
+    float sb = na
+    int   sT = na
+    int   sk = 0
+    float dt = na
+    float db = na
+    int   dT = na
+    int   dk = 0
+    if close < open and bodyC >= ia * atr
+        if close[1] > open[1] and close < low[1]
+            st := high[1]
+            sb := low[1]
+            sT := time[1]
+            sk := 1
+        else
+            int   n  = 0
+            float hb = na
+            float lb = na
+            for k = 1 to mbs
+                if math.abs(close[k] - open[k]) <= ba * atr
+                    n  := k
+                    hb := na(hb) ? high[k] : math.max(hb, high[k])
+                    lb := na(lb) ? low[k] : math.min(lb, low[k])
+                else
+                    break
+            if n > 0 and close < lb
+                st := hb
+                sb := lb
+                sT := time[n]
+                sk := 2
+    if close > open and bodyC >= ia * atr
+        if close[1] < open[1] and close > high[1]
+            dt := high[1]
+            db := low[1]
+            dT := time[1]
+            dk := 1
+        else
+            int   n  = 0
+            float hb = na
+            float lb = na
+            for k = 1 to mbs
+                if math.abs(close[k] - open[k]) <= ba * atr
+                    n  := k
+                    hb := na(hb) ? high[k] : math.max(hb, high[k])
+                    lb := na(lb) ? low[k] : math.min(lb, low[k])
+                else
+                    break
+            if n > 0 and close > hb
+                dt := hb
+                db := lb
+                dT := time[n]
+                dk := 2
+    if not na(st) and mz > 0 and st - sb > mz * atr
+        st := na
+        sT := na
+    if not na(dt) and mz > 0 and dt - db > mz * atr
+        dt := na
+        dT := na
+    bool  isA = close[1] > close[2] and close[1] >= close
+    bool  isV = close[1] < close[2] and close[1] <= close
+    float aP  = isA ? close[1] : na
+    int   aT  = isA ? time[1] : na
+    float vP  = isV ? close[1] : na
+    int   vT  = isV ? time[1] : na
+    [st[1], sb[1], sT[1], sk[1], dt[1], db[1], dT[1], dk[1], aP[1], aT[1], vP[1], vT[1]]
+
 // ═════════════════════════ HTF DATA (non-repaint) ═════════════════════════
 fb = breakMode == "Full Body"
-[dTr, dBd, dBt, dLv, dLvt, dOg, dOgt, dCh, dDp, dCd, dCu, dId, dIdt, dIu, dIut, dBdt, dBut] = request.security(syminfo.tickerid, "D", f_struct(dLen, dLen, iLen, fb, dispAtr, bGap), lookahead = barmerge.lookahead_on)
+[dTr, dBd, dBt, dLv, dLvt, dOg, dOgt, dCh, dDp, dCd, dCu, dId, dIdt, dIu, dIut, dBdt, dBut] = request.security(syminfo.tickerid, "D", f_struct(dLen, dLen, iLen, fb, dispAtr, bGap, brkAtr), lookahead = barmerge.lookahead_on)
 dCandle = request.security(syminfo.tickerid, "D", f_candle(), lookahead = barmerge.lookahead_on)
-[h4Tr, h4Bd, h4Bt, h4Lv, h4Lvt, h4Og, h4Ogt, h4Ch, h4Dp, h4Cd, h4Cu, h4Id, h4Idt, h4Iu, h4Iut, h4Bdt, h4But] = request.security(syminfo.tickerid, "240", f_struct(sLeft, sRight, iLen, fb, dispAtr, bGap), lookahead = barmerge.lookahead_on)
-[h1Tr, h1Bd, h1Bt, h1Lv, h1Lvt, h1Og, h1Ogt, h1Ch, h1Dp, h1Cd, h1Cu, h1Id, h1Idt, h1Iu, h1Iut, h1Bdt, h1But] = request.security(syminfo.tickerid, "60", f_struct(sLeft, sRight, iLen, fb, dispAtr, bGap), lookahead = barmerge.lookahead_on)
-[m3Tr, m3Bd, m3Bt, m3Lv, m3Lvt, m3Og, m3Ogt, m3Ch, m3Dp, m3Cd, m3Cu, m3Id, m3Idt, m3Iu, m3Iut, m3Bdt, m3But] = request.security(syminfo.tickerid, "30", f_struct(sLeft, sRight, iLen, fb, dispAtr, bGap), lookahead = barmerge.lookahead_on)
-[m1Tr, m1Bd, m1Bt, m1Lv, m1Lvt, m1Og, m1Ogt, m1Ch, m1Dp, m1Cd, m1Cu, m1Id, m1Idt, m1Iu, m1Iut, m1Bdt, m1But] = request.security(syminfo.tickerid, "15", f_struct(sLeft, sRight, iLen, fb, dispAtr, bGap), lookahead = barmerge.lookahead_on)
-[m5Tr, m5Bd, m5Bt, m5Lv, m5Lvt, m5Og, m5Ogt, m5Ch, m5Dp, m5Cd, m5Cu, m5Id, m5Idt, m5Iu, m5Iut, m5Bdt, m5But] = request.security(syminfo.tickerid, "5", f_struct(sLeft, sRight, iLen, fb, dispAtr, bGap), lookahead = barmerge.lookahead_on)
-[k3Tr, k3Bd, k3Bt, k3Lv, k3Lvt, k3Og, k3Ogt, k3Ch, k3Dp, k3Cd, k3Cu, k3Id, k3Idt, k3Iu, k3Iut, k3Bdt, k3But] = request.security(syminfo.tickerid, "3", f_struct(sLeft, sRight, iLen, fb, dispAtr, bGap), lookahead = barmerge.lookahead_on)
+[h4Tr, h4Bd, h4Bt, h4Lv, h4Lvt, h4Og, h4Ogt, h4Ch, h4Dp, h4Cd, h4Cu, h4Id, h4Idt, h4Iu, h4Iut, h4Bdt, h4But] = request.security(syminfo.tickerid, "240", f_struct(sLeft, sRight, iLen, fb, dispAtr, bGap, brkAtr), lookahead = barmerge.lookahead_on)
+[h1Tr, h1Bd, h1Bt, h1Lv, h1Lvt, h1Og, h1Ogt, h1Ch, h1Dp, h1Cd, h1Cu, h1Id, h1Idt, h1Iu, h1Iut, h1Bdt, h1But] = request.security(syminfo.tickerid, "60", f_struct(sLeft, sRight, iLen, fb, dispAtr, bGap, brkAtr), lookahead = barmerge.lookahead_on)
+[m3Tr, m3Bd, m3Bt, m3Lv, m3Lvt, m3Og, m3Ogt, m3Ch, m3Dp, m3Cd, m3Cu, m3Id, m3Idt, m3Iu, m3Iut, m3Bdt, m3But] = request.security(syminfo.tickerid, "30", f_struct(sLeft, sRight, iLen, fb, dispAtr, bGap, brkAtr), lookahead = barmerge.lookahead_on)
+[m1Tr, m1Bd, m1Bt, m1Lv, m1Lvt, m1Og, m1Ogt, m1Ch, m1Dp, m1Cd, m1Cu, m1Id, m1Idt, m1Iu, m1Iut, m1Bdt, m1But] = request.security(syminfo.tickerid, "15", f_struct(sLeft, sRight, iLen, fb, dispAtr, bGap, brkAtr), lookahead = barmerge.lookahead_on)
+[m5Tr, m5Bd, m5Bt, m5Lv, m5Lvt, m5Og, m5Ogt, m5Ch, m5Dp, m5Cd, m5Cu, m5Id, m5Idt, m5Iu, m5Iut, m5Bdt, m5But] = request.security(syminfo.tickerid, "5", f_struct(sLeft, sRight, iLen, fb, dispAtr, bGap, brkAtr), lookahead = barmerge.lookahead_on)
+[k3Tr, k3Bd, k3Bt, k3Lv, k3Lvt, k3Og, k3Ogt, k3Ch, k3Dp, k3Cd, k3Cu, k3Id, k3Idt, k3Iu, k3Iut, k3Bdt, k3But] = request.security(syminfo.tickerid, "3", f_struct(sLeft, sRight, iLen, fb, dispAtr, bGap, brkAtr), lookahead = barmerge.lookahead_on)
+
+[z30st, z30sb, z30sT, z30sk, z30dt, z30db, z30dT, z30dk, z30aP, z30aT, z30vP, z30vT] = request.security(syminfo.tickerid, "30", f_zdet(impAtr, baseAtr, maxBase, maxZAtr), lookahead = barmerge.lookahead_on)
+[z15st, z15sb, z15sT, z15sk, z15dt, z15db, z15dT, z15dk, z15aP, z15aT, z15vP, z15vT] = request.security(syminfo.tickerid, "15", f_zdet(impAtr, baseAtr, maxBase, maxZAtr), lookahead = barmerge.lookahead_on)
+[z5st, z5sb, z5sT, z5sk, z5dt, z5db, z5dT, z5dk, z5aP, z5aT, z5vP, z5vT]             = request.security(syminfo.tickerid, "5", f_zdet(impAtr, baseAtr, maxBase, maxZAtr), lookahead = barmerge.lookahead_on)
+[z3st, z3sb, z3sT, z3sk, z3dt, z3db, z3dT, z3dk, z3aP, z3aT, z3vP, z3vT]             = request.security(syminfo.tickerid, "3", f_zdet(impAtr, baseAtr, maxBase, maxZAtr), lookahead = barmerge.lookahead_on)
 
 stH4  = St.new("240", h4Tr, h4Bd, h4Bt, h4Lv, h4Lvt, h4Og, h4Ogt, h4Ch, h4Dp, h4Cd, h4Cu, h4Id, h4Idt, h4Iu, h4Iut, h4Bdt, h4But)
 stH1  = St.new("60", h1Tr, h1Bd, h1Bt, h1Lv, h1Lvt, h1Og, h1Ogt, h1Ch, h1Dp, h1Cd, h1Cu, h1Id, h1Idt, h1Iu, h1Iut, h1Bdt, h1But)
@@ -495,6 +575,28 @@ if not na(lpl)
     if pdL.size() > 80
         pdL.shift()
 
+// โซน / A·V จาก TF ที่ใหญ่กว่ากราฟ (M30 · M15 · M5 · M3)
+f_pushZ(string tf, bool nS, float st, float sb, int sT, int sk, bool nD, float dt, float db, int dT, int dk, bool nA, float aP, int aT, bool nV, float vP, int vT) =>
+    if zTfMode and f_sec(tf) > chSec
+        if nS and not na(st)
+            supA.push(Zone.new(st, sb, sT, bar_index, false, sk == 1 ? "OB" : "Supply", tf = tf))
+        if nD and not na(dt)
+            demA.push(Zone.new(dt, db, dT, bar_index, true, dk == 1 ? "OB" : "Demand", tf = tf))
+        if nA and not na(aP)
+            lvS.push(Lvl.new(aP, aP, aT, bar_index, "A"))
+        if nV and not na(vP)
+            lvB.push(Lvl.new(vP, vP, vT, bar_index, "V"))
+    0
+
+f_pushZ("30", f_isNew(z30sT), z30st, z30sb, z30sT, z30sk, f_isNew(z30dT), z30dt, z30db, z30dT, z30dk, f_isNew(z30aT), z30aP, z30aT, f_isNew(z30vT), z30vP, z30vT)
+f_pushZ("15", f_isNew(z15sT), z15st, z15sb, z15sT, z15sk, f_isNew(z15dT), z15dt, z15db, z15dT, z15dk, f_isNew(z15aT), z15aP, z15aT, f_isNew(z15vT), z15vP, z15vT)
+f_pushZ("5", f_isNew(z5sT), z5st, z5sb, z5sT, z5sk, f_isNew(z5dT), z5dt, z5db, z5dT, z5dk, f_isNew(z5aT), z5aP, z5aT, f_isNew(z5vT), z5vP, z5vT)
+f_pushZ("3", f_isNew(z3sT), z3st, z3sb, z3sT, z3sk, f_isNew(z3dT), z3dt, z3db, z3dT, z3dk, f_isNew(z3aT), z3aP, z3aT, f_isNew(z3vT), z3vP, z3vT)
+while supA.size() > 150
+    supA.shift()
+while demA.size() > 150
+    demA.shift()
+
 // ═════════════════════════ FUNCTIONS ═════════════════════════
 f_near(Setup s, Zone z) =>
     s.buy ? z.top : z.bot
@@ -581,21 +683,32 @@ f_conf(Setup s, Zone z) =>
             pick := s.qm
     [math.min(cnt, 3), nm, pick]
 
-// OB ซ้อนกับ Demand / Supply
-f_overlap(Setup s, Zone z) =>
-    bool ov = false
+// TF ของโซนใช้ได้: เล็กกว่า Structure TF และไม่เกิน M30
+f_tfOk(Setup s, Zone z) =>
+    f_sec(z.tf) < f_sec(s.tfS) and f_sec(z.tf) <= 1800
+
+// โซน TF อื่นที่ซ้อนทับ: [จำนวน, ชื่อ, ขอบใกล้ราคาของส่วนที่ซ้อน]
+f_ovInfo(Setup s, Zone z) =>
+    int    cnt = 0
+    string nm  = ""
+    float  ie  = f_near(s, z)
+    tolT = f_sec(s.tfS) * 1000
     arr = s.buy ? demA : supA
     if arr.size() > 0
         for o in arr
-            if not o.dead and o.kind != z.kind and math.min(o.top, z.top) >= math.max(o.bot, z.bot)
-                ov := true
-                break
-    ov
+            same = o.t == z.t and o.tf == z.tf and o.top == z.top and o.bot == z.bot
+            if not same and not o.dead and f_tfOk(s, o) and o.t >= s.orgT - tolT and math.min(o.top, z.top) >= math.max(o.bot, z.bot)
+                cnt += 1
+                tag = o.kind + " " + f_tfName(o.tf)
+                if not str.contains(nm, tag)
+                    nm := nm + " + " + tag
+                ie := s.buy ? math.min(ie, o.top) : math.max(ie, o.bot)
+    [cnt, nm, ie]
 
-// ★ ของโซน: [คะแนน, ชื่อ confluence, ราคาเข้า]
+// ★ ของโซน: [คะแนน, ชื่อ, ราคาเข้า, จำนวนที่ซ้อน]
 f_zinfo(Setup s, Zone z) =>
     [cc, nm, pk] = f_conf(s, z)
-    ov = f_overlap(s, z)
+    [oc, onm, ie] = f_ovInfo(s, z)
     int sc = 0
     sc += z.touched ? 0 : 1
     sc += not na(s.idm) and f_dep(s, f_near(s, z)) > f_dep(s, s.idm) ? 1 : 0
@@ -604,20 +717,23 @@ f_zinfo(Setup s, Zone z) =>
     sc += s.disp ? 1 : 0
     sc += s.cBody ? 1 : 0
     sc += cc
-    sc += ov ? 1 : 0
-    ovN = ov ? " + " + (z.kind == "OB" ? (s.buy ? "Demand" : "Supply") : "OB") : ""
-    [sc, z.kind + ovN + nm, pk]
+    sc += math.min(oc, 3)
+    en = not na(pk) ? pk : ie
+    [sc, z.kind + " " + f_tfName(z.tf) + onm + nm, en, oc + cc]
 
-// เลือกโซนที่ ★ สูงสุด (เท่ากัน = ใกล้ราคากว่า)
+// เลือกโซน: ซ้อนมากสุด + ใกล้ 0.786 (หรือ ★ สูงสุด)
 f_pick(Setup s, float minFar, float minNear) =>
     arr = s.buy ? demA : supA
     Zone  best  = na
     int   bestS = -1
+    int   bestO = -1
+    float bestZ = na
     float bestD = na
     tolT = f_sec(s.tfS) * 1000
+    p7   = f_fibP(s, fib2)
     if arr.size() > 0
         for z in arr
-            if z.dead or (reqFresh and z.touched) or z.t < s.orgT - tolT
+            if z.dead or (reqFresh and z.touched) or z.t < s.orgT - tolT or not f_tfOk(s, z)
                 continue
             if (z.kind == "OB" and not useOBz) or (z.kind != "OB" and not useSDz)
                 continue
@@ -627,19 +743,22 @@ f_pick(Setup s, float minFar, float minNear) =>
                 continue
             if reqIdm and not na(s.idm) and dn <= f_dep(s, s.idm)
                 continue
-            [sc, nm, pk] = f_zinfo(s, z)
+            [sc, nm, en, ovc] = f_zinfo(s, z)
             if sc < minScore
                 continue
             if minRR > 0
-                en = not na(pk) ? pk : f_near(s, z)
                 sl = f_sl(s, z)
                 [tp, tx] = f_tp(s, en, sl)
                 rk = math.abs(en - sl)
                 if rk <= 0 or math.abs(tp - en) / rk < minRR
                     continue
-            if sc > bestS or (sc == bestS and dn < bestD)
+            dz = p7 > z.top ? p7 - z.top : p7 < z.bot ? z.bot - p7 : 0.0
+            bool better = pickMode == "★ สูงสุด" ? (sc > bestS or (sc == bestS and dn < bestD)) : (ovc > bestO or (ovc == bestO and (na(bestZ) or dz < bestZ)))
+            if better
                 best  := z
                 bestS := sc
+                bestO := ovc
+                bestZ := dz
                 bestD := dn
     best
 
@@ -822,7 +941,7 @@ f_draw(Setup s, bool faded, int rt) =>
         txt = tfN + " · โซน " + str.tostring(s.zLvl) + " · " + s.zTxt + " ★" + str.tostring(s.zSc)
         s.bx1 := box.new(s.z.t, s.z.top, rt, s.z.bot, xloc = xloc.bar_time, border_color = faded ? color.new(color.gray, 60) : color.new(col, 20), border_width = faded ? 1 : 2, bgcolor = faded ? color.new(color.gray, 90) : zc, text = txt, text_size = size.tiny, text_color = color.new(chart.fg_color, faded ? 50 : 15), text_halign = text.align_right)
     if showZ2 and not faded and not na(s.z2)
-        [sc2, nm2, pk2] = f_zinfo(s, s.z2)
+        [sc2, nm2, pk2, ov2] = f_zinfo(s, s.z2)
         txt2 = tfN + " · โซน 2 · " + nm2 + " ★" + str.tostring(sc2)
         s.bx2 := box.new(s.z2.t, s.z2.top, rt, s.z2.bot, xloc = xloc.bar_time, border_color = color.new(col, 60), bgcolor = color.new(zc, 92), text = txt2, text_size = size.tiny, text_color = color.new(chart.fg_color, 40), text_halign = text.align_right)
     if not na(s.z) and not na(s.entry) and (s.filled or not faded)
@@ -1015,10 +1134,10 @@ for i = 0 to 3
             if not s.hadZ
                 s.hadZ := true
                 cZone += 1
-            [sc0, nm0, pk0] = f_zinfo(s, s.z)
+            [sc0, nm0, pk0, ov0] = f_zinfo(s, s.z)
             s.zSc   := sc0
             s.zTxt  := nm0
-            s.entry := not na(pk0) ? pk0 : f_near(s, s.z)
+            s.entry := pk0
             s.sl    := f_sl(s, s.z)
             [tp0, tx0] = f_tp(s, s.entry, s.sl)
             s.tp    := tp0
@@ -1216,8 +1335,8 @@ if close < open and bodyC >= impAtr * atrC
             zT := time[n]
             zk := "Supply"
     if not na(zt) and (maxZAtr <= 0 or zt - zb <= maxZAtr * atrC)
-        supA.push(Zone.new(zt, zb, zT, bar_index, false, zk))
-        if supA.size() > 60
+        supA.push(Zone.new(zt, zb, zT, bar_index, false, zk, tf = timeframe.period))
+        if supA.size() > 150
             supA.shift()
 // Demand / Bullish OB
 if close > open and bodyC >= impAtr * atrC
@@ -1247,8 +1366,8 @@ if close > open and bodyC >= impAtr * atrC
             zT := time[n]
             zk := "Demand"
     if not na(zt) and (maxZAtr <= 0 or zt - zb <= maxZAtr * atrC)
-        demA.push(Zone.new(zt, zb, zT, bar_index, true, zk))
-        if demA.size() > 60
+        demA.push(Zone.new(zt, zb, zT, bar_index, true, zk, tf = timeframe.period))
+        if demA.size() > 150
             demA.shift()
 
 // ═════════════════════════ 4) วาด setup ที่กำลังทำงาน ═════════════════════════
