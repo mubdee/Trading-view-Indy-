@@ -26,7 +26,7 @@ grpS = "② Structure TF (BOS / CHoCH)"
 useH4     = input.bool(true, "H4", inline = "tf", group = grpS)
 useH1     = input.bool(true, "H1", inline = "tf", group = grpS)
 useM30    = input.bool(true, "M30", inline = "tf", group = grpS)
-useM15    = input.bool(true, "M15", inline = "tf", group = grpS, tooltip = "แต่ละ TF มี setup ของตัวเอง (ทำงานพร้อมกัน)\nBOS ใหม่ของ TF เดียวกัน = แทน setup เดิมของ TF นั้น (ถ้ายังไม่เข้า)")
+useM15    = input.bool(true, "M15", inline = "tf", group = grpS, tooltip = "แต่ละ TF มี setup ของตัวเอง (ทำงานพร้อมกัน)\nTF ใหญ่กับ TF เล็กทะลุ swing เดียวกัน / ในแท่งทะลุเดียวกัน = รวมเป็น setup ของ TF ใหญ่สุดตัวเดียว (TF เล็ก = Confirm)\nBOS ใหม่ของ TF เดียวกัน = แทน setup เดิมของ TF นั้น (ถ้ายังไม่เข้า)")
 sLeft     = input.int(5, "Swing: Left", minval = 1, inline = "sw", group = grpS)
 sRight    = input.int(2, "Right", minval = 1, inline = "sw", group = grpS, tooltip = "ใช้กับทุก TF\nLeft = จำนวนแท่งก่อน swing · Right = จำนวนแท่งหลัง swing ที่ต้องไม่ทำ Low/High ใหม่")
 bGap      = input.int(1, "เว้นแท่งระหว่าง swing กับแท่งทะลุ อย่างน้อย", minval = 0, maxval = 20, group = grpS, tooltip = "แท่งที่ทะลุต้องห่างจากแท่ง swing อย่างน้อยกี่แท่ง (นับแท่งที่อยู่ตรงกลาง)\n1 = ต้องมีอย่างน้อย 1 แท่งคั่น · แท่งที่ติดกับ swing ทะลุ = ไม่นับเป็น BOS/CHoCH และ swing นั้นใช้ไม่ได้\n0 = ปิด")
@@ -982,7 +982,7 @@ f_status(Setup s) =>
 f_sym(Setup s) =>
     na(s) or s.st == 3 ? "–" : (s.buy ? "▲" : "▼") + (s.st == 2 ? "●" : s.st == 1 or (not na(s.z) and s.cSt == 1) ? "◐" : "○")
 
-// setup สำหรับ Dashboard: เข้าแล้ว > รอยืนยัน > มีโซนพร้อม > รออยู่ · เท่ากัน = TF เล็กกว่า
+// setup สำหรับ Dashboard: เข้าแล้ว > รอยืนยัน > มีโซนพร้อม > รออยู่ · เท่ากัน = TF ใหญ่กว่า
 f_dashSel() =>
     Setup best = na
     int   bp   = -1
@@ -990,11 +990,21 @@ f_dashSel() =>
     for [i, s] in curA
         if not na(s) and f_vis(s.tfS)
             p = s.st == 2 ? 5 : s.st == 1 ? 4 : s.st == 0 and not na(s.z) and s.cSt == 1 ? 3 : s.st == 0 ? 2 : 1
-            if p > bp or (p == bp and i > bi)
+            if p > bp
                 best := s
                 bp   := p
                 bi   := i
     best
+
+// การทะลุครั้งเดียวกัน: TF เล็กทะลุในแท่งทะลุของ TF ใหญ่ หรือทะลุระดับเดียวกัน
+f_same(int loBT, float loLvl, string hiTf, int hiBT, float hiLvl) =>
+    (loBT >= hiBT and loBT < hiBT + f_sec(hiTf) * 1000) or math.abs(loLvl - hiLvl) <= 0.1 * atrC
+
+// รวม setup ของ TF เล็กเข้ากับ TF ใหญ่ (ลบออกเงียบ ๆ)
+f_drop(Setup s, string by) =>
+    s.st  := 3
+    s.why := "รวมเป็น setup " + by
+    f_clear(s)
 
 // ═════════════════════════ COUNTERS ═════════════════════════
 var int   cBos   = 0
@@ -1014,6 +1024,7 @@ var int   nRR    = 0
 var int   nCf    = 0
 var int   nRe    = 0
 var int   nLq    = 0
+var int   nMrg   = 0
 var array<int>   wA = array.new<int>(4, 0)
 var array<int>   lA = array.new<int>(4, 0)
 var array<float> rA = array.new<float>(4, 0.0)
@@ -1047,6 +1058,17 @@ for [i, tf] in tfList
     c1 = curA.get(i)
     if not na(c1) and c1.st == 2
         continue
+    // TF ใหญ่กว่ามี setup จากการทะลุครั้งเดียวกันอยู่แล้ว → ไม่สร้างซ้ำ (TF นี้เป็นแค่ Confirm)
+    bool merged = false
+    if i > 0
+        for j = 0 to i - 1
+            hi = curA.get(j)
+            if not na(hi) and hi.st < 3 and hi.buy == buy and f_same(st.bT, st.lvl, hi.tfS, hi.bT, hi.lvl)
+                merged := true
+                break
+    if merged
+        nMrg += 1
+        continue
     s = f_create(st, buy)
     if buy ? s.ext <= s.org : s.ext >= s.org
         continue
@@ -1055,6 +1077,13 @@ for [i, tf] in tfList
         f_finish(c1, "✖ ถูกแทนด้วย BOS ใหม่", color.gray)
     curA.set(i, s)
     cBos += 1
+    // setup ของ TF เล็กที่มาจากการทะลุครั้งเดียวกัน → รวมเข้ากับ TF นี้
+    if i < 3
+        for j = i + 1 to 3
+            lo = curA.get(j)
+            if not na(lo) and lo.st < 2 and lo.buy == buy and f_same(lo.bT, lo.lvl, tf, st.bT, st.lvl)
+                nMrg += 1
+                f_drop(lo, f_tfName(tf))
     if f_vis(tf)
         if buy
             aNewBuy := true
@@ -1433,7 +1462,7 @@ if showDash and barstate.islast
     dash.cell(0, 10, "Stats (เข้าแล้ว)", text_color = sc, text_size = size.small, text_halign = text.align_left)
     dash.cell(1, 10, "W " + str.tostring(nW) + " / L " + str.tostring(nL) + (na(wr) ? "" : "  · " + str.tostring(wr, "#") + "%") + "  · " + str.tostring(netR, "#.#") + "R", text_color = netR > 0 ? bullCol : netR < 0 ? bearCol : tc, text_size = size.small)
     dash.cell(0, 11, "Funnel (ทุก TF)", text_color = sc, text_size = size.small, text_halign = text.align_left)
-    dash.cell(1, 11, "BOS " + str.tostring(cBos) + " → IDM " + str.tostring(cIdm) + " → โซน " + str.tostring(cZone) + " → เข้า " + str.tostring(cFill) + " · ย้ายขา " + str.tostring(nRe) + " · LQ " + str.tostring(nLq), text_color = tc, text_size = size.small)
+    dash.cell(1, 11, "BOS " + str.tostring(cBos) + " → IDM " + str.tostring(cIdm) + " → โซน " + str.tostring(cZone) + " → เข้า " + str.tostring(cFill) + " · ย้ายขา " + str.tostring(nRe) + " · LQ " + str.tostring(nLq) + " · รวม TF " + str.tostring(nMrg), text_color = tc, text_size = size.small)
     dash.cell(0, 12, "ตกเงื่อนไข", text_color = sc, text_size = size.small, text_halign = text.align_left)
     dash.cell(1, 12, "สวน Bias " + str.tostring(cBias) + " · ตัวกรอง " + str.tostring(cFilt) + " · ถูกแทน " + str.tostring(nRepl), text_color = tc, text_size = size.small)
     dash.cell(0, 13, "ไม่ได้เข้า", text_color = sc, text_size = size.small, text_halign = text.align_left)
