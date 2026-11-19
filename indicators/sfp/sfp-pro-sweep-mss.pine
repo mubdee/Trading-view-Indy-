@@ -10,6 +10,8 @@
 // รอ MSS: แท่งหลัง Sweep ห้ามมีไส้เลยปลายไส้แท่ง Sweep (เลย = ยกเลิก · แก้ 2026-11-19)
 // ดูคำอธิบาย: indicators/sfp/README.md
 // เงื่อนไข Sweep: แท่ง sweep ต้องเว้นห่างจากแท่ง swing อย่างน้อย 2 แท่ง (ค่าเริ่มต้น · ปรับได้)
+// แท่ง MSS ต้องสร้าง FVG: แท่งก่อน MSS กับแท่งถัดไปต้องมีช่องว่างคั่น (แก้ 2026-11-20 · ไม่มี FVG = ยกเลิก)
+// แตะ POI ก่อนถึง Fib: หลัง MSS ราคาย้อนมาแตะจุด Entry โดยแท่งนั้นยังไม่ถึงระดับ Fib = ยกเลิกโซน (แก้ 2026-11-20)
 // ════════════════════════════════════════════════════════════════
 //@version=6
 indicator("SFP Pro X DEV — OB / Demand-Supply Confluence", "SFP Pro X DEV", overlay = true, max_boxes_count = 200, max_lines_count = 400, max_labels_count = 300, max_bars_back = 500)
@@ -52,6 +54,7 @@ dispMode    = input.string("Off", "Displacement (ตัวกรองเสร�
 dispAtr     = input.float(0.8, "Body ขั้นต่ำ (x ATR)", minval = 0.1, step = 0.1, group = grpC)
 confBars    = input.int(20, "ต้องทะลุภายใน (แท่ง)", minval = 1, maxval = 50, group = grpC)
 showPending = input.bool(true, "แสดง SFP ที่รอ MSS (จาง ๆ)", group = grpC)
+reqFvg      = input.bool(true, "แท่ง MSS ต้องสร้าง FVG (มีช่องว่าง)", group = grpC, tooltip = "แท่งที่ปิดทะลุระดับ MSS ต้องเป็นแท่งกลางของ FVG\nBull: low ของแท่งถัดไป > high ของแท่งก่อน MSS\nBear: high ของแท่งถัดไป < low ของแท่งก่อน MSS\n= แท่งก่อนกับแท่งหลังต้องห่างกันอย่างน้อย 1 แท่ง (แท่ง MSS) ไม่ทับกัน\nยืนยันตอนแท่งถัดไปปิด · ไม่มีช่องว่าง = ยกเลิก setup")
 
 grpH = "4) HTF Bias (ตัวกรองเสริม)"
 biasMode  = input.string("Off", "Bias filter", options = ["Off", "EMA", "Premium/Discount", "EMA + P/D"], group = grpH, tooltip = "EMA: Bull SFP เฉพาะเมื่อ HTF close > EMA\nP/D: Bull SFP เฉพาะใน Discount, Bear SFP เฉพาะใน Premium")
@@ -100,6 +103,7 @@ fibLvl    = input.float(0.618, "ระดับ Fib", minval = 0.1, maxval = 1.0
 fibHow    = input.string("แตะ", "โซนต้อง", options = ["แตะ", "ทั้งโซนเลย"], inline = "fb", group = grpZ, tooltip = "แตะ = มีส่วนใดของโซนอยู่ต่ำกว่า (Bull) / สูงกว่า (Bear) ระดับ Fib\nทั้งโซนเลย = ทั้งโซนอยู่ระหว่างระดับ Fib กับ 1 (ไส้ sweep)")
 fibTol    = input.float(0.05, "Fib tolerance (x ATR)", minval = 0, step = 0.05, group = grpZ)
 showFib   = input.bool(true, "แสดงเส้น Fib (0 / ระดับ / 1)", group = grpZ)
+poiFibX   = input.bool(true, "ยกเลิกถ้าราคาแตะ POI ก่อนถึง Fib", group = grpZ, tooltip = "หลัง MSS ถ้ามีแท่งย้อนลงมา (Bull) / ขึ้นมา (Bear) แตะจุด Entry (POI) แต่แท่งนั้นยังไปไม่ถึงระดับ Fib = ยกเลิกโซนนั้น ไม่เข้าออเดอร์\nEntry ที่อยู่ลึกกว่าระดับ Fib อยู่แล้ว ไม่โดนเงื่อนไขนี้")
 fallMode  = input.string("ต้องผ่าน Fib", "ระดับสำรอง (ไม่มีโซนผ่านเกณฑ์)", options = ["ต้องผ่าน Fib", "ไม่สน Fib", "ไม่ใช้"], group = grpZ, tooltip = "ถ้าไม่มีโซน OB / Demand-Supply ผ่านเกณฑ์ → ใช้ระดับ confluence (A/V, SBR/RBS, QM) ที่ใกล้สุดเป็น Entry แทน\nต้องผ่าน Fib = ระดับต้องอยู่ลึกถึง Fib ด้วย (ยังไม่ถึง = รอ Fib)\nไม่สน Fib = เข้าที่ระดับใกล้สุดได้เลย\nไม่ใช้ = ไม่มีโซน = ไม่เข้าออเดอร์")
 minScore  = input.int(4, "คะแนนขั้นต่ำ (★)", minval = 0, maxval = 13, group = grpZ, tooltip = "★ = Fresh + Displacement + Premium/Discount + ขนาดพอดี + อยู่ที่จุด Sweep + Leg-out + LTF FVG + LTF delta + Fib (โหมดคะแนน) + ระดับ confluence ในโซน (สูงสุด 3) + OB ซ้อน D/S")
 sdBullCol = input.color(color.new(#00bcd4, 82), "Demand", inline = "zc", group = grpZ)
@@ -267,6 +271,7 @@ type Trade
     float ext
     bool  dead  = false
     bool  armed = true
+    float legHi
 
 type Sig
     bool   bull
@@ -323,6 +328,8 @@ type Sig
     line   fm
     label  f0L
     label  fmL
+    int    mssBar
+    float  fvgRef
 
 var array<Level> highsLv = array.new<Level>()
 var array<Level> lowsLv  = array.new<Level>()
@@ -353,6 +360,8 @@ var int    cExp      = 0
 var int    cSlBig    = 0
 var int    cNoTp     = 0
 var int    nNoFill   = 0
+var int    cNoFvg    = 0
+var int    cPoi      = 0
 
 // ═════════════════════════ SWING ล่าสุด (สำหรับ MSS) ═════════════════════════
 iph = ta.pivothigh(high, intLeft, intRight)
@@ -916,6 +925,7 @@ f_activate(Sig s, array<Sig> arr) =>
         s.filled := false
         tr = Trade.new(s.bull, bar_index, s.entry, s.sl, na, false, na, s.ext)
         tr.armed := s.armed
+        tr.legHi := s.legHi
         trades.push(tr)
         s.tr   := tr
         s.born := bar_index
@@ -1091,6 +1101,19 @@ f_finish(Sig s, string res, color rc, float ry, array<Sig> doneArr) =>
     else
         f_delSig(s)
 
+// FVG ของแท่ง MSS (เช็คที่แท่งถัดจากแท่ง MSS): Bull low > high แท่งก่อน MSS · Bear high < low แท่งก่อน MSS
+f_fvgOk(Sig s) =>
+    s.bull ? low > s.fvgRef : high < s.fvgRef
+
+// ราคาแตะ POI (Entry) แต่แท่งนั้นยังไม่ถึงระดับ Fib (Entry ที่ลึกกว่า Fib แตะเมื่อไหร่ก็ถึง Fib แล้ว)
+f_poiEarly(bool bull, float en, float ext, float leg) =>
+    bool r = false
+    if poiFibX and useConf and fibMode != "Off" and not na(leg) and not na(en)
+        fp  = leg + fibLvl * (ext - leg)
+        tol = fibTol * atrV
+        r := bull ? (low <= en and low > fp + tol) : (high >= en and high < fp - tol)
+    r
+
 // อัปเดต setup ที่ active: เช็ค Entry fill (→ ตั้ง TP/SL) → TP / SL / ไม่ได้เข้า / หมดอายุ  + สถานะ Fresh
 f_updActive(array<Sig> arr, array<Sig> doneArr, bool canAct) =>
     bool touched = false
@@ -1118,6 +1141,9 @@ f_updActive(array<Sig> arr, array<Sig> doneArr, bool canAct) =>
                     res := "หมดอายุ"
                     if not na(s.tr)
                         s.tr.dead := true
+            else if canAct and live and not s.filled and f_poiEarly(s.bull, s.entry, s.ext, s.legHi)
+                res := "ยกเลิก · แตะ POI ก่อนถึง Fib"
+                ry  := s.entry
             else if canAct and live
                 [f, nf, r] = f_resolve(s.bull, s.entry, s.sl, s.tp, s.filled)
                 s.filled := f
@@ -1269,6 +1295,8 @@ f_updLeg(array<Sig> arr, bool canAct) =>
         for s in arr
             if not s.filled and not na(s.legHi) and (s.bull ? high > s.legHi : low < s.legHi)
                 s.legHi := s.bull ? high : low
+                if not na(s.tr)
+                    s.tr.legHi := s.legHi
                 fibP = s.legHi + fibLvl * (s.ext - s.legHi)
                 if not na(s.f0)
                     s.f0.set_y1(s.legHi)
@@ -1306,6 +1334,10 @@ if conf and trades.size() > 0
             if (t.bull ? close < t.ext : close > t.ext) or (fillBars > 0 and bar_index - t.bar >= fillBars)
                 nNoFill += 1
                 trades.remove(i)
+        else if bar_index > t.bar and not t.filled and f_poiEarly(t.bull, t.entry, t.ext, t.legHi)
+            // แตะ POI ก่อนถึง Fib = ยกเลิก ไม่นับ W/L
+            cPoi += 1
+            trades.remove(i)
         else if bar_index > t.bar
             [f, nf, r] = f_resolve(t.bull, t.entry, t.sl, t.tp, t.filled)
             t.filled := f
@@ -1344,24 +1376,49 @@ if not na(pBull) and not na(pBull.cl)
     pBull.cl.set_x2(bar_index + 1)
 
 if conf and not na(pBear)
-    if noWickX and bar_index > pBear.bar and high > pBear.ext
+    if not na(pBear.mssBar)
+        // แท่งถัดจากแท่ง MSS: ต้องเกิด FVG (ไม่ทับแท่งก่อน MSS)
+        if not f_fvgOk(pBear)
+            f_delSig(pBear)
+            cNoFvg += 1
+            lastValid := "✖ แท่ง MSS ไม่มี FVG"
+            pBear := na
+        else if barstate.isconfirmed
+            r = f_activate(pBear, actBear)
+            if r == 0
+                bearConfSig := true
+                cMss += 1
+                lastValid := "✔ MSS Confirmed" + (pBear.armed ? "" : " · รอ Fib")
+                lastEntry := pBear.entry
+                lastConf  := pBear.m1N
+            else
+                cSlBig += r == 1 ? 1 : 0
+                cNoTp  += r >= 2 ? 1 : 0
+                lastValid := f_rejTxt(r, pBear)
+            pBear := na
+    else if noWickX and bar_index > pBear.bar and high > pBear.ext
         f_delSig(pBear)
         cExp += 1
         lastValid := "✖ ไส้เลยแท่ง Sweep"
         pBear := na
     else if bar_index > pBear.bar and f_broke(pBear)
-        r = f_activate(pBear, actBear)
-        if r == 0
-            bearConfSig := true
-            cMss += 1
-            lastValid := "✔ MSS Confirmed" + (pBear.armed ? "" : " · รอ Fib")
-            lastEntry := pBear.entry
-            lastConf  := pBear.m1N
+        if reqFvg
+            pBear.mssBar := bar_index
+            pBear.fvgRef := low[1]
+            lastValid := "⏳ MSS · รอ FVG"
         else
-            cSlBig += r == 1 ? 1 : 0
-            cNoTp  += r >= 2 ? 1 : 0
-            lastValid := f_rejTxt(r, pBear)
-        pBear := na
+            r = f_activate(pBear, actBear)
+            if r == 0
+                bearConfSig := true
+                cMss += 1
+                lastValid := "✔ MSS Confirmed" + (pBear.armed ? "" : " · รอ Fib")
+                lastEntry := pBear.entry
+                lastConf  := pBear.m1N
+            else
+                cSlBig += r == 1 ? 1 : 0
+                cNoTp  += r >= 2 ? 1 : 0
+                lastValid := f_rejTxt(r, pBear)
+            pBear := na
     else if close > pBear.ext or bar_index >= pBear.expire
         f_delSig(pBear)
         cExp += 1
@@ -1374,24 +1431,49 @@ if conf and not na(pBear)
         pBear := na
 
 if conf and not na(pBull)
-    if noWickX and bar_index > pBull.bar and low < pBull.ext
+    if not na(pBull.mssBar)
+        // แท่งถัดจากแท่ง MSS: ต้องเกิด FVG (ไม่ทับแท่งก่อน MSS)
+        if not f_fvgOk(pBull)
+            f_delSig(pBull)
+            cNoFvg += 1
+            lastValid := "✖ แท่ง MSS ไม่มี FVG"
+            pBull := na
+        else if barstate.isconfirmed
+            r = f_activate(pBull, actBull)
+            if r == 0
+                bullConfSig := true
+                cMss += 1
+                lastValid := "✔ MSS Confirmed" + (pBull.armed ? "" : " · รอ Fib")
+                lastEntry := pBull.entry
+                lastConf  := pBull.m1N
+            else
+                cSlBig += r == 1 ? 1 : 0
+                cNoTp  += r >= 2 ? 1 : 0
+                lastValid := f_rejTxt(r, pBull)
+            pBull := na
+    else if noWickX and bar_index > pBull.bar and low < pBull.ext
         f_delSig(pBull)
         cExp += 1
         lastValid := "✖ ไส้เลยแท่ง Sweep"
         pBull := na
     else if bar_index > pBull.bar and f_broke(pBull)
-        r = f_activate(pBull, actBull)
-        if r == 0
-            bullConfSig := true
-            cMss += 1
-            lastValid := "✔ MSS Confirmed" + (pBull.armed ? "" : " · รอ Fib")
-            lastEntry := pBull.entry
-            lastConf  := pBull.m1N
+        if reqFvg
+            pBull.mssBar := bar_index
+            pBull.fvgRef := high[1]
+            lastValid := "⏳ MSS · รอ FVG"
         else
-            cSlBig += r == 1 ? 1 : 0
-            cNoTp  += r >= 2 ? 1 : 0
-            lastValid := f_rejTxt(r, pBull)
-        pBull := na
+            r = f_activate(pBull, actBull)
+            if r == 0
+                bullConfSig := true
+                cMss += 1
+                lastValid := "✔ MSS Confirmed" + (pBull.armed ? "" : " · รอ Fib")
+                lastEntry := pBull.entry
+                lastConf  := pBull.m1N
+            else
+                cSlBig += r == 1 ? 1 : 0
+                cNoTp  += r >= 2 ? 1 : 0
+                lastValid := f_rejTxt(r, pBull)
+            pBull := na
     else if close < pBull.ext or bar_index >= pBull.expire
         f_delSig(pBull)
         cExp += 1
@@ -1545,7 +1627,15 @@ if showBearS and not na(bearSwept) and (na(pBear) or high > pBear.ext)
             trigBar = useLiq ? mB : na(oP) ? fbLowBar : oB
             lastTrig := trig
             s = Sig.new(bull = false, lvl = bearSwept, lvlBar = bearSweptBar, tag = bearTag, bar = bar_index, ext = high, edge = bt, trig = trig, trigBar = trigBar, expire = bar_index + confBars, pct = pct)
-            if f_broke(s)
+            if f_broke(s) and reqFvg
+                // แท่ง sweep ปิดทะลุ MSS เลย → รอแท่งถัดไปเช็ค FVG
+                s.mssBar := bar_index
+                s.fvgRef := low[1]
+                if showPending
+                    f_draw(s, true)
+                pBear := s
+                lastValid := "⏳ MSS · รอ FVG"
+            else if f_broke(s)
                 r = f_activate(s, actBear)
                 if r == 0
                     bearConfSig := true
@@ -1595,7 +1685,15 @@ if showBullS and not na(bullSwept) and (na(pBull) or low < pBull.ext)
             trigBar = useLiq ? mB : na(oP) ? fbHighBar : oB
             lastTrig := trig
             s = Sig.new(bull = true, lvl = bullSwept, lvlBar = bullSweptBar, tag = bullTag, bar = bar_index, ext = low, edge = bb, trig = trig, trigBar = trigBar, expire = bar_index + confBars, pct = pct)
-            if f_broke(s)
+            if f_broke(s) and reqFvg
+                // แท่ง sweep ปิดทะลุ MSS เลย → รอแท่งถัดไปเช็ค FVG
+                s.mssBar := bar_index
+                s.fvgRef := high[1]
+                if showPending
+                    f_draw(s, true)
+                pBull := s
+                lastValid := "⏳ MSS · รอ FVG"
+            else if f_broke(s)
                 r = f_activate(s, actBull)
                 if r == 0
                     bullConfSig := true
@@ -1645,9 +1743,9 @@ if showDash and barstate.islast
     dash.cell(0, 9, "Funnel", text_color = sc, text_size = size.small, text_halign = text.align_left)
     dash.cell(1, 9, "Sweep " + str.tostring(cSweep) + " → MSS " + str.tostring(cMss), text_color = tc, text_size = size.small)
     dash.cell(0, 10, "ตกเงื่อนไข", text_color = sc, text_size = size.small, text_halign = text.align_left)
-    dash.cell(1, 10, "ไม่เกิด MSS " + str.tostring(cExp) + " · ตัวกรอง " + str.tostring(cFilt) + " · SL เกิน " + str.tostring(cSlBig) + " · ไม่มีจุดเข้า " + str.tostring(cNoTp), text_color = tc, text_size = size.small)
+    dash.cell(1, 10, "ไม่เกิด MSS " + str.tostring(cExp) + " · ตัวกรอง " + str.tostring(cFilt) + " · SL เกิน " + str.tostring(cSlBig) + " · ไม่มีจุดเข้า " + str.tostring(cNoTp) + (reqFvg ? " · ไม่มี FVG " + str.tostring(cNoFvg) : ""), text_color = tc, text_size = size.small)
     dash.cell(0, 11, "ไม่ได้เข้า", text_color = sc, text_size = size.small, text_halign = text.align_left)
-    dash.cell(1, 11, "ไม่ถึง Entry " + str.tostring(nNoFill) + " · ไม่มีเป้า TP ตอนเข้า " + str.tostring(nNoTp), text_color = tc, text_size = size.small)
+    dash.cell(1, 11, "ไม่ถึง Entry " + str.tostring(nNoFill) + " · ไม่มีเป้า TP ตอนเข้า " + str.tostring(nNoTp) + (poiFibX ? " · แตะ POI ก่อน Fib " + str.tostring(cPoi) : ""), text_color = tc, text_size = size.small)
     dash.cell(1, 8, "▲ " + str.tostring(actBull.size()) + "   ▼ " + str.tostring(actBear.size()) + (useVol ? "  · vol " + (na(lastPct) ? "-" : str.tostring(lastPct, "#.#") + "%") : ""), text_color = tc, text_size = size.small)
 
 // ═════════════════════════ HISTORY MARKERS ═════════════════════════
