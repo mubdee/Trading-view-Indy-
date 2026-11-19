@@ -7,6 +7,7 @@
 // ตัวกรองเสริม (ปิดไว้เป็นค่าเริ่มต้น): HTF Bias, Displacement, Session, ความลึก sweep, Volume LTF
 // SBR / RBS = body ของแท่ง Sweep (แก้ 2026-11-19 · เดิมใช้ body ของแท่งที่เป็นระดับ MSS)
 // ระดับ MSS = low/high สุดขั้วระหว่างแท่ง liquidity ที่ถูก sweep กับแท่ง sweep (แก้ 2026-11-19 · แบบเดิมเลือกได้ใน Input)
+// รอ MSS: แท่งหลัง Sweep ห้ามมีไส้เลยปลายไส้แท่ง Sweep (เลย = ยกเลิก · แก้ 2026-11-19)
 // ดูคำอธิบาย: indicators/sfp/README.md
 // เงื่อนไข Sweep: แท่ง sweep ต้องเว้นห่างจากแท่ง swing อย่างน้อย 1 แท่ง (แท่งติดกันกวาด = ไม่นับ)
 // ════════════════════════════════════════════════════════════════
@@ -39,6 +40,7 @@ grpS = "2) Sweep"
 rejMode  = input.string("Close", "แท่ง Sweep ต้องปิดกลับด้วย", options = ["Close", "Body"], group = grpS, tooltip = "Close = ราคาปิดกลับเข้ามาในระดับ\nBody = ทั้ง open และ close ต้องอยู่ในระดับ")
 sweepMin = input.float(0.0, "ลึกอย่างน้อย (x ATR)", minval = 0, step = 0.05, group = grpS)
 sweepMax = input.float(0.0, "ลึกไม่เกิน (x ATR) · 0 = ปิด", minval = 0, step = 0.1, group = grpS, tooltip = "ไส้ลึกเกินไปมักเป็น breakout จริง ไม่ใช่ SFP")
+noWickX  = input.bool(true, "ยกเลิกถ้าแท่งหลัง Sweep มีไส้เลยแท่ง Sweep (ก่อน MSS)", group = grpS, tooltip = "ระหว่างรอ MSS ถ้ามีแท่งไหนไส้เลยปลายไส้แท่ง Sweep (Bear: high สูงกว่า · Bull: low ต่ำกว่า) = ยกเลิก setup\nถ้าแท่งนั้นกวาด liquidity อื่นด้วย จะกลายเป็น SFP ตัวใหม่แทน")
 sweepGap = input.int(1, "เว้นแท่งระหว่าง swing กับแท่ง Sweep อย่างน้อย", minval = 0, maxval = 20, group = grpS, tooltip = "แท่ง sweep ต้องห่างจากแท่ง swing ที่ถูกกวาดอย่างน้อยกี่แท่ง (นับแท่งที่อยู่ตรงกลาง)\n1 = ต้องมีอย่างน้อย 1 แท่งคั่น · แท่งที่ติดกับ swing กวาดไส้ = ไม่นับเป็น sweep\n0 = ปิด\nใช้กับ Swing, EQH/EQL, Asia H/L (PDH/PDL · PWH/PWL · HTF ไม่เช็ค)")
 
 grpC = "3) MSS Confirmation"
@@ -1342,7 +1344,12 @@ if not na(pBull) and not na(pBull.cl)
     pBull.cl.set_x2(bar_index + 1)
 
 if conf and not na(pBear)
-    if bar_index > pBear.bar and f_broke(pBear)
+    if noWickX and bar_index > pBear.bar and high > pBear.ext
+        f_delSig(pBear)
+        cExp += 1
+        lastValid := "✖ ไส้เลยแท่ง Sweep"
+        pBear := na
+    else if bar_index > pBear.bar and f_broke(pBear)
         r = f_activate(pBear, actBear)
         if r == 0
             bearConfSig := true
@@ -1367,7 +1374,12 @@ if conf and not na(pBear)
         pBear := na
 
 if conf and not na(pBull)
-    if bar_index > pBull.bar and f_broke(pBull)
+    if noWickX and bar_index > pBull.bar and low < pBull.ext
+        f_delSig(pBull)
+        cExp += 1
+        lastValid := "✖ ไส้เลยแท่ง Sweep"
+        pBull := na
+    else if bar_index > pBull.bar and f_broke(pBull)
         r = f_activate(pBull, actBull)
         if r == 0
             bullConfSig := true
