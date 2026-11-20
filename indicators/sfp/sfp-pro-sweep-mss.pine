@@ -1,16 +1,17 @@
 // ════════════════════════════════════════════════════════════════
 // SFP Pro X — DEV · Sweep + MSS + OB / Demand-Supply Confluence  (Pine Script v6)
-// ✏️ ไฟล์สำรองสำหรับแก้/ทดลองเงื่อนไขใหม่ (สำเนาเดียวกับ MAIN v2 ล่าสุด 2026-11-19) · ไฟล์หลัก (ห้ามแก้): indicators/sfp/main/sfp-pro-x-main-v2.pine
+// ✏️ ไฟล์สำรองสำหรับแก้/ทดลองเงื่อนไขใหม่ (สำเนาเดียวกับ MAIN v2 ล่าสุด 2026-11-20) · ไฟล์หลัก (ห้ามแก้): indicators/sfp/main/sfp-pro-x-main-v2.pine
 // Sweep liquidity → MSS → เข้าที่ OB / Demand-Supply ที่ผ่านตัวกรอง + ซ้อนกับ MSNR A/V, SBR/RBS, QM
 // คัดโซนด้วย Fib ของขา sweep → ยอดขา MSS (ค่าเริ่มต้น 0.618 · ยอดขาเลื่อนตาม high/low ใหม่จนกว่าจะเข้า Entry)
 // ค่าเริ่มต้น (2026-11-19 ชุดล่าสุด): real-time · Swing 5/2 · อายุ swing 25 · เว้นแท่ง 2 · Swing MSS 3/1 · SL Zone (หน่วย Price) · TP Key liquidity ก่อน · ไม่บังคับ LTF FVG · แสดง 2 setup/ฝั่ง · เก็บที่จบแล้ว 30 · ตัวอักษร tiny
 // ตัวกรองเสริม (ปิดไว้เป็นค่าเริ่มต้น): HTF Bias, Displacement, Session, ความลึก sweep, Volume LTF
-// SBR / RBS = body ของแท่ง Sweep (แก้ 2026-11-19 · เดิมใช้ body ของแท่งที่เป็นระดับ MSS)
+// SBR / RBS = body ของแท่ง swing ที่เป็นระดับ MSS (swing ที่ถูก MSS ทุบ) (แก้ 2026-11-20 · 2026-11-19 ใช้ body ของแท่ง Sweep)
 // ระดับ MSS = low/high สุดขั้วระหว่างแท่ง liquidity ที่ถูก sweep กับแท่ง sweep (แก้ 2026-11-19 · แบบเดิมเลือกได้ใน Input)
 // รอ MSS: แท่งหลัง Sweep ห้ามมีไส้เลยปลายไส้แท่ง Sweep (เลย = ยกเลิก · แก้ 2026-11-19)
 // ดูคำอธิบาย: indicators/sfp/README.md
 // เงื่อนไข Sweep: แท่ง sweep ต้องเว้นห่างจากแท่ง swing อย่างน้อย 2 แท่ง (ค่าเริ่มต้น · ปรับได้)
 // แท่ง MSS ต้องสร้าง FVG: แท่งก่อน MSS กับแท่งถัดไปต้องมีช่องว่างคั่น (แก้ 2026-11-20 · ไม่มี FVG = ยกเลิก)
+// SBR / RBS เปลี่ยนเป็น body แท่ง swing ที่ระดับ MSS (แก้ 2026-11-20)
 // แตะ POI ก่อนถึง Fib: หลัง MSS ราคาย้อนมาแตะ POI (Entry) โดยยังไม่ถึง Fib = ยังไม่เข้า · ถ้าหลังแตะแล้วขาทำ High/Low ใหม่ = ยกเลิกโซน · ยังไม่ทำ = โซนยังใช้ได้ (แก้ 2026-11-20)
 // ════════════════════════════════════════════════════════════════
 //@version=6
@@ -70,7 +71,7 @@ sessNy  = input.session("1230-1530", "New York", group = grpK)
 grpE = "6) Entry — OB Confluence"
 entryMode  = input.string("Zone + Confluence", "โซนเข้า", options = ["Zone + Confluence", "MSNR", "MSNR + FVG", "OB + FVG", "Sweep Wick"], group = grpE, tooltip = "Zone + Confluence = เลือกโซนที่ดีที่สุดระหว่าง OB กับ Demand/Supply แล้วเข้าที่ระดับ A/V, SBR/RBS, QM ที่อยู่ในโซน\nMSNR = A/V level ที่ Fresh อย่างเดียว")
 useA       = input.bool(true, "A / V (MSNR)", inline = "cf", group = grpE)
-useSBR     = input.bool(true, "SBR / RBS", inline = "cf", group = grpE, tooltip = "SBR / RBS = body ของแท่ง Sweep\nBear: ก้น body ของแท่งที่ไส้ไป sweep (แนวรับเดิม → แนวต้าน)\nBull: หัว body ของแท่ง sweep (แนวต้านเดิม → แนวรับ)")
+useSBR     = input.bool(true, "SBR / RBS", inline = "cf", group = grpE, tooltip = "SBR / RBS = body ของแท่ง swing ที่เป็นระดับ MSS (swing ที่ถูก MSS ทุบ)\nBear: ก้น body ของแท่ง swing low ที่ถูกทะลุ (แนวรับเดิม → แนวต้าน)\nBull: หัว body ของแท่ง swing high ที่ถูกทะลุ (แนวต้านเดิม → แนวรับ)")
 useQM      = input.bool(true, "QM", inline = "cf", group = grpE)
 confTol    = input.float(0.1, "Confluence tolerance (x ATR)", minval = 0, step = 0.05, group = grpE, tooltip = "ระดับที่อยู่ในโซน หรือห่างขอบโซนไม่เกินค่านี้ = ซ้อนกับโซน")
 entryAt    = input.string("Nearest", "เข้าที่ระดับ", options = ["Nearest", "Main"], group = grpE, tooltip = "Nearest = ระดับที่ใกล้ราคาที่สุด (โดนง่าย)\nMain = ระดับที่ไกล ใกล้จุด sweep (RR ดีกว่า)")
@@ -702,15 +703,15 @@ f_activate(Sig s, array<Sig> arr) =>
                 cN.push(nm)
                 cB.push(bar_index - nk)
         if useSBR
-            // SBR / RBS = body ของแท่ง Sweep (Bear: ก้น body · Bull: หัว body)
-            // = แนวรับ/ต้านเดิมที่ราคายืนอยู่ก่อนไส้ไป sweep → หลัง MSS กลายเป็นแนวต้าน/รับ
-            kS = bar_index - s.bar
+            // SBR / RBS = body ของแท่ง swing ที่เป็นระดับ MSS (Bear: ก้น body ของ swing low · Bull: หัว body ของ swing high)
+            // = แนวรับ/ต้านเดิมที่ถูก MSS ทุบ → หลัง MSS กลายเป็นแนวต้าน/รับ
+            kS = bar_index - s.trigBar
             if kS >= 0 and kS < 400
                 sp = s.bull ? math.max(open[kS], close[kS]) : math.min(open[kS], close[kS])
                 if s.bull ? (sp < close and sp > s.ext) : (sp > close and sp < s.ext)
                     cP.push(sp)
                     cN.push(s.bull ? "RBS" : "SBR")
-                    cB.push(s.bar)
+                    cB.push(s.trigBar)
         if useQM
             [qp0, qb] = f_findQM(s.bull, s.trigBar)
             if not na(qb)

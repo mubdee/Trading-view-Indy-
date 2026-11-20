@@ -15,7 +15,7 @@
    - ระดับ MSS = low ต่ำสุดระหว่างแท่งที่ทำ liquidity (swing high / PDH / Asia H ฯลฯ) กับแท่ง sweep · เลือกแบบเดิม (pullback ล่าสุด ≥ 1 ATR) ได้ที่ "ระดับ MSS"
 4. **Entry (OB + Confluence)** — หา OB ในขา MSS แล้วหาระดับที่ **ซ้อนอยู่ใน OB**
    - **A-level** (MSNR) — ยอดของ line chart ที่ยัง Fresh
-   - **SBR** — body ของแท่ง Sweep (ก้น body ฝั่ง Bear / หัว body ฝั่ง Bull) = แนวรับเดิมที่กลายเป็นแนวต้าน
+   - **SBR** — body ของแท่ง swing ที่เป็นระดับ MSS (swing ที่ถูก MSS ทุบ · ก้น body ฝั่ง Bear / หัว body ฝั่ง Bull) = แนวรับเดิมที่กลายเป็นแนวต้าน (แก้ 2026-11-20)
    - **QM** — ไหล่ซ้ายของ Quasimodo (body ของ swing high ก่อน low ที่ถูกทะลุ)
    - เส้น Entry เขียนว่ามีอะไรซ้อนกันบ้าง เช่น `Entry · OB + QM + A`
    - ถ้าไม่มีระดับไหนอยู่ใน OB → ใช้ขอบ OB ด้านใกล้ราคา · ถ้าไม่มี OB → ใช้ระดับที่ใกล้ราคาที่สุด
