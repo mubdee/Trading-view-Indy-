@@ -1,7 +1,7 @@
 // ════════════════════════════════════════════════════════════════
 // Sweep + MSS — DEV · ยืนยันโครงสร้างอย่างเดียว (Pine Script v6)
-// ✏️ ไฟล์สำรองสำหรับแก้/ทดลอง (สำเนาเดียวกับ MAIN v3 2026-11-20) · ไฟล์หลัก: indicators/sweep-mss/main/sweep-mss-main.pine
-// Sweep = ไส้เลย swing แล้วปิดกลับ (นับ swing ของ TF กราฟ + TF ใหญ่)
+// ✏️ ไฟล์สำรองสำหรับแก้/ทดลอง (สำเนาเดียวกับ MAIN v4 2026-11-20) · ไฟล์หลัก: indicators/sweep-mss/main/sweep-mss-main.pine
+// Sweep = ไส้เลย swing แล้วปิดกลับ · ล็อก 2 TF: swing M30 + H1 (ใช้กับกราฟ M30)
 // MSS   = ปิดทะลุ low/high ต้นขาที่ส่งไป sweep + แท่งปิดด้วยเนื้อ (ไส้ทะลุแล้วปิดกลับ = sweep ระดับ MSS · รอต่อ)
 // v3: ตัดสินเฉพาะแท่งที่ปิดแล้ว · เส้น MSS รอยืนยัน · เกรด ★ (TF ใหญ่ · Displacement · FVG) · กล่อง FVG
 // ════════════════════════════════════════════════════════════════
@@ -10,15 +10,14 @@ indicator("Sweep + MSS DEV", shorttitle = "Sweep MSS DEV", overlay = true, max_l
 
 // ═══════════════════════ INPUTS ═══════════════════════
 string G1 = "Sweep"
-int    pivLen  = input.int(3, "Swing length (TF กราฟ)", minval = 1, group = G1)
+int    pivLen  = input.int(3, "Swing length M30", minval = 1, group = G1)
 int    liqAge  = input.int(60, "กวาดเฉพาะ swing ที่เกิดภายใน (แท่ง)", minval = 5, group = G1)
 int    gap     = input.int(2, "แท่ง Sweep ต้องห่างจากแท่ง swing อย่างน้อย (แท่ง)", minval = 1, group = G1)
-bool   use1    = input.bool(true, "นับ swing ของ TF", inline = "t1", group = G1)
-string tf1     = input.timeframe("60", "", inline = "t1", group = G1)
-bool   use2    = input.bool(false, "และ TF", inline = "t2", group = G1)
-string tf2     = input.timeframe("240", "", inline = "t2", group = G1)
-int    htfLen  = input.int(2, "Swing length (TF ใหญ่)", minval = 1, group = G1)
-bool   needHtf = input.bool(false, "ต้องกวาด swing ของ TF ใหญ่ด้วย", group = G1)
+int    htfLen  = input.int(2, "Swing length H1", minval = 1, group = G1)
+bool   needHtf = input.bool(false, "ต้องกวาด swing H1 ด้วย", group = G1)
+// ล็อก 2 TF: M30 + H1 (ใช้กับกราฟ M30 · กราฟเล็กกว่าจะดึง swing M30 / H1 มาใช้)
+string tf1     = "30"
+string tf2     = "60"
 
 string G2 = "MSS"
 string M1 = "Displacement หรือ แท่งถัดไปไม่ปิดกลับ"
@@ -43,8 +42,9 @@ bool   showDash = input.bool(true, "แสดง Dashboard", group = G3)
 
 int   chartSec = timeframe.in_seconds(timeframe.period)
 int   barMs    = chartSec * 1000
-bool  ok1      = use1 and timeframe.in_seconds(tf1) > chartSec
-bool  ok2      = use2 and timeframe.in_seconds(tf2) > chartSec
+bool  useCh    = chartSec == 1800
+bool  ok1      = chartSec < 1800
+bool  ok2      = chartSec < 3600
 bool  mDisp    = cfmMode == M1
 bool  mStrict  = cfmMode == M2
 bool  mNone    = cfmMode == M4
@@ -88,7 +88,7 @@ f_pvC(int len) =>
 
 float ph = ta.pivothigh(high, pivLen, pivLen)
 float pl = ta.pivotlow(low, pivLen, pivLen)
-[h1h, h1l, h1t, h1n] = request.security(syminfo.tickerid, tf1, f_pvC(htfLen), lookahead = barmerge.lookahead_on)
+[h1h, h1l, h1t, h1n] = request.security(syminfo.tickerid, tf1, f_pvC(pivLen), lookahead = barmerge.lookahead_on)
 [h2h, h2l, h2t, h2n] = request.security(syminfo.tickerid, tf2, f_pvC(htfLen), lookahead = barmerge.lookahead_on)
 bool n1 = ta.change(h1n) != 0
 bool n2 = ta.change(h2n) != 0
@@ -121,7 +121,7 @@ f_scan(array<float> P, array<int> T, array<int> B, array<int> K, bool isHigh) =>
                     string nm = f_kName(k)
                     if not str.contains(tfs, nm)
                         tfs += (tfs == "" ? "" : ",") + nm
-                    if k != 0
+                    if k == 2
                         htfH := true
                 P.remove(i)
                 T.remove(i)
@@ -290,9 +290,9 @@ bool bearMss   = false
 
 // ═══════════════════════ คำนวณเฉพาะแท่งที่ปิดแล้ว (ไม่ตัดสินจากแท่งที่ยังวิ่ง) ═══════════════════════
 if barstate.isconfirmed
-    if not na(ph)
+    if useCh and not na(ph)
         f_push(hiP, hiT, hiB, hiK, ph, time[pivLen], bar_index - pivLen, 0)
-    if not na(pl)
+    if useCh and not na(pl)
         f_push(loP, loT, loB, loK, pl, time[pivLen], bar_index - pivLen, 0)
     if ok1 and n1
         if not na(h1h)
@@ -349,9 +349,9 @@ var table dash = table.new(position.top_right, 2, 4, bgcolor = color.new(#131722
 f_txCol(string tx, color c) =>
     str.contains(tx, "✓") ? c : str.contains(tx, "รอ") ? color.yellow : color.gray
 if showDash and barstate.islast
-    string tfTx = f_tfStr(timeframe.period) + (ok1 ? " + " + f_tfStr(tf1) : "") + (ok2 ? " + " + f_tfStr(tf2) : "")
+    string tfTx = useCh or ok1 ? "M30 + H1" : "⚠ ใช้กับกราฟ M30"
     table.cell(dash, 0, 0, "Sweep + MSS", text_color = color.white, text_size = size.small)
-    table.cell(dash, 1, 0, "Swing: " + tfTx, text_color = color.gray, text_size = size.small)
+    table.cell(dash, 1, 0, "Swing: " + tfTx, text_color = useCh ? color.gray : color.orange, text_size = size.small)
     table.cell(dash, 0, 1, "▲ Bullish", text_color = cBull, text_size = size.small, text_halign = text.align_left)
     table.cell(dash, 1, 1, bTxt, text_color = f_txCol(bTxt, cBull), text_size = size.small)
     table.cell(dash, 0, 2, "▼ Bearish", text_color = cBear, text_size = size.small, text_halign = text.align_left)
