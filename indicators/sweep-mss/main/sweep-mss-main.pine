@@ -1,9 +1,9 @@
 // ════════════════════════════════════════════════════════════════
 // Sweep + MSS — MAIN · ยืนยันโครงสร้างอย่างเดียว (Pine Script v6)
-// ⭐ ไฟล์หลัก (v2 2026-11-20) · ไฟล์สำรองสำหรับแก้: indicators/sweep-mss/sweep-mss-dev.pine
+// ⭐ ไฟล์หลัก (v3 2026-11-20) · ไฟล์สำรองสำหรับแก้: indicators/sweep-mss/sweep-mss-dev.pine
 // Sweep = ไส้เลย swing แล้วปิดกลับ (นับ swing ของ TF กราฟ + TF ใหญ่)
-// MSS   = ปิดทะลุ low/high ต้นขาที่ส่งไป sweep + ยืนยัน (Displacement / แท่งถัดไปไม่ปิดกลับ / วิ่งต่อ)
-// v2: ตัดสินเฉพาะแท่งที่ปิดแล้ว · เส้น MSS รอยืนยัน · เกรด ★ (TF ใหญ่ · Displacement · FVG) · กล่อง FVG
+// MSS   = ปิดทะลุ low/high ต้นขาที่ส่งไป sweep + แท่งปิดด้วยเนื้อ (ไส้ทะลุแล้วปิดกลับ = sweep ระดับ MSS · รอต่อ)
+// v3: ตัดสินเฉพาะแท่งที่ปิดแล้ว · เส้น MSS รอยืนยัน · เกรด ★ (TF ใหญ่ · Displacement · FVG) · กล่อง FVG
 // ════════════════════════════════════════════════════════════════
 //@version=6
 indicator("Sweep + MSS", shorttitle = "Sweep MSS", overlay = true, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 500, max_bars_back = 500)
@@ -24,9 +24,9 @@ string G2 = "MSS"
 string M1 = "Displacement หรือ แท่งถัดไปไม่ปิดกลับ"
 string M2 = "แท่งถัดไปปิดเลย High/Low แท่งทะลุ"
 string M3 = "แท่งถัดไปไม่ปิดกลับ"
-string M4 = "ไม่ต้องยืนยัน (ปิดทะลุ = MSS)"
+string M4 = "แท่งปิดด้วยเนื้อทะลุ = MSS (ไส้ทะลุแล้วปิดกลับ = แค่ sweep)"
 int    mssWin  = input.int(20, "ต้องทะลุภายใน (แท่งหลัง Sweep)", minval = 2, group = G2)
-string cfmMode = input.string(M1, "ยืนยัน MSS แบบ", options = [M1, M2, M3, M4], group = G2)
+string cfmMode = input.string(M4, "ยืนยัน MSS แบบ", options = [M4, M1, M2, M3], group = G2)
 int    cfmBars = input.int(1, "จำนวนแท่งยืนยันหลังแท่งทะลุ", minval = 1, maxval = 5, group = G2)
 float  dispK   = input.float(1.0, "Displacement = body แท่งทะลุ ≥ (x ATR)", minval = 0.1, step = 0.1, group = G2)
 float  backTol = input.float(0.1, "ปิดกลับเลยระดับ MSS เกิน (x ATR) = แค่ sweep", minval = 0, step = 0.05, group = G2)
@@ -143,6 +143,7 @@ type Su
     float  brkEx
     bool   disp = false
     bool   fvg  = false
+    bool   isw  = false
     int    fT
     float  fTop
     float  fBot
@@ -150,6 +151,7 @@ type Su
     label  lb
     line   pl
     label  pb
+    label  il
 
 f_new(bool bull, float lvl, int lvT, string tfs, bool htf) =>
     // ระดับ MSS = จุดต่ำสุด / สูงสุดของขาที่ส่งราคาไป sweep (ระหว่าง swing ที่ถูกกวาด กับแท่ง Sweep)
@@ -175,6 +177,8 @@ f_clrPend(Su s) =>
 f_fail(Su s) =>
     s.st := 0
     f_clrPend(s)
+    if not na(s.il)
+        label.delete(s.il)
     if showFail
         line.set_color(s.ln, color.new(cWait, 70))
         label.set_textcolor(s.lb, color.new(cWait, 70))
@@ -194,7 +198,7 @@ f_ok(Su s) =>
     line.set_color(s.ln, c)
     label.set_textcolor(s.lb, c)
     line.new(s.mT, s.mss, time, s.mss, xloc = xloc.bar_time, color = c, width = 2)
-    string tag = (s.disp ? " · Disp" : "") + (s.fvg ? " · FVG" : "")
+    string tag = (s.isw ? " · หลัง sweep" : "") + (s.disp ? " · Disp" : "") + (s.fvg ? " · FVG" : "")
     label.new(time, s.mss, "MSS " + f_tfStr(timeframe.period) + " " + f_stars(s) + tag, xloc = xloc.bar_time, style = s.bull ? label.style_label_down : label.style_label_up, color = cNone, textcolor = c, size = size.small)
     if showFvg and s.fvg
         box.new(s.fT, s.fTop, time + 10 * barMs, s.fBot, xloc = xloc.bar_time, border_color = color.new(c, 60), bgcolor = color.new(c, 85))
@@ -246,9 +250,17 @@ f_step(Su s) =>
                         color c = b ? cBull : cBear
                         s.pl := line.new(s.mT, s.mss, time, s.mss, xloc = xloc.bar_time, color = c, style = line.style_dashed, width = 1)
                         s.pb := label.new(time, s.mss, "MSS? รอยืนยัน", xloc = xloc.bar_time, style = b ? label.style_label_down : label.style_label_up, color = cNone, textcolor = color.new(c, 30), size = size.tiny)
-            else if bar_index - s.sBar > mssWin
-                f_fail(s)
-                tx := "ไม่เกิด MSS ใน " + str.tostring(mssWin) + " แท่ง"
+            else
+                // ไส้ทะลุระดับ MSS แต่ปิดกลับ = sweep ระดับ MSS (ยังไม่ใช่ MSS) → รอแท่งที่ปิดด้วยเนื้อ
+                if b ? high > s.mss : low < s.mss
+                    s.isw := true
+                    tx := "ไส้ทะลุ " + str.tostring(s.mss, format.mintick) + " แล้วปิดกลับ = sweep · รอแท่งปิดด้วยเนื้อ"
+                    if not na(s.il)
+                        label.delete(s.il)
+                    s.il := label.new(time, b ? high : low, "sweep", xloc = xloc.bar_time, style = b ? label.style_label_down : label.style_label_up, color = cNone, textcolor = cWait, size = size.tiny)
+                if bar_index - s.sBar > mssWin
+                    f_fail(s)
+                    tx := "ไม่เกิด MSS ใน " + str.tostring(mssWin) + " แท่ง"
         else if bar_index > s.brkBar
             float tol  = backTol * atr
             bool  back = b ? close < s.mss - tol : close > s.mss + tol
@@ -345,7 +357,7 @@ if showDash and barstate.islast
     table.cell(dash, 0, 2, "▼ Bearish", text_color = cBear, text_size = size.small, text_halign = text.align_left)
     table.cell(dash, 1, 2, sTxt, text_color = f_txCol(sTxt, cBear), text_size = size.small)
     table.cell(dash, 0, 3, "ยืนยัน MSS", text_color = color.gray, text_size = size.small, text_halign = text.align_left)
-    table.cell(dash, 1, 3, mNone ? "ปิดทะลุ = MSS" : mDisp ? "Displacement ≥ " + str.tostring(dispK) + " ATR หรือ " + str.tostring(cfmBars) + " แท่งไม่ปิดกลับ" : mStrict ? str.tostring(cfmBars) + " แท่งต้องวิ่งต่อ" : str.tostring(cfmBars) + " แท่งไม่ปิดกลับ", text_color = color.gray, text_size = size.small)
+    table.cell(dash, 1, 3, mNone ? "แท่งปิดด้วยเนื้อทะลุ = MSS" : mDisp ? "Displacement ≥ " + str.tostring(dispK) + " ATR หรือ " + str.tostring(cfmBars) + " แท่งไม่ปิดกลับ" : mStrict ? str.tostring(cfmBars) + " แท่งต้องวิ่งต่อ" : str.tostring(cfmBars) + " แท่งไม่ปิดกลับ", text_color = color.gray, text_size = size.small)
 
 // ═══════════════════════ ALERTS ═══════════════════════
 alertcondition(bullSweep, "Bullish Sweep", "Bullish Sweep | {{ticker}} {{interval}} · รอ MSS")
