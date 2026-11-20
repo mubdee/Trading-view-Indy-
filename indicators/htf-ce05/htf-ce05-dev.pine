@@ -499,6 +499,7 @@ f_pair(Ev ev, int src, float kp, string kt, float sl, float tp) =>
         if ceOk
             f_place(ev, src, "CE" + (cOk ? " + " + cTy : ""), ev.ce, ev.ext, na)
             ev.ceDone := true
+    true
 
 // ออเดอร์พร้อมเข้าเมื่อเงื่อนไขของเซ็ตอัพครบ
 f_armed(Ord o) =>
@@ -612,6 +613,7 @@ f_ev(Ev ev, bool mssNow, float mssL, int mssFrom, float ipv) =>
                     ev.st3 := "Limit Key"
                     float sl3 = bull ? math.max(ev.ext, ev.low3) : math.min(ev.ext, ev.low3)
                     f_pair(ev, 3, kp, kt, sl3, tpMode == "RR คงที่" ? na : ev.leg3)
+    ev
 
 var Ev evB = na
 var Ev evS = na
