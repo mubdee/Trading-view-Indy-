@@ -1,0 +1,321 @@
+// ════════════════════════════════════════════════════════════════
+// Sweep + MSS — DEV · ยืนยันโครงสร้างอย่างเดียว (Pine Script v6)
+// ✏️ ไฟล์สำรองสำหรับแก้/ทดลอง (สำเนาเดียวกับ MAIN 2026-11-20) · ไฟล์หลัก: indicators/sweep-mss/main/sweep-mss-main.pine
+// Sweep = ไส้เลย swing แล้วปิดกลับ (นับ swing ของ TF กราฟ + TF ใหญ่)
+// MSS   = ปิดทะลุ low/high ต้นขาที่ส่งไป sweep + แท่งถัดไปต้องวิ่งต่อ (ไม่งั้น = แค่ sweep)
+// ════════════════════════════════════════════════════════════════
+//@version=6
+indicator("Sweep + MSS DEV", shorttitle = "Sweep MSS DEV", overlay = true, max_lines_count = 500, max_labels_count = 500, max_bars_back = 500)
+
+// ═══════════════════════ INPUTS ═══════════════════════
+string G1 = "Sweep"
+int    pivLen  = input.int(3, "Swing length (TF กราฟ)", minval = 1, group = G1)
+int    liqAge  = input.int(60, "กวาดเฉพาะ swing ที่เกิดภายใน (แท่ง)", minval = 5, group = G1)
+int    gap     = input.int(2, "แท่ง Sweep ต้องห่างจากแท่ง swing อย่างน้อย (แท่ง)", minval = 1, group = G1)
+bool   use1    = input.bool(true, "นับ swing ของ TF", inline = "t1", group = G1)
+string tf1     = input.timeframe("60", "", inline = "t1", group = G1)
+bool   use2    = input.bool(false, "และ TF", inline = "t2", group = G1)
+string tf2     = input.timeframe("240", "", inline = "t2", group = G1)
+int    htfLen  = input.int(2, "Swing length (TF ใหญ่)", minval = 1, group = G1)
+bool   needHtf = input.bool(false, "ต้องกวาด swing ของ TF ใหญ่ด้วย", group = G1)
+
+string G2 = "MSS"
+int    mssWin  = input.int(20, "ต้องทะลุภายใน (แท่งหลัง Sweep)", minval = 2, group = G2)
+int    cfmBars = input.int(1, "ยืนยัน: แท่งถัดไปต้องวิ่งต่อภายใน (แท่ง) · 0 = ไม่ต้อง", minval = 0, maxval = 5, group = G2)
+string cfmMode = input.string("ปิดเลย High/Low แท่งทะลุ", "วิ่งต่อ =", options = ["ปิดเลย High/Low แท่งทะลุ", "ปิดเลยระดับ MSS"], group = G2)
+bool   needFvg = input.bool(false, "ต้องมี FVG ตอนทะลุ", group = G2)
+
+string G3 = "การแสดงผล"
+color  cBull    = input.color(#2962FF, "Bullish (Sweep low → MSS ขึ้น)", group = G3)
+color  cBear    = input.color(#E91E63, "Bearish (Sweep high → MSS ลง)", group = G3)
+color  cWait    = input.color(#787B86, "Sweep ที่รอ MSS", group = G3)
+bool   showFail = input.bool(false, "แสดง Sweep ที่ไม่เกิด MSS (จาง)", group = G3)
+bool   showDash = input.bool(true, "แสดง Dashboard", group = G3)
+
+int   chartSec = timeframe.in_seconds(timeframe.period)
+bool  ok1      = use1 and timeframe.in_seconds(tf1) > chartSec
+bool  ok2      = use2 and timeframe.in_seconds(tf2) > chartSec
+bool  strictC  = cfmMode == "ปิดเลย High/Low แท่งทะลุ"
+color cNone    = color.new(color.white, 100)
+
+f_tfStr(string tf) =>
+    int s = timeframe.in_seconds(tf)
+    s < 3600 ? "M" + str.tostring(s / 60) : s < 86400 ? "H" + str.tostring(s / 3600) : s < 604800 ? "D" + str.tostring(s / 86400) : tf
+
+f_kName(int k) =>
+    k == 0 ? f_tfStr(timeframe.period) : k == 1 ? f_tfStr(tf1) : f_tfStr(tf2)
+
+// ═══════════════════════ SWING (TF กราฟ + TF ใหญ่) ═══════════════════════
+// เก็บ swing ที่ยังไม่ถูกกวาด: ราคา · เวลา · bar ที่เพิ่ม · TF (0 = กราฟ)
+var array<float> hiP = array.new<float>()
+var array<int>   hiT = array.new<int>()
+var array<int>   hiB = array.new<int>()
+var array<int>   hiK = array.new<int>()
+var array<float> loP = array.new<float>()
+var array<int>   loT = array.new<int>()
+var array<int>   loB = array.new<int>()
+var array<int>   loK = array.new<int>()
+
+f_push(array<float> P, array<int> T, array<int> B, array<int> K, float p, int t, int b, int k) =>
+    P.push(p)
+    T.push(t)
+    B.push(b)
+    K.push(k)
+    if P.size() > 150
+        P.shift()
+        T.shift()
+        B.shift()
+        K.shift()
+
+f_pv(int len) =>
+    [ta.pivothigh(high, len, len), ta.pivotlow(low, len, len), time[len], time]
+
+f_pvC(int len) =>
+    [a, b, c, d] = f_pv(len)
+    [a[1], b[1], c[1], d[1]]
+
+float ph = ta.pivothigh(high, pivLen, pivLen)
+float pl = ta.pivotlow(low, pivLen, pivLen)
+if not na(ph)
+    f_push(hiP, hiT, hiB, hiK, ph, time[pivLen], bar_index - pivLen, 0)
+if not na(pl)
+    f_push(loP, loT, loB, loK, pl, time[pivLen], bar_index - pivLen, 0)
+
+[h1h, h1l, h1t, h1n] = request.security(syminfo.tickerid, tf1, f_pvC(htfLen), lookahead = barmerge.lookahead_on)
+[h2h, h2l, h2t, h2n] = request.security(syminfo.tickerid, tf2, f_pvC(htfLen), lookahead = barmerge.lookahead_on)
+bool n1 = ta.change(h1n) != 0
+bool n2 = ta.change(h2n) != 0
+if ok1 and n1
+    if not na(h1h)
+        f_push(hiP, hiT, hiB, hiK, h1h, h1t, bar_index, 1)
+    if not na(h1l)
+        f_push(loP, loT, loB, loK, h1l, h1t, bar_index, 1)
+if ok2 and n2
+    if not na(h2h)
+        f_push(hiP, hiT, hiB, hiK, h2h, h2t, bar_index, 2)
+    if not na(h2l)
+        f_push(loP, loT, loB, loK, h2l, h2t, bar_index, 2)
+
+// ═══════════════════════ ตรวจ SWEEP ═══════════════════════
+// คืน [ระดับที่ถูกกวาด (สุดขั้ว), เวลา swing, ข้อความ TF, มี TF ใหญ่]
+// swing ที่ถูกไส้เลย (กวาด) หรือปิดทะลุ = ใช้แล้ว ลบทิ้ง
+f_scan(array<float> P, array<int> T, array<int> B, array<int> K, bool isHigh) =>
+    float  lvl  = na
+    int    lvT  = na
+    string tfs  = ""
+    bool   htfH = false
+    if P.size() > 0
+        for i = P.size() - 1 to 0
+            float p  = P.get(i)
+            int   k  = K.get(i)
+            bool  old = k == 0 and bar_index - B.get(i) > liqAge
+            bool  hit = isHigh ? high > p : low < p
+            if old
+                P.remove(i)
+                T.remove(i)
+                B.remove(i)
+                K.remove(i)
+            else if hit
+                bool rej = isHigh ? close < p : close > p
+                bool gOk = k != 0 or bar_index - B.get(i) >= gap
+                if rej and gOk
+                    if na(lvl) or (isHigh ? p > lvl : p < lvl)
+                        lvl := p
+                        lvT := T.get(i)
+                    string nm = f_kName(k)
+                    if not str.contains(tfs, nm)
+                        tfs += (tfs == "" ? "" : ",") + nm
+                    if k != 0
+                        htfH := true
+                P.remove(i)
+                T.remove(i)
+                B.remove(i)
+                K.remove(i)
+    [lvl, lvT, tfs, htfH]
+
+[sHiLvl, sHiT, sHiTf, sHiHtf] = f_scan(hiP, hiT, hiB, hiK, true)
+[sLoLvl, sLoT, sLoTf, sLoHtf] = f_scan(loP, loT, loB, loK, false)
+
+// ═══════════════════════ SETUP: Sweep → รอ MSS ═══════════════════════
+// st: 0 = ไม่มี · 1 = รอทะลุ · 2 = ทะลุแล้ว รอยืนยัน
+type Su
+    bool   bull
+    int    st     = 0
+    float  wick
+    int    sBar
+    float  mss
+    int    mT
+    int    brkBar
+    float  brkEx
+    bool   fvg    = false
+    line   ln
+    label  lb
+
+f_new(bool bull, float lvl, int lvT, string tfs) =>
+    // ระดับ MSS = จุดต่ำสุด / สูงสุดระหว่าง swing ที่ถูกกวาด กับแท่ง Sweep (ต้นขาที่ส่งไป sweep)
+    float m  = na
+    int   mt = na
+    for j = 1 to 300
+        if time[j] < lvT
+            break
+        float v = bull ? high[j] : low[j]
+        if na(m) or (bull ? v > m : v < m)
+            m  := v
+            mt := time[j]
+    color c = cWait
+    line  l = line.new(lvT, lvl, time, lvl, xloc = xloc.bar_time, color = c, width = 1)
+    label b = label.new(time, bull ? low : high, "Sweep " + tfs, xloc = xloc.bar_time, style = bull ? label.style_label_up : label.style_label_down, color = cNone, textcolor = c, size = size.small)
+    Su.new(bull = bull, st = na(m) ? 0 : 1, wick = bull ? low : high, sBar = bar_index, mss = m, mT = mt, ln = l, lb = b)
+
+f_fail(Su s) =>
+    s.st := 0
+    if showFail
+        line.set_color(s.ln, color.new(cWait, 70))
+        label.set_textcolor(s.lb, color.new(cWait, 70))
+        label.set_text(s.lb, label.get_text(s.lb) + " ✗")
+    else
+        line.delete(s.ln)
+        label.delete(s.lb)
+
+f_ok(Su s) =>
+    s.st := 0
+    color c = s.bull ? cBull : cBear
+    line.set_color(s.ln, c)
+    label.set_textcolor(s.lb, c)
+    line.new(s.mT, s.mss, time, s.mss, xloc = xloc.bar_time, color = c, width = 2)
+    label.new(time, s.mss, "MSS " + f_tfStr(timeframe.period), xloc = xloc.bar_time, style = s.bull ? label.style_label_down : label.style_label_up, color = cNone, textcolor = c, size = size.small)
+
+var Su bS = na
+var Su sS = na
+var string bTxt = "—"
+var string sTxt = "—"
+
+bool fvgB = low > high[2] or low[1] > high[3]
+bool fvgS = high < low[2] or high[1] < low[3]
+
+bool bullSweep = false
+bool bearSweep = false
+bool bullMss   = false
+bool bearMss   = false
+
+// Sweep ใหม่ (แทนตัวเก่าที่ยังรอ)
+if not na(sLoLvl) and (not needHtf or sLoHtf)
+    if not na(bS) and bS.st > 0
+        f_fail(bS)
+    bS := f_new(true, sLoLvl, sLoT, sLoTf)
+    bullSweep := true
+    bTxt := "Sweep " + sLoTf + " · รอ MSS"
+    alert("Bullish Sweep " + sLoTf + " | " + syminfo.ticker + " " + timeframe.period + " @ " + str.tostring(sLoLvl, format.mintick) + " · รอ MSS", alert.freq_once_per_bar_close)
+if not na(sHiLvl) and (not needHtf or sHiHtf)
+    if not na(sS) and sS.st > 0
+        f_fail(sS)
+    sS := f_new(false, sHiLvl, sHiT, sHiTf)
+    bearSweep := true
+    sTxt := "Sweep " + sHiTf + " · รอ MSS"
+    alert("Bearish Sweep " + sHiTf + " | " + syminfo.ticker + " " + timeframe.period + " @ " + str.tostring(sHiLvl, format.mintick) + " · รอ MSS", alert.freq_once_per_bar_close)
+
+// ── Bullish: ปิดทะลุ high ต้นขา → แท่งถัดไปวิ่งต่อ = MSS ──
+if not na(bS) and bS.st > 0 and bar_index > bS.sBar
+    line.set_x2(bS.ln, time)
+    if low < bS.wick
+        f_fail(bS)
+        bTxt := "ทำ Low ใหม่ · ไม่เกิด MSS"
+    else if bS.st == 1
+        if close > bS.mss
+            bS.st     := 2
+            bS.brkBar := bar_index
+            bS.brkEx  := high
+            bS.fvg    := fvgB
+        else if bar_index - bS.sBar > mssWin
+            f_fail(bS)
+            bTxt := "ไม่เกิด MSS ใน " + str.tostring(mssWin) + " แท่ง"
+    else if bar_index > bS.brkBar
+        bS.fvg := bS.fvg or fvgB
+        if close < bS.mss
+            f_fail(bS)
+            bTxt := "ทะลุแล้วปิดกลับ = แค่ sweep"
+        else if strictC ? close > bS.brkEx : close > bS.mss
+            if not needFvg or bS.fvg
+                f_ok(bS)
+                bullMss := true
+                bTxt := "MSS ✓ @ " + str.tostring(bS.mss, format.mintick)
+                alert("Bullish MSS ✓ | " + syminfo.ticker + " " + timeframe.period + " @ " + str.tostring(bS.mss, format.mintick), alert.freq_once_per_bar_close)
+            else
+                f_fail(bS)
+                bTxt := "ไม่มี FVG"
+        else if bar_index - bS.brkBar >= cfmBars
+            f_fail(bS)
+            bTxt := "ทะลุแต่ไม่วิ่งต่อ"
+    if not na(bS) and bS.st == 2 and cfmBars == 0
+        if not needFvg or bS.fvg
+            f_ok(bS)
+            bullMss := true
+            bTxt := "MSS ✓ @ " + str.tostring(bS.mss, format.mintick)
+            alert("Bullish MSS ✓ | " + syminfo.ticker + " " + timeframe.period + " @ " + str.tostring(bS.mss, format.mintick), alert.freq_once_per_bar_close)
+        else
+            f_fail(bS)
+            bTxt := "ไม่มี FVG"
+
+// ── Bearish: ปิดทะลุ low ต้นขา → แท่งถัดไปวิ่งต่อ = MSS ──
+if not na(sS) and sS.st > 0 and bar_index > sS.sBar
+    line.set_x2(sS.ln, time)
+    if high > sS.wick
+        f_fail(sS)
+        sTxt := "ทำ High ใหม่ · ไม่เกิด MSS"
+    else if sS.st == 1
+        if close < sS.mss
+            sS.st     := 2
+            sS.brkBar := bar_index
+            sS.brkEx  := low
+            sS.fvg    := fvgS
+        else if bar_index - sS.sBar > mssWin
+            f_fail(sS)
+            sTxt := "ไม่เกิด MSS ใน " + str.tostring(mssWin) + " แท่ง"
+    else if bar_index > sS.brkBar
+        sS.fvg := sS.fvg or fvgS
+        if close > sS.mss
+            f_fail(sS)
+            sTxt := "ทะลุแล้วปิดกลับ = แค่ sweep"
+        else if strictC ? close < sS.brkEx : close < sS.mss
+            if not needFvg or sS.fvg
+                f_ok(sS)
+                bearMss := true
+                sTxt := "MSS ✓ @ " + str.tostring(sS.mss, format.mintick)
+                alert("Bearish MSS ✓ | " + syminfo.ticker + " " + timeframe.period + " @ " + str.tostring(sS.mss, format.mintick), alert.freq_once_per_bar_close)
+            else
+                f_fail(sS)
+                sTxt := "ไม่มี FVG"
+        else if bar_index - sS.brkBar >= cfmBars
+            f_fail(sS)
+            sTxt := "ทะลุแต่ไม่วิ่งต่อ"
+    if not na(sS) and sS.st == 2 and cfmBars == 0
+        if not needFvg or sS.fvg
+            f_ok(sS)
+            bearMss := true
+            sTxt := "MSS ✓ @ " + str.tostring(sS.mss, format.mintick)
+            alert("Bearish MSS ✓ | " + syminfo.ticker + " " + timeframe.period + " @ " + str.tostring(sS.mss, format.mintick), alert.freq_once_per_bar_close)
+        else
+            f_fail(sS)
+            sTxt := "ไม่มี FVG"
+
+plotshape(bullMss, "Bullish MSS", shape.triangleup, location.belowbar, cBull, size = size.tiny)
+plotshape(bearMss, "Bearish MSS", shape.triangledown, location.abovebar, cBear, size = size.tiny)
+
+// ═══════════════════════ DASHBOARD ═══════════════════════
+var table dash = table.new(position.top_right, 2, 4, bgcolor = color.new(#131722, 10), border_width = 1, border_color = color.new(color.gray, 70))
+if showDash and barstate.islast
+    string tfTx = f_tfStr(timeframe.period) + (ok1 ? " + " + f_tfStr(tf1) : "") + (ok2 ? " + " + f_tfStr(tf2) : "")
+    table.cell(dash, 0, 0, "Sweep + MSS", text_color = color.white, text_size = size.small)
+    table.cell(dash, 1, 0, "Swing: " + tfTx, text_color = color.gray, text_size = size.small)
+    table.cell(dash, 0, 1, "▲ Bullish", text_color = cBull, text_size = size.small, text_halign = text.align_left)
+    table.cell(dash, 1, 1, bTxt, text_color = str.contains(bTxt, "✓") ? cBull : str.contains(bTxt, "รอ") ? color.yellow : color.gray, text_size = size.small)
+    table.cell(dash, 0, 2, "▼ Bearish", text_color = cBear, text_size = size.small, text_halign = text.align_left)
+    table.cell(dash, 1, 2, sTxt, text_color = str.contains(sTxt, "✓") ? cBear : str.contains(sTxt, "รอ") ? color.yellow : color.gray, text_size = size.small)
+    table.cell(dash, 0, 3, "ยืนยัน MSS", text_color = color.gray, text_size = size.small, text_halign = text.align_left)
+    table.cell(dash, 1, 3, cfmBars == 0 ? "ไม่ต้องยืนยัน" : "วิ่งต่อใน " + str.tostring(cfmBars) + " แท่ง", text_color = color.gray, text_size = size.small)
+
+// ═══════════════════════ ALERTS ═══════════════════════
+alertcondition(bullSweep, "Bullish Sweep", "Bullish Sweep | {{ticker}} {{interval}} · รอ MSS")
+alertcondition(bearSweep, "Bearish Sweep", "Bearish Sweep | {{ticker}} {{interval}} · รอ MSS")
+alertcondition(bullMss, "Bullish MSS ✓", "Bullish MSS ✓ | {{ticker}} {{interval}} @ {{close}}")
+alertcondition(bearMss, "Bearish MSS ✓", "Bearish MSS ✓ | {{ticker}} {{interval}} @ {{close}}")
