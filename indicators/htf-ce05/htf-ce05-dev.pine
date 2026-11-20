@@ -1,6 +1,6 @@
 // ════════════════════════════════════════════════════════════════
 // HTF CE0.5 — DEV · 3 เซ็ตอัพ (Hidden / Single / single liQ + ยืนยัน LTF) · 2 ออเดอร์ (Key Level + CE 0.5)  (Pine Script v6)
-// ✏️ ไฟล์สำรองสำหรับแก้/ทดลอง (2026-11-20 · ยังไม่ย้ายเข้า MAIN) · ไฟล์หลัก: indicators/htf-ce05/main/htf-ce05-main.pine
+// ✏️ ไฟล์สำรองสำหรับแก้/ทดลอง (2026-11-20 · กัน Limit ผิดฝั่ง · SL buffer ATR · BE · สถิติแยกเซ็ตอัพ · ยังไม่ย้ายเข้า MAIN) · ไฟล์หลัก: indicators/htf-ce05/main/htf-ce05-main.pine
 // ════════════════════════════════════════════════════════════════
 //@version=6
 indicator("HTF CE0.5 DEV", shorttitle = "HTF CE0.5 DEV", overlay = true, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 500, max_bars_back = 500)
@@ -37,9 +37,12 @@ float  ceTol  = input.float(0.5, "ระยะ MSNR จาก CE (x ATR)", minva
 
 string G4 = "ออเดอร์"
 bool   showBox  = input.bool(true, "แสดงกล่อง TP / SL ตอนเข้า", group = G4)
-string tpMode   = input.string("High/Low ของขา", "TP ออเดอร์ Key", options = ["High/Low ของขา", "RR คงที่"], group = G4)
+string tpMode   = input.string("RR คงที่", "TP ออเดอร์ Key", options = ["RR คงที่", "High/Low ของขา"], group = G4)
 float  rr       = input.float(2.0, "RR (ออเดอร์ CE และโหมด RR คงที่)", minval = 0.5, step = 0.5, group = G4)
-float  slBuf    = input.float(0.0, "SL buffer (หน่วยราคา เช่น ทอง 0.5)", minval = 0, step = 0.1, group = G4)
+float  slAtr    = input.float(0.3, "SL เลยปลายไส้ / จุดต่ำสุดอีก (x ATR)", minval = 0, step = 0.05, group = G4)
+float  minRisk  = input.float(0.5, "ระยะ SL ขั้นต่ำ (x ATR) · แคบกว่านี้ = ไม่ตั้ง", minval = 0, step = 0.1, group = G4)
+bool   useBE    = input.bool(true, "เลื่อน SL มาที่ทุน เมื่อกำไรถึง", inline = "be", group = G4)
+float  beR      = input.float(1.0, "R", minval = 0.25, step = 0.25, inline = "be", group = G4)
 int    pendMax  = input.int(150, "Limit รอได้ (แท่ง)", minval = 5, group = G4)
 int    maxTrade = input.int(100, "ปิดออเดอร์อัตโนมัติหลังเข้า (แท่ง)", minval = 5, group = G4)
 
@@ -125,7 +128,10 @@ type Ord
     float  tp
     int    born
     int    fillBar
+    float  risk
+    float  rrv
     bool   filled = false
+    bool   be     = false
     line   ln
     label  lb
     box    bxTP
@@ -363,10 +369,12 @@ f_stack(float p, int d) =>
 f_findKey(int d, float lo, float hi) =>
     float  best = na
     string bt   = ""
+    float  lo2  = d == 1 ? lo : math.max(lo, close)
+    float  hi2  = d == 1 ? math.min(hi, close) : hi
     if lvP.size() > 0
         for i = 0 to lvP.size() - 1
             float p = lvP.get(i)
-            if lvK.get(i) == 0 and lvD.get(i) == d and p >= lo and p <= hi
+            if lvK.get(i) == 0 and lvD.get(i) == d and p >= lo2 and p <= hi2 and p != close
                 [ok, tx] = f_stack(p, d)
                 if ok
                     bool deep = kPick == "โซนสุดท้าย (ลึกสุด)"
@@ -459,7 +467,8 @@ f_setSt(Ev ev, int src, string s) =>
     else
         ev.st3 := s
 
-// ตั้ง Limit · ไม่ตั้งซ้ำถ้ามีออเดอร์ทิศเดียวกันที่ราคาใกล้กันอยู่แล้ว
+// ตั้ง Limit → คืน "" ถ้าตั้งได้ · ไม่งั้นคืนเหตุผล
+// ไม่ตั้ง: ซ้ำราคาเดิม · ราคาผ่านจุดเข้าไปแล้ว (Limit ผิดฝั่ง) · SL แคบเกิน
 f_place(Ev ev, int src, string tag, float entry, float sl0, float tp0) =>
     bool  bull = ev.bull
     float tolD = kTol * atrV
@@ -469,37 +478,40 @@ f_place(Ev ev, int src, string tag, float entry, float sl0, float tp0) =>
             if o.bull == bull and math.abs(o.entry - entry) <= tolD
                 dup := true
                 break
-    float sl     = bull ? sl0 - slBuf : sl0 + slBuf
-    bool  placed = false
-    if not dup and (bull ? entry > sl : entry < sl)
-        float risk = math.abs(entry - sl)
-        float tp   = tp0
+    float  sl   = bull ? sl0 - slAtr * atrV : sl0 + slAtr * atrV
+    float  risk = math.abs(entry - sl)
+    string why  = dup ? "ซ้ำกับออเดอร์ที่มีแล้ว" : (bull ? entry >= close : entry <= close) ? "ราคาผ่านจุดเข้าแล้ว" : (bull ? entry <= sl : entry >= sl) ? "SL ผิดฝั่ง" : risk < minRisk * atrV ? "SL แคบเกิน" : ""
+    if why == ""
+        float tp = tp0
         if na(tp) or (bull ? tp <= entry : tp >= entry)
             tp := bull ? entry + risk * rr : entry - risk * rr
         float  rrv = math.abs(tp - entry) / risk
         color  col = bull ? cBull : cBear
-        string tx  = f_name(src) + " · " + tag + "\n" + (bull ? "Buy" : "Sell") + " Limit " + str.tostring(entry, format.mintick) + " | SL " + str.tostring(sl, format.mintick) + " | TP " + str.tostring(tp, format.mintick) + " | RR 1:" + str.tostring(rrv, "#.##")
+        string tx  = f_name(src) + " · " + tag + "\n" + (bull ? "Buy" : "Sell") + " Limit " + str.tostring(entry, format.mintick) + " | SL " + str.tostring(sl, format.mintick) + " (" + str.tostring(risk, "#.##") + ") | TP " + str.tostring(tp, format.mintick) + " | RR 1:" + str.tostring(rrv, "#.##")
         line   ln  = line.new(bar_index, entry, bar_index + 5, entry, color = col, width = 2, style = line.style_dashed)
         label  lb  = label.new(bar_index + 5, entry, tx, style = label.style_label_left, color = color.new(col, 85), textcolor = col, size = size.small)
-        ords.push(Ord.new(ev = ev, src = src, tag = tag, bull = bull, entry = entry, sl = sl, tp = tp, born = bar_index, ln = ln, lb = lb))
+        ords.push(Ord.new(ev = ev, src = src, tag = tag, bull = bull, entry = entry, sl = sl, tp = tp, risk = risk, rrv = rrv, born = bar_index, ln = ln, lb = lb))
         alert(syminfo.ticker + " " + timeframe.period + " | " + f_name(src) + " · " + tag + " | " + (bull ? "Buy" : "Sell") + " Limit " + str.tostring(entry, format.mintick) + " SL " + str.tostring(sl, format.mintick) + " TP " + str.tostring(tp, format.mintick), alert.freq_once_per_bar_close)
-        placed := true
-    placed
+    why
 
-// ออเดอร์ A (Key) + B (CE) · Key กับ CE ใกล้กัน = ออเดอร์เดียว ★
+// ออเดอร์ A (Key) + B (CE) · Key กับ CE ใกล้กัน = ออเดอร์เดียว ★ → คืนข้อความสถานะ
 f_pair(Ev ev, int src, float kp, string kt, float sl, float tp) =>
     int d = ev.bull ? 1 : -1
     [cOk, cTy] = f_ceMsnr(d, ev.ce)
-    bool ceOk = not ev.ceDone and (cOk or not ceNeed) and (ev.bull ? ev.ce > ev.ext : ev.ce < ev.ext)
+    bool   ceOk = not ev.ceDone and (cOk or not ceNeed) and (ev.bull ? ev.ce > ev.ext : ev.ce < ev.ext)
+    string out  = ""
     if ceOk and math.abs(kp - ev.ce) <= kTol * atrV
-        f_place(ev, src, "★ Key " + kt + " + CE", kp, sl, tp)
+        string r = f_place(ev, src, "★ Key " + kt + " + CE", kp, sl, tp)
         ev.ceDone := true
+        out := r == "" ? "Limit ★ Key+CE" : "Key: " + r
     else
-        f_place(ev, src, "Key " + kt, kp, sl, tp)
+        string r1 = f_place(ev, src, "Key " + kt, kp, sl, tp)
+        out := r1 == "" ? "Limit Key" : "Key: " + r1
         if ceOk
-            f_place(ev, src, "CE" + (cOk ? " + " + cTy : ""), ev.ce, ev.ext, na)
+            string r2 = f_place(ev, src, "CE" + (cOk ? " + " + cTy : ""), ev.ce, ev.ext, na)
             ev.ceDone := true
-    true
+            out += r2 == "" ? " + CE" : " · CE: " + r2
+    out
 
 // ออเดอร์พร้อมเข้าเมื่อเงื่อนไขของเซ็ตอัพครบ
 f_armed(Ord o) =>
@@ -551,9 +563,9 @@ f_ev(Ev ev, bool mssNow, float mssL, int mssFrom, float ipv) =>
         if use2 and ev.single and not ev.ceDone
             [cOk, cTy] = f_ceMsnr(d, ev.ce)
             if cOk or not ceNeed
-                bool ok = f_place(ev, 2, "CE" + (cOk ? " + " + cTy : ""), ev.ce, ev.ext, na)
+                string r = f_place(ev, 2, "CE" + (cOk ? " + " + cTy : ""), ev.ce, ev.ext, na)
                 ev.ceDone := true
-                ev.st2    := ok ? "Limit CE" : "ซ้ำกับออเดอร์ที่มีแล้ว"
+                ev.st2    := r == "" ? "Limit CE" : "CE: " + r
             else
                 ev.st2 := "CE ไม่มี MSNR ซ้อน"
         // ── 1) Hidden Liquidity: MSS → Key Level ระหว่างปลายไส้ sweep กับ hidden liQ ──
@@ -582,8 +594,7 @@ f_ev(Ev ev, bool mssNow, float mssL, int mssFrom, float ipv) =>
                         ev.st1 := "รอ Key Level"
                     else
                         ev.a1  := true
-                        ev.st1 := "Limit Key"
-                        f_pair(ev, 1, kp, kt, ev.ext, tpMode == "RR คงที่" ? na : ev.leg1)
+                        ev.st1 := f_pair(ev, 1, kp, kt, ev.ext, tpMode == "RR คงที่" ? na : ev.leg1)
         // ── 3) single liQ + ยืนยัน: ถึงโซน CE → MSS บน TF กราฟ → Key Level ในขา MSS ──
         if use3 and ev.single and not ev.a3
             if not ev.z3
@@ -610,9 +621,8 @@ f_ev(Ev ev, bool mssNow, float mssL, int mssFrom, float ipv) =>
                     ev.st3 := "รอ Key Level"
                 else
                     ev.a3  := true
-                    ev.st3 := "Limit Key"
                     float sl3 = bull ? math.max(ev.ext, ev.low3) : math.min(ev.ext, ev.low3)
-                    f_pair(ev, 3, kp, kt, sl3, tpMode == "RR คงที่" ? na : ev.leg3)
+                    ev.st3 := f_pair(ev, 3, kp, kt, sl3, tpMode == "RR คงที่" ? na : ev.leg3)
     ev
 
 var Ev evB = na
@@ -634,8 +644,11 @@ if not na(evS) and evS.live
     f_ev(evS, sMss, sMssL, sMssT, iph)
 
 // ═══════════════════════ จัดการออเดอร์ ═══════════════════════
-var int nW = 0
-var int nL = 0
+// สถิติแยกเซ็ตอัพ · index = (เซ็ตอัพ - 1) + (Buy 0 / Sell 3)
+var array<int> stW = array.new<int>(6, 0)
+var array<int> stL = array.new<int>(6, 0)
+var array<int> stB = array.new<int>(6, 0)
+var float      sumR = 0.0
 
 f_kind(Ord o) =>
     str.contains(o.tag, "Key") ? "Key" : "CE"
@@ -651,7 +664,7 @@ f_done(Ord o, string res, color rc, float y) =>
         box.set_bgcolor(o.bxSL, color.new(color.gray, 90))
         box.set_border_color(o.bxTP, cFade)
         box.set_border_color(o.bxSL, cFade)
-    label.new(bar_index, y, f_kind(o) + " " + res, style = label.style_label_left, color = cNone, textcolor = color.new(rc, 30), size = size.small)
+    label.new(bar_index, y, f_name(o.src) + " · " + f_kind(o) + " " + res + (res == "TP ✓" ? " +" + str.tostring(o.rrv, "#.#") + "R" : res == "SL ✗" ? " -1R" : ""), style = label.style_label_left, color = cNone, textcolor = color.new(rc, 30), size = size.small)
     f_setSt(o.ev, o.src, f_kind(o) + " " + res)
 
 if ords.size() > 0
@@ -692,8 +705,8 @@ if ords.size() > 0
                 bool hitSL = b ? low <= o.sl : high >= o.sl
                 bool hitTP = b ? high >= o.tp : low <= o.tp
                 if hitSL
-                    res := "SL ✗"
-                    rc  := cSL
+                    res := o.be ? "BE" : "SL ✗"
+                    rc  := o.be ? color.gray : cSL
                     ry  := o.sl
                 else if hitTP
                     res := "TP ✓"
@@ -701,14 +714,30 @@ if ords.size() > 0
                     ry  := o.tp
                 else if bar_index - o.fillBar >= maxTrade
                     res := "หมดเวลา"
-                else if not na(o.bxTP)
-                    box.set_right(o.bxTP, bar_index + 1)
-                    box.set_right(o.bxSL, bar_index + 1)
+                else
+                    if not na(o.bxTP)
+                        box.set_right(o.bxTP, bar_index + 1)
+                        box.set_right(o.bxSL, bar_index + 1)
+                    // กำไรถึง beR → เลื่อน SL มาที่ทุน (มีผลแท่งถัดไป)
+                    if useBE and not o.be and (b ? high >= o.entry + o.risk * beR : low <= o.entry - o.risk * beR)
+                        o.be := true
+                        o.sl := o.entry
+                        if not na(o.bxSL)
+                            box.set_top(o.bxSL, o.entry)
+                            box.set_bottom(o.bxSL, o.entry)
+                        label.set_text(o.lb, label.get_text(o.lb) + "\nSL → ทุน")
             if res != ""
+                int ix = (o.src - 1) + (o.bull ? 0 : 3)
                 if res == "TP ✓"
-                    nW += 1
-                if res == "SL ✗"
-                    nL += 1
+                    stW.set(ix, stW.get(ix) + 1)
+                    sumR += o.rrv
+                else if res == "SL ✗"
+                    stL.set(ix, stL.get(ix) + 1)
+                    sumR -= 1.0
+                else if res == "BE"
+                    stB.set(ix, stB.get(ix) + 1)
+                else if res == "หมดเวลา" and o.filled
+                    sumR += (b ? close - o.entry : o.entry - close) / o.risk
                 f_done(o, res, rc, ry)
                 ords.remove(i)
 
@@ -733,7 +762,10 @@ f_pos(string p) =>
         => position.bottom_left
 
 f_col(string s) =>
-    str.contains(s, "✓") ? cTP : str.contains(s, "✗") ? cSL : (s == "Invalid" or s == "หมดอายุ" or s == "ปิด" or str.contains(s, "ไม่") or str.contains(s, "หมดเวลา") or str.contains(s, "ยกเลิก") or str.contains(s, "แทนที่") or str.contains(s, "Miss") or str.contains(s, "ซ้ำ")) ? color.gray : (str.contains(s, "Limit") or str.contains(s, "เข้าแล้ว")) ? color.yellow : color.white
+    str.contains(s, "✓") ? cTP : str.contains(s, "✗") ? cSL : (str.contains(s, "ผ่านจุดเข้า") or str.contains(s, "แคบเกิน") or str.contains(s, "ผิดฝั่ง") or s == "BE" or str.contains(s, " BE") or s == "Invalid" or s == "หมดอายุ" or s == "ปิด" or str.contains(s, "ไม่") or str.contains(s, "หมดเวลา") or str.contains(s, "ยกเลิก") or str.contains(s, "แทนที่") or str.contains(s, "Miss") or str.contains(s, "ซ้ำ")) ? color.gray : (str.contains(s, "Limit") or str.contains(s, "เข้าแล้ว")) ? color.yellow : color.white
+
+f_wl(int ix) =>
+    str.tostring(stW.get(ix)) + " / " + str.tostring(stL.get(ix)) + " / " + str.tostring(stB.get(ix))
 
 f_st(Ev ev, int k) =>
     na(ev) ? "—" : k == 1 ? ev.st1 : k == 2 ? ev.st2 : ev.st3
@@ -741,7 +773,7 @@ f_st(Ev ev, int k) =>
 f_lv(Ev ev, int k) =>
     na(ev) ? "-" : k == 1 ? "liQ " + str.tostring(ev.liq, format.mintick) : "CE " + str.tostring(ev.ce, format.mintick)
 
-var table dash = table.new(f_pos(dashPos), 3, 10, bgcolor = color.new(#131722, 10), border_width = 1, border_color = color.new(color.gray, 70))
+var table dash = table.new(f_pos(dashPos), 4, 10, bgcolor = color.new(#131722, 10), border_width = 1, border_color = color.new(color.gray, 70))
 
 if showDash and barstate.islast
     int nPend = 0
@@ -754,6 +786,7 @@ if showDash and barstate.islast
     table.cell(dash, 0, 0, "HTF CE0.5 DEV", text_color = color.white, text_size = size.small)
     table.cell(dash, 1, 0, "สถานะ", text_color = color.white, text_size = size.small)
     table.cell(dash, 2, 0, "Level", text_color = color.white, text_size = size.small)
+    table.cell(dash, 3, 0, "TP / SL / BE", text_color = color.white, text_size = size.small)
     array<string> nm = array.from("1) Hidden", "2) Single", "3) LTF")
     for k = 1 to 3
         table.cell(dash, 0, k, nm.get(k - 1) + " ▲", text_color = cBull, text_size = size.small, text_halign = text.align_left)
@@ -762,13 +795,25 @@ if showDash and barstate.islast
         table.cell(dash, 0, k + 3, nm.get(k - 1) + " ▼", text_color = cBear, text_size = size.small, text_halign = text.align_left)
         table.cell(dash, 1, k + 3, f_st(evS, k), text_color = f_col(f_st(evS, k)), text_size = size.small)
         table.cell(dash, 2, k + 3, f_lv(evS, k), text_color = color.gray, text_size = size.small)
+        table.cell(dash, 3, k, f_wl(k - 1), text_color = color.white, text_size = size.small)
+        table.cell(dash, 3, k + 3, f_wl(k + 2), text_color = color.white, text_size = size.small)
     table.cell(dash, 0, 7, "ออเดอร์", text_color = color.gray, text_size = size.small, text_halign = text.align_left)
     table.cell(dash, 1, 7, "รอ Limit " + str.tostring(nPend) + " · เปิดอยู่ " + str.tostring(nOpen), text_color = color.white, text_size = size.small)
     table.cell(dash, 2, 7, "", text_size = size.small)
+    table.cell(dash, 3, 7, "", text_size = size.small)
     table.cell(dash, 0, 8, "สถิติ", text_color = color.gray, text_size = size.small, text_halign = text.align_left)
-    table.cell(dash, 1, 8, "TP " + str.tostring(nW) + " / SL " + str.tostring(nL) + (nW + nL > 0 ? " · " + str.tostring(nW * 100.0 / (nW + nL), "#") + "%" : ""), text_color = color.white, text_size = size.small)
+    int tW = 0
+    int tL = 0
+    int tB = 0
+    for j = 0 to 5
+        tW += stW.get(j)
+        tL += stL.get(j)
+        tB += stB.get(j)
+    table.cell(dash, 1, 8, "TP " + str.tostring(tW) + " / SL " + str.tostring(tL) + " / BE " + str.tostring(tB) + (tW + tL > 0 ? " · Win " + str.tostring(tW * 100.0 / (tW + tL), "#") + "%" : ""), text_color = color.white, text_size = size.small)
+    table.cell(dash, 3, 8, (sumR >= 0 ? "+" : "") + str.tostring(sumR, "#.#") + "R", text_color = sumR > 0 ? cTP : sumR < 0 ? cSL : color.white, text_size = size.small)
     table.cell(dash, 2, 8, "", text_size = size.small)
     string kTx = f_tfStr(timeframe.period) + (kOk1 ? "+" + f_tfStr(kTF1) : "") + (kOk2 ? "+" + f_tfStr(kTF2) : "") + (kZone ? " · โซน " + f_tfStr(htf) : "")
     table.cell(dash, 0, 9, "HTF / Key", text_color = color.gray, text_size = size.small, text_halign = text.align_left)
     table.cell(dash, 1, 9, htfOK ? f_tfStr(htf) + " · Key " + kTx : "HTF ต้องสูงกว่า TF กราฟ", text_color = htfOK ? color.gray : cBear, text_size = size.small)
     table.cell(dash, 2, 9, "", text_size = size.small)
+    table.cell(dash, 3, 9, "", text_size = size.small)
