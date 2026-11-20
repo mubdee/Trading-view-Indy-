@@ -1,6 +1,6 @@
 // ════════════════════════════════════════════════════════════════
 // HTF CE0.5 — DEV · 3 เซ็ตอัพ (Hidden / Single / single liQ + ยืนยัน LTF) · 2 ออเดอร์ (Key Level + CE 0.5)  (Pine Script v6)
-// ✏️ ไฟล์สำรองสำหรับแก้/ทดลอง (2026-11-20 · กัน Limit ผิดฝั่ง · SL buffer ATR · BE · สถิติแยกเซ็ตอัพ · ยังไม่ย้ายเข้า MAIN) · ไฟล์หลัก: indicators/htf-ce05/main/htf-ce05-main.pine
+// ✏️ ไฟล์สำรองสำหรับแก้/ทดลอง (2026-11-20 · กัน Limit ผิดฝั่ง · SL buffer ATR · BE · สถิติแยกเซ็ตอัพ · MSS ต้องยืนยัน · ยังไม่ย้ายเข้า MAIN) · ไฟล์หลัก: indicators/htf-ce05/main/htf-ce05-main.pine
 // ════════════════════════════════════════════════════════════════
 //@version=6
 indicator("HTF CE0.5 DEV", shorttitle = "HTF CE0.5 DEV", overlay = true, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 500, max_bars_back = 500)
@@ -18,6 +18,8 @@ string G1 = "MSS / IDM / LQ (TF กราฟ)"
 int    pivLen  = input.int(3, "Swing length (MSS)", minval = 1, group = G1)
 int    idmLen  = input.int(2, "Swing length (IDM / LQ)", minval = 1, group = G1)
 bool   needFvg = input.bool(true, "แท่ง MSS ต้องมี FVG", group = G1)
+int    mssBars = input.int(1, "ยืนยัน MSS: แท่งถัดไปต้องวิ่งต่อภายใน (แท่ง) · 0 = ไม่ต้องยืนยัน", minval = 0, maxval = 5, group = G1)
+string mssConf = input.string("ปิดเลย High/Low แท่งทะลุ", "วิ่งต่อ =", options = ["ปิดเลย High/Low แท่งทะลุ", "ปิดเลยระดับ MSS"], group = G1)
 bool   needIDM = input.bool(true, "Hidden: ต้องกิน IDM ก่อนเข้า", group = G1)
 int    lqMin   = input.int(1, "LQ ก่อนถึง Key อย่างน้อย (swing ย่อย · 0 = ปิด)", minval = 0, group = G1)
 
@@ -421,24 +423,81 @@ if not na(pl)
 bool fvgB = low > high[2] or low[1] > high[3]
 bool fvgS = high < low[2] or high[1] < low[3]
 
+// MSS ต้องยืนยัน: หลังแท่งทะลุ แท่งถัดไป (ภายใน mssBars แท่ง) ต้องวิ่งต่อ
+// ปิดกลับไปอีกฝั่งของระดับ MSS ก่อน = แค่ sweep → ยกเลิก
+bool   strictC = mssConf == "ปิดเลย High/Low แท่งทะลุ"
+var bool  bPend = false
+var float bPLvl = na
+var int   bPFrom = na
+var float bPEx  = na
+var int   bPBar = na
+var bool  bPFvg = false
+var bool  sPend = false
+var float sPLvl = na
+var int   sPFrom = na
+var float sPEx  = na
+var int   sPBar = na
+var bool  sPFvg = false
+
 bool  bMss  = false
 float bMssL = na
 int   bMssT = na
 if not shU and not na(shP) and close > shP
     shU := true
-    if not needFvg or fvgB
-        bMss  := true
-        bMssL := shP
-        bMssT := shT
+    if mssBars == 0
+        if not needFvg or fvgB
+            bMss  := true
+            bMssL := shP
+            bMssT := shT
+    else
+        bPend  := true
+        bPLvl  := shP
+        bPFrom := shT
+        bPEx   := high
+        bPBar  := bar_index
+        bPFvg  := fvgB
+else if bPend and bar_index > bPBar
+    bPFvg := bPFvg or fvgB
+    if close < bPLvl
+        bPend := false
+    else if strictC ? close > bPEx : close > bPLvl
+        bPend := false
+        if not needFvg or bPFvg
+            bMss  := true
+            bMssL := bPLvl
+            bMssT := bPFrom
+    else if bar_index - bPBar >= mssBars
+        bPend := false
+
 bool  sMss  = false
 float sMssL = na
 int   sMssT = na
 if not slU and not na(slP) and close < slP
     slU := true
-    if not needFvg or fvgS
-        sMss  := true
-        sMssL := slP
-        sMssT := slT
+    if mssBars == 0
+        if not needFvg or fvgS
+            sMss  := true
+            sMssL := slP
+            sMssT := slT
+    else
+        sPend  := true
+        sPLvl  := slP
+        sPFrom := slT
+        sPEx   := low
+        sPBar  := bar_index
+        sPFvg  := fvgS
+else if sPend and bar_index > sPBar
+    sPFvg := sPFvg or fvgS
+    if close > sPLvl
+        sPend := false
+    else if strictC ? close < sPEx : close < sPLvl
+        sPend := false
+        if not needFvg or sPFvg
+            sMss  := true
+            sMssL := sPLvl
+            sMssT := sPFrom
+    else if bar_index - sPBar >= mssBars
+        sPend := false
 
 var int   lbTime = na
 var float lbLvl  = na
