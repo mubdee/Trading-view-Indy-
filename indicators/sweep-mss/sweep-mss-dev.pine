@@ -1,41 +1,43 @@
 // ════════════════════════════════════════════════════════════════
 // Sweep + MSS — DEV · MTF: เปิดกราฟเล็ก (เช่น M5) ตรวจจับโครงสร้างบน M30 · H1 · H4 (Pine Script v6)
-// ✏️ ไฟล์สำรองสำหรับแก้/ทดลอง (สำเนาเดียวกับ MAIN v5 2026-11-20) · ไฟล์หลัก: indicators/sweep-mss/main/sweep-mss-main.pine
+// ✏️ ไฟล์สำรองสำหรับแก้/ทดลอง (สำเนาเดียวกับ MAIN v6 2026-11-20) · ไฟล์หลัก: indicators/sweep-mss/main/sweep-mss-main.pine
 // Sweep = ไส้เลย swing แล้วปิดกลับ (คำนวณบนแท่งของ TF ใหญ่แต่ละตัว)
 // MSS   = แท่ง TF ใหญ่ปิดด้วยเนื้อทะลุ high/low ต้นขาที่ส่งไป sweep · ไส้ทะลุแล้วปิดกลับ = แค่ sweep (รอต่อ)
-// v5: ใช้ค่าของแท่ง TF ใหญ่ที่ปิดแล้วเท่านั้น (ไม่ repaint) · เวอร์ชันดูบนกราฟ TF เดียว = v4 ใน git history
+// v6: เส้น/ป้ายวางตรงไส้จริงบนกราฟเล็ก · รวมเส้นที่ซ้อนกันระหว่าง TF เป็นป้ายเดียว (เช่น "MSS H4 · M30") · ป้ายแบบกล่อง · Dashboard สถานะล่าสุด + เวลา
 // ════════════════════════════════════════════════════════════════
 //@version=6
 indicator("Sweep + MSS DEV", shorttitle = "Sweep MSS DEV", overlay = true, max_lines_count = 500, max_labels_count = 500, max_bars_back = 500)
 
 // ═══════════════════════ INPUTS ═══════════════════════
 string G0 = "ทามเฟรมที่ตรวจจับ (เปิดกราฟเล็ก เช่น M5)"
-bool   u1  = input.bool(true, "TF 1", inline = "a", group = G0)
-string tf1 = input.timeframe("30", "", inline = "a", group = G0)
-bool   u2  = input.bool(true, "TF 2", inline = "b", group = G0)
-string tf2 = input.timeframe("60", "", inline = "b", group = G0)
-bool   u3  = input.bool(true, "TF 3", inline = "c", group = G0)
-string tf3 = input.timeframe("240", "", inline = "c", group = G0)
+bool   u1  = input.bool(true, "TF 1", inline = "a", group = G0, display = display.none)
+string tf1 = input.timeframe("30", "", inline = "a", group = G0, display = display.none)
+bool   u2  = input.bool(true, "TF 2", inline = "b", group = G0, display = display.none)
+string tf2 = input.timeframe("60", "", inline = "b", group = G0, display = display.none)
+bool   u3  = input.bool(true, "TF 3", inline = "c", group = G0, display = display.none)
+string tf3 = input.timeframe("240", "", inline = "c", group = G0, display = display.none)
 
 string G1 = "Sweep / MSS (นับเป็นแท่งของ TF นั้นๆ)"
-int    pivLen = input.int(3, "Swing length", minval = 1, group = G1)
-int    liqAge = input.int(60, "กวาดเฉพาะ swing ที่เกิดภายใน (แท่ง)", minval = 5, group = G1)
-int    gap    = input.int(2, "แท่ง Sweep ต้องห่างจากแท่ง swing อย่างน้อย (แท่ง)", minval = 1, group = G1)
-int    mssWin = input.int(20, "MSS ต้องเกิดภายใน (แท่งหลัง Sweep)", minval = 2, group = G1)
+int    pivLen = input.int(3, "Swing length", minval = 1, group = G1, display = display.none)
+int    liqAge = input.int(60, "กวาดเฉพาะ swing ที่เกิดภายใน (แท่ง)", minval = 5, group = G1, display = display.none)
+int    gap    = input.int(2, "แท่ง Sweep ต้องห่างจากแท่ง swing อย่างน้อย (แท่ง)", minval = 1, group = G1, display = display.none)
+int    mssWin = input.int(20, "MSS ต้องเกิดภายใน (แท่งหลัง Sweep)", minval = 2, group = G1, display = display.none)
 
 string G3 = "การแสดงผล"
-color  cBull    = input.color(#2962FF, "Bullish (Sweep low → MSS ขึ้น)", group = G3)
-color  cBear    = input.color(#E91E63, "Bearish (Sweep high → MSS ลง)", group = G3)
-color  cWait    = input.color(#787B86, "Sweep ที่รอ MSS", group = G3)
-bool   showPend = input.bool(true, "แสดงระดับ MSS ระหว่างรอ (เส้นประ)", group = G3)
-bool   showFail = input.bool(false, "แสดง Sweep ที่ไม่เกิด MSS (จาง)", group = G3)
-bool   showDash = input.bool(true, "แสดง Dashboard", group = G3)
+color  cBull    = input.color(#2962FF, "Bullish (Sweep low → MSS ขึ้น)", group = G3, display = display.none)
+color  cBear    = input.color(#E91E63, "Bearish (Sweep high → MSS ลง)", group = G3, display = display.none)
+color  cWait    = input.color(#787B86, "Sweep ที่รอ MSS", group = G3, display = display.none)
+float  mrgK     = input.float(0.5, "รวมเส้นที่ซ้อนกันระหว่าง TF ถ้าห่างไม่เกิน (x ATR กราฟ)", minval = 0, step = 0.1, group = G3, display = display.none)
+bool   showPend = input.bool(true, "แสดงระดับ MSS ระหว่างรอ (เส้นประ)", group = G3, display = display.none)
+bool   showFail = input.bool(false, "แสดง Sweep ที่ไม่เกิด MSS (จาง)", group = G3, display = display.none)
+bool   showDash = input.bool(true, "แสดง Dashboard", group = G3, display = display.none)
 
 int   chartSec = timeframe.in_seconds(timeframe.period)
 bool  ok1 = u1 and timeframe.in_seconds(tf1) > chartSec
 bool  ok2 = u2 and timeframe.in_seconds(tf2) > chartSec
 bool  ok3 = u3 and timeframe.in_seconds(tf3) > chartSec
 color cNone = color.new(color.white, 100)
+float atrC  = ta.atr(14)
 
 f_tfStr(string tf) =>
     int s = timeframe.in_seconds(tf)
@@ -218,74 +220,184 @@ bool nw1 = ok1 and ta.change(x1t) != 0
 bool nw2 = ok2 and ta.change(x2t) != 0
 bool nw3 = ok3 and ta.change(x3t) != 0
 
+// ═══════════════════════ ตำแหน่งแท่งจริงบนกราฟเล็ก ═══════════════════════
+// จำว่าในแต่ละแท่ง TF ใหญ่ High / Low อยู่ที่แท่งไหนของกราฟ → เส้นและป้ายวางตรงไส้จริง
+f_trk(string tf) =>
+    var array<int> K  = array.new<int>()
+    var array<int> HT = array.new<int>()
+    var array<int> LT = array.new<int>()
+    var float rh = na
+    var float rl = na
+    var int   th = na
+    var int   tl = na
+    int ot = time(tf)
+    if ot != ot[1] and not na(ot[1])
+        K.push(ot[1])
+        HT.push(th)
+        LT.push(tl)
+        if K.size() > 300
+            K.shift()
+            HT.shift()
+            LT.shift()
+        rh := na
+        rl := na
+    if na(rh) or high > rh
+        rh := high
+        th := time
+    if na(rl) or low < rl
+        rl := low
+        tl := time
+    [K, HT, LT]
+
+f_at(array<int> K, array<int> V, int t) =>
+    int r = t
+    int n = K.size()
+    if n > 0 and not na(t)
+        for i = n - 1 to 0
+            int k = K.get(i)
+            if k == t
+                r := V.get(i)
+                break
+            if k < t
+                break
+    r
+
+[k1, hT1, lT1] = f_trk(tf1)
+[k2, hT2, lT2] = f_trk(tf2)
+[k3, hT3, lT3] = f_trk(tf3)
+
 // ═══════════════════════ วาดบนกราฟเล็ก ═══════════════════════
 type Dw
+    bool   bull
+    string tn
+    int    w     = 1
     line   sl
     label  sb
     line   ml
-    string tx = "—"
+    float  swP
+    float  mP
+    string st    = "—"
+    float  lv
+    int    evT
+    color  sc
 
-f_side(Dw d, bool bull, string tn, int w, bool nw, int ht, bool swEv, float swP, int swT, float wick, float mss, int mT, bool okEv, float okM, int okT, bool fail, bool okI, bool iswNow) =>
+var array<float> mssP = array.new<float>()
+var array<label> mssL = array.new<label>()
+var array<int>   mssB = array.new<int>()
+
+f_set(Dw d, string st, float lv, color sc) =>
+    d.st  := st
+    d.lv  := lv
+    d.evT := time
+    d.sc  := sc
+
+f_side(Dw d, array<Dw> peers, bool nw, bool swEv, float swP, int swX, int wkX, float wick, float mss, int mX, bool okEv, float okM, int okX, int brX, bool fail, bool okI, bool iswNow) =>
     bool  okNow = false
-    color c     = bull ? cBull : cBear
-    if nw and fail and not na(d.sl)
+    bool  b     = d.bull
+    color c     = b ? cBull : cBear
+    float tol   = mrgK * atrC
+    if nw and fail
         if not na(d.ml)
             line.delete(d.ml)
-        if showFail
-            line.set_color(d.sl, color.new(cWait, 70))
-            label.set_textcolor(d.sb, color.new(cWait, 70))
-            label.set_text(d.sb, label.get_text(d.sb) + " ✗")
-        else
-            line.delete(d.sl)
-            label.delete(d.sb)
+        if not na(d.sl)
+            if showFail
+                line.set_color(d.sl, color.new(cWait, 70))
+                label.set_color(d.sb, color.new(cWait, 80))
+                label.set_text(d.sb, label.get_text(d.sb) + " ✗")
+            else
+                line.delete(d.sl)
+                label.delete(d.sb)
         d.sl := na
         d.sb := na
         d.ml := na
-        d.tx := "ไม่เกิด MSS"
-    if nw and okEv and not na(d.sl)
+        if str.contains(d.st, "รอ")
+            f_set(d, "ไม่เกิด MSS", d.lv, color.gray)
+    if nw and okEv
         if not na(d.ml)
             line.delete(d.ml)
-        line.set_color(d.sl, c)
-        line.set_x2(d.sl, ht)
-        label.set_textcolor(d.sb, c)
-        line.new(okT, okM, ht, okM, xloc = xloc.bar_time, color = c, width = w + 1)
-        label.new(ht, okM, "MSS " + tn + (okI ? " · หลัง sweep" : ""), xloc = xloc.bar_time, style = bull ? label.style_label_down : label.style_label_up, color = cNone, textcolor = c, size = size.small)
+        if not na(d.sl)
+            line.set_color(d.sl, color.new(c, 30))
+            label.set_color(d.sb, color.new(c, 15))
+        // MSS ระดับเดียวกันจาก TF อื่น → รวมเป็นป้ายเดียว
+        bool merged = false
+        if mssP.size() > 0
+            for i = mssP.size() - 1 to 0
+                if math.abs(mssP.get(i) - okM) <= tol and bar_index - mssB.get(i) <= 500
+                    label lb = mssL.get(i)
+                    if not str.contains(label.get_text(lb), d.tn)
+                        label.set_text(lb, label.get_text(lb) + " · " + d.tn)
+                    merged := true
+                    break
+        if not merged
+            line.new(okX, okM, brX, okM, xloc = xloc.bar_time, color = c, width = d.w + 1)
+            label lb = label.new(brX, okM, "MSS " + d.tn, xloc = xloc.bar_time, style = label.style_label_left, color = color.new(c, 10), textcolor = color.white, size = size.small)
+            mssP.push(okM)
+            mssL.push(lb)
+            mssB.push(bar_index)
+            if mssP.size() > 60
+                mssP.shift()
+                mssL.shift()
+                mssB.shift()
         d.sl := na
         d.sb := na
         d.ml := na
-        d.tx := "MSS ✓ @ " + str.tostring(okM, format.mintick)
+        f_set(d, okI ? "MSS ✓ หลัง sweep" : "MSS ✓", okM, c)
         okNow := true
     if nw and swEv
-        d.sl := line.new(swT, swP, ht, swP, xloc = xloc.bar_time, color = cWait, width = w)
-        d.sb := label.new(ht, wick, "Sweep " + tn, xloc = xloc.bar_time, style = bull ? label.style_label_up : label.style_label_down, color = cNone, textcolor = cWait, size = size.small)
-        if showPend
-            d.ml := line.new(mT, mss, ht, mss, xloc = xloc.bar_time, color = color.new(c, 40), style = line.style_dashed, width = 1)
-        d.tx := "Sweep · รอ MSS " + str.tostring(mss, format.mintick)
-    else if not na(d.sl)
-        line.set_x2(d.sl, time)
+        // swing เดียวกันถูกกวาดใน TF อื่นแล้ว → ต่อชื่อ TF ในป้ายเดิม ไม่วาดซ้ำ
+        Dw host = na
+        for p in peers
+            if p.tn != d.tn and not na(p.sb) and math.abs(p.swP - swP) <= tol
+                host := p
+        d.swP := swP
+        d.mP  := mss
+        if not na(host)
+            if not str.contains(label.get_text(host.sb), d.tn)
+                label.set_text(host.sb, label.get_text(host.sb) + " · " + d.tn)
+        else
+            d.sl := line.new(swX, swP, wkX, swP, xloc = xloc.bar_time, color = cWait, width = d.w)
+            d.sb := label.new(wkX, wick, "Sweep " + d.tn, xloc = xloc.bar_time, style = b ? label.style_label_up : label.style_label_down, color = color.new(cWait, 15), textcolor = color.white, size = size.small)
+        bool samePend = not na(host) and not na(host.ml) and math.abs(host.mP - mss) <= tol
+        if showPend and not samePend
+            d.ml := line.new(mX, mss, time, mss, xloc = xloc.bar_time, color = color.new(c, 40), style = line.style_dashed, width = 1)
+        f_set(d, "Sweep · รอ MSS", mss, color.yellow)
+    else
         if not na(d.ml)
             line.set_x2(d.ml, time)
-        if nw and iswNow
-            d.tx := "ไส้ทะลุ MSS = sweep · รอปิดด้วยเนื้อ"
+        if nw and iswNow and str.contains(d.st, "รอ")
+            f_set(d, "ไส้ทะลุ · รอปิดด้วยเนื้อ", d.lv, color.yellow)
     okNow
 
-var Dw u1d = Dw.new()
-var Dw d1d = Dw.new()
-var Dw u2d = Dw.new()
-var Dw d2d = Dw.new()
-var Dw u3d = Dw.new()
-var Dw d3d = Dw.new()
+var Dw u1d = Dw.new(bull = true,  tn = f_tfStr(tf1), w = 1)
+var Dw d1d = Dw.new(bull = false, tn = f_tfStr(tf1), w = 1)
+var Dw u2d = Dw.new(bull = true,  tn = f_tfStr(tf2), w = 2)
+var Dw d2d = Dw.new(bull = false, tn = f_tfStr(tf2), w = 2)
+var Dw u3d = Dw.new(bull = true,  tn = f_tfStr(tf3), w = 2)
+var Dw d3d = Dw.new(bull = false, tn = f_tfStr(tf3), w = 2)
+var array<Dw> upPeers = array.from(u1d, u2d, u3d)
+var array<Dw> dnPeers = array.from(d1d, d2d, d3d)
+
+// เวลาแท่งจริงบนกราฟ (คำนวณเฉพาะตอนมีแท่ง TF ใหญ่ปิดใหม่)
+f_ev(Dw d, array<Dw> peers, bool nw, array<int> K, array<int> HT, array<int> LT, int ht, bool swEv, float swP, int swT, float wick, float mss, int mT, bool okEv, float okM, int okT, bool fail, bool okI, bool iswNow) =>
+    bool b = d.bull
+    int swX = nw ? f_at(K, b ? LT : HT, swT) : na
+    int wkX = nw ? f_at(K, b ? LT : HT, ht) : na
+    int mX  = nw ? f_at(K, b ? HT : LT, mT) : na
+    int okX = nw ? f_at(K, b ? HT : LT, okT) : na
+    int brX = nw ? f_at(K, b ? HT : LT, ht) : na
+    f_side(d, peers, nw, swEv, swP, swX, wkX, wick, mss, mX, okEv, okM, okX, brX, fail, okI, iswNow)
+
+// ทำ TF ใหญ่ก่อน (H4 → H1 → M30) ให้เส้นหลักเป็นของ TF ใหญ่ แล้ว TF เล็กต่อชื่อในป้าย
+bool m3u = f_ev(u3d, upPeers, nw3, k3, hT3, lT3, x3t, x3a1, x3a2, x3a3, x3a4, x3a5, x3a6, x3a7, x3a8, x3a9, x3a10, x3a11, x3a12)
+bool m3d = f_ev(d3d, dnPeers, nw3, k3, hT3, lT3, x3t, x3b1, x3b2, x3b3, x3b4, x3b5, x3b6, x3b7, x3b8, x3b9, x3b10, x3b11, x3b12)
+bool m2u = f_ev(u2d, upPeers, nw2, k2, hT2, lT2, x2t, x2a1, x2a2, x2a3, x2a4, x2a5, x2a6, x2a7, x2a8, x2a9, x2a10, x2a11, x2a12)
+bool m2d = f_ev(d2d, dnPeers, nw2, k2, hT2, lT2, x2t, x2b1, x2b2, x2b3, x2b4, x2b5, x2b6, x2b7, x2b8, x2b9, x2b10, x2b11, x2b12)
+bool m1u = f_ev(u1d, upPeers, nw1, k1, hT1, lT1, x1t, x1a1, x1a2, x1a3, x1a4, x1a5, x1a6, x1a7, x1a8, x1a9, x1a10, x1a11, x1a12)
+bool m1d = f_ev(d1d, dnPeers, nw1, k1, hT1, lT1, x1t, x1b1, x1b2, x1b3, x1b4, x1b5, x1b6, x1b7, x1b8, x1b9, x1b10, x1b11, x1b12)
+
 string n1 = f_tfStr(tf1)
 string n2 = f_tfStr(tf2)
 string n3 = f_tfStr(tf3)
-
-bool m1u = f_side(u1d, true,  n1, 1, nw1, x1t, x1a1, x1a2, x1a3, x1a4, x1a5, x1a6, x1a7, x1a8, x1a9, x1a10, x1a11, x1a12)
-bool m1d = f_side(d1d, false, n1, 1, nw1, x1t, x1b1, x1b2, x1b3, x1b4, x1b5, x1b6, x1b7, x1b8, x1b9, x1b10, x1b11, x1b12)
-bool m2u = f_side(u2d, true,  n2, 2, nw2, x2t, x2a1, x2a2, x2a3, x2a4, x2a5, x2a6, x2a7, x2a8, x2a9, x2a10, x2a11, x2a12)
-bool m2d = f_side(d2d, false, n2, 2, nw2, x2t, x2b1, x2b2, x2b3, x2b4, x2b5, x2b6, x2b7, x2b8, x2b9, x2b10, x2b11, x2b12)
-bool m3u = f_side(u3d, true,  n3, 3, nw3, x3t, x3a1, x3a2, x3a3, x3a4, x3a5, x3a6, x3a7, x3a8, x3a9, x3a10, x3a11, x3a12)
-bool m3d = f_side(d3d, false, n3, 3, nw3, x3t, x3b1, x3b2, x3b3, x3b4, x3b5, x3b6, x3b7, x3b8, x3b9, x3b10, x3b11, x3b12)
-
 bool sw1u = nw1 and x1a1
 bool sw1d = nw1 and x1b1
 bool sw2u = nw2 and x2a1
@@ -320,21 +432,22 @@ alertcondition(bearSweep, "Bearish Sweep (TF ใหญ่)", "Bearish Sweep | {{
 alertcondition(bullMss, "Bullish MSS ✓ (TF ใหญ่)", "Bullish MSS ✓ | {{ticker}} @ {{close}}")
 alertcondition(bearMss, "Bearish MSS ✓ (TF ใหญ่)", "Bearish MSS ✓ | {{ticker}} @ {{close}}")
 
-plotshape(bullMss, "Bullish MSS", shape.triangleup, location.belowbar, cBull, size = size.tiny)
-plotshape(bearMss, "Bearish MSS", shape.triangledown, location.abovebar, cBear, size = size.tiny)
-
-// ═══════════════════════ DASHBOARD ═══════════════════════
-var table dash = table.new(position.top_right, 3, 4, bgcolor = color.new(#131722, 10), border_width = 1, border_color = color.new(color.gray, 70))
-f_col(string tx, color c) =>
-    str.contains(tx, "✓") ? c : str.contains(tx, "รอ") ? color.yellow : color.gray
-f_row(int r, bool on, string tn, Dw u, Dw d) =>
-    table.cell(dash, 0, r, tn, text_color = on ? color.white : color.gray, text_size = size.small)
-    table.cell(dash, 1, r, on ? u.tx : "ปิด / ไม่ใหญ่กว่ากราฟ", text_color = on ? f_col(u.tx, cBull) : color.gray, text_size = size.small)
-    table.cell(dash, 2, r, on ? d.tx : "", text_color = f_col(d.tx, cBear), text_size = size.small)
+// ═══════════════════════ DASHBOARD (สถานะล่าสุดของแต่ละ TF) ═══════════════════════
+var table dash = table.new(position.top_right, 4, 4, bgcolor = color.new(#131722, 15), border_width = 0, frame_width = 1, frame_color = color.new(color.gray, 70))
+f_row(int r, bool on, Dw u, Dw d) =>
+    bool  useU = na(d.evT) or (not na(u.evT) and u.evT >= d.evT)
+    Dw    x    = useU ? u : d
+    bool  has  = on and not na(x.evT)
+    color tc   = has ? x.sc : color.gray
+    table.cell(dash, 0, r, u.tn, text_color = on ? color.white : color.gray, text_size = size.small, text_halign = text.align_left)
+    table.cell(dash, 1, r, not on ? "ปิด" : has ? (x.bull ? "▲ " : "▼ ") + x.st : "—", text_color = tc, text_size = size.small, text_halign = text.align_left)
+    table.cell(dash, 2, r, has and not na(x.lv) ? str.tostring(x.lv, format.mintick) : "", text_color = tc, text_size = size.small, text_halign = text.align_right)
+    table.cell(dash, 3, r, has ? str.format_time(x.evT, "dd/MM HH:mm", syminfo.timezone) : "", text_color = color.gray, text_size = size.small)
 if showDash and barstate.islast
-    table.cell(dash, 0, 0, "Sweep + MSS", text_color = color.white, text_size = size.small)
-    table.cell(dash, 1, 0, "▲ Bullish", text_color = cBull, text_size = size.small)
-    table.cell(dash, 2, 0, "▼ Bearish", text_color = cBear, text_size = size.small)
-    f_row(1, ok1, n1, u1d, d1d)
-    f_row(2, ok2, n2, u2d, d2d)
-    f_row(3, ok3, n3, u3d, d3d)
+    table.cell(dash, 0, 0, "TF", text_color = color.gray, text_size = size.small, text_halign = text.align_left)
+    table.cell(dash, 1, 0, "สถานะล่าสุด", text_color = color.gray, text_size = size.small, text_halign = text.align_left)
+    table.cell(dash, 2, 0, "ระดับ", text_color = color.gray, text_size = size.small)
+    table.cell(dash, 3, 0, "เวลา", text_color = color.gray, text_size = size.small)
+    f_row(1, ok1, u1d, d1d)
+    f_row(2, ok2, u2d, d2d)
+    f_row(3, ok3, u3d, d3d)
