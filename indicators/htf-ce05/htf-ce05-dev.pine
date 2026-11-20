@@ -1,6 +1,6 @@
 // ════════════════════════════════════════════════════════════════
-// HTF CE0.5 — DEV · Hidden Liquidity + Single Liquidity (HTF CE 0.5)  (Pine Script v6)
-// ✏️ ไฟล์สำรองสำหรับแก้/ทดลองเงื่อนไขใหม่ (สำเนาเดียวกับ MAIN ล่าสุด 2026-11-20) · ไฟล์หลัก (ห้ามแก้): indicators/htf-ce05/main/htf-ce05-main.pine
+// HTF CE0.5 — DEV · Hidden Liquidity + Single Liquidity (HTF CE 0.5) + Key Level POI  (Pine Script v6)
+// ✏️ ไฟล์สำรองสำหรับแก้/ทดลองเงื่อนไขใหม่ (สำเนาเดียวกับ MAIN ล่าสุด 2026-11-20) · ไฟล์หลัก: indicators/htf-ce05/main/htf-ce05-main.pine
 // ════════════════════════════════════════════════════════════════
 //@version=6
 indicator("HTF CE0.5 DEV", shorttitle = "HTF CE0.5 DEV", overlay = true, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 500, max_bars_back = 500)
@@ -8,12 +8,12 @@ indicator("HTF CE0.5 DEV", shorttitle = "HTF CE0.5 DEV", overlay = true, max_lin
 // ═══════════════════════ INPUTS ═══════════════════════
 string G1 = "Hidden Liquidity"
 bool   showHL   = input.bool(true, "เปิดใช้ Hidden Liquidity", group = G1)
-int    pivLen   = input.int(5, "Swing length (MSS / Key)", minval = 2, group = G1)
-int    idmLen   = input.int(2, "Swing length (IDM)", minval = 1, group = G1)
+int    pivLen   = input.int(5, "Swing length (MSS / Origin)", minval = 2, group = G1)
+int    idmLen   = input.int(2, "Swing length (IDM / LQ)", minval = 1, group = G1)
 string hlMode   = input.string("แท่งถัดจาก Key", "นิยาม Hidden liQ", options = ["แท่งถัดจาก Key", "แท่งต้น FVG"], group = G1)
 bool   needDisp = input.bool(true, "MSS ต้องมี FVG (displacement)", group = G1)
 bool   needIDM  = input.bool(true, "ต้องกิน IDM ก่อน", group = G1)
-bool   needKey  = input.bool(false, "ต้องแตะ Key Level ด้วย", group = G1)
+bool   needKey  = input.bool(false, "ต้องแตะ Origin (swing ต้นขา) ด้วย", group = G1)
 int    hlExpire = input.int(150, "หมดอายุหลัง MSS (แท่ง)", minval = 10, group = G1)
 
 string G2 = "Single Liquidity + CE 0.5"
@@ -21,6 +21,19 @@ bool   showSQ   = input.bool(true, "เปิดใช้ Single Liquidity", gro
 string htf      = input.timeframe("60", "HTF (ต้องสูงกว่า TF กราฟ)", group = G2)
 bool   needCE   = input.bool(true, "ต้องถึง CE 0.5", group = G2)
 int    sqExpire = input.int(150, "หมดอายุ (แท่ง)", minval = 10, group = G2)
+
+string G5 = "Key Level (MSNR ซ้อน OB / Demand-Supply)"
+bool   useKL    = input.bool(true, "ใช้ Key Level เป็น POI", group = G5)
+bool   klTF0    = input.bool(false, "ซ้อนโซน TF กราฟ", group = G5)
+bool   klUse1   = input.bool(true, "ซ้อนโซน TF 1", inline = "k1", group = G5)
+string klTF1    = input.timeframe("60", "", inline = "k1", group = G5)
+bool   klUse2   = input.bool(false, "ซ้อนโซน TF 2", inline = "k2", group = G5)
+string klTF2    = input.timeframe("240", "", inline = "k2", group = G5)
+string klMatch  = input.string("ทุก TF ที่เปิด", "ต้องซ้อน", options = ["ทุก TF ที่เปิด", "อย่างน้อย 1 TF"], group = G5)
+string klPick   = input.string("โซนสุดท้าย (ลึกสุด)", "เลือก Key", options = ["โซนสุดท้าย (ลึกสุด)", "ใกล้ราคาสุด"], group = G5)
+int    msnrLen  = input.int(3, "Swing length (MSNR)", minval = 1, group = G5)
+int    lqMin    = input.int(1, "LQ ก่อนถึง Key อย่างน้อย (swing ย่อย · 0 = ปิด)", minval = 0, group = G5)
+string entryMd  = input.string("Limit ที่ Key Level", "จุดเข้า", options = ["Limit ที่ Key Level", "ปิดแท่งสัญญาณ"], group = G5)
 
 string G4 = "Entry / SL / TP"
 bool   showBox  = input.bool(true, "แสดงกล่อง Entry / SL / TP", group = G4)
@@ -32,10 +45,11 @@ int    maxTrade = input.int(100, "ปิดออเดอร์อัตโน�
 string G3 = "การแสดงผล"
 color  cBull    = input.color(#2962FF, "Buy", group = G3)
 color  cBear    = input.color(#F23645, "Sell", group = G3)
-color  cKey     = input.color(#787B86, "Key Level / ปลายไส้", group = G3)
+color  cKey     = input.color(#787B86, "Origin / ปลายไส้", group = G3)
 color  cHid     = input.color(#FF9800, "Hidden / Single liQ", group = G3)
 color  cIdm     = input.color(#9C27B0, "IDM", group = G3)
 color  cCE      = input.color(#00BCD4, "CE 0.5", group = G3)
+color  cKL      = input.color(#E91E63, "Key Level", group = G3)
 int    fadeTr   = input.int(75, "ความจางของเซ็ตอัพที่ใช้แล้ว (0-95)", minval = 0, maxval = 95, group = G3)
 bool   showDash = input.bool(true, "แสดง Dashboard", group = G3)
 string dashPos  = input.string("Top Right", "ตำแหน่ง Dashboard", options = ["Top Right", "Bottom Right", "Top Left", "Bottom Left"], group = G3)
@@ -44,6 +58,7 @@ color cSL   = #F23645
 color cTP   = #089981
 color cFade = color.new(color.gray, fadeTr)
 color cNone = color.new(color.white, 100)
+bool  klLimit = useKL and entryMd == "Limit ที่ Key Level"
 
 // ═══════════════════════ HELPERS ═══════════════════════
 f_txt(int x, float y, string t, color c, string st) =>
@@ -61,6 +76,17 @@ f_fade(array<line> ls, array<label> lbs) =>
     array.clear(ls)
     array.clear(lbs)
 
+f_end(array<line> ls, array<label> lbs, line kl, label klb) =>
+    f_fade(ls, lbs)
+    if not na(kl)
+        line.set_color(kl, cFade)
+    if not na(klb)
+        label.set_textcolor(klb, cFade)
+
+f_tfStr(string tf) =>
+    int s = timeframe.in_seconds(tf)
+    s < 3600 ? "M" + str.tostring(s / 60) : s < 86400 ? "H" + str.tostring(s / 3600) : s < 604800 ? "D" + str.tostring(s / 86400) : tf
+
 type Trade
     int   kind
     bool  isLong
@@ -72,9 +98,8 @@ type Trade
     box   bxSL
     label lbE
 
-// เปิดออเดอร์ที่ราคาปิดแท่งสัญญาณ
-f_open(int kind, bool isLong, float sl0, float tp0, string name) =>
-    float entry = close
+// เปิดออเดอร์ (entry = ราคาปิดแท่งสัญญาณ หรือ Limit ที่ Key Level)
+f_open(int kind, bool isLong, float entry, float sl0, float tp0, string name) =>
     float sl    = isLong ? sl0 - slBuf : sl0 + slBuf
     float risk  = math.abs(entry - sl)
     float tp    = tp0
@@ -91,6 +116,229 @@ f_open(int kind, bool isLong, float sl0, float tp0, string name) =>
     Trade.new(kind, isLong, entry, sl, tp, bar_index, b1, b2, lb)
 
 var array<Trade> trades = array.new<Trade>()
+
+// ═══════════════════════ KEY LEVEL : โซน OB / Demand-Supply ═══════════════════════
+// OB  = แท่งสวนทางแท่งสุดท้ายก่อนแท่งที่ปิดทะลุ high/low ของมัน
+// D/S = แท่ง base (body ≤ 0.5 ATR) + แท่ง impulse (body ≥ 1 ATR) · โซน = ช่วงราคาแท่งนั้น
+f_zone() =>
+    float a    = ta.atr(14)
+    bool  base = math.abs(close[1] - open[1]) <= 0.5 * a[1]
+    bool  bOB  = close[1] < open[1] and close > open and close > high[1]
+    bool  sOB  = close[1] > open[1] and close < open and close < low[1]
+    bool  bDS  = base and close - open >= a
+    bool  sDS  = base and open - close >= a
+    int   bT   = bOB and bDS ? 3 : bOB ? 1 : bDS ? 2 : 0
+    int   sT   = sOB and sDS ? 3 : sOB ? 1 : sDS ? 2 : 0
+    [bT, sT, high[1], low[1], time]
+
+// ใช้เฉพาะแท่งที่ปิดแล้ว (ไม่ repaint)
+f_zoneC() =>
+    [bT, sT, zh, zl, t] = f_zone()
+    [bT[1], sT[1], zh[1], zl[1], t[1]]
+
+[z0b, z0s, z0h, z0l, z0t] = f_zoneC()
+[z1b, z1s, z1h, z1l, z1t] = request.security(syminfo.tickerid, klTF1, f_zoneC(), lookahead = barmerge.lookahead_on)
+[z2b, z2s, z2h, z2l, z2t] = request.security(syminfo.tickerid, klTF2, f_zoneC(), lookahead = barmerge.lookahead_on)
+
+int  chartSec = timeframe.in_seconds(timeframe.period)
+bool ok0 = useKL and klTF0
+bool ok1 = useKL and klUse1 and timeframe.in_seconds(klTF1) > chartSec
+bool ok2 = useKL and klUse2 and timeframe.in_seconds(klTF2) > chartSec
+bool n0  = ta.change(z0t) != 0
+bool n1  = ta.change(z1t) != 0
+bool n2  = ta.change(z2t) != 0
+
+var array<float> zT  = array.new<float>()
+var array<float> zB  = array.new<float>()
+var array<int>   zD  = array.new<int>()     // 1 = Bull, -1 = Bear
+var array<int>   zK  = array.new<int>()     // 0 = TF กราฟ, 1 = TF 1, 2 = TF 2
+var array<int>   zTy = array.new<int>()     // 1 = OB, 2 = D/S, 3 = ทั้งคู่
+
+f_addZone(float t, float b, int d, int k, int ty) =>
+    zT.push(t)
+    zB.push(b)
+    zD.push(d)
+    zK.push(k)
+    zTy.push(ty)
+    if zT.size() > 90
+        zT.shift()
+        zB.shift()
+        zD.shift()
+        zK.shift()
+        zTy.shift()
+
+if ok0 and n0
+    if z0b > 0
+        f_addZone(z0h, z0l, 1, 0, z0b)
+    if z0s > 0
+        f_addZone(z0h, z0l, -1, 0, z0s)
+if ok1 and n1
+    if z1b > 0
+        f_addZone(z1h, z1l, 1, 1, z1b)
+    if z1s > 0
+        f_addZone(z1h, z1l, -1, 1, z1s)
+if ok2 and n2
+    if z2b > 0
+        f_addZone(z2h, z2l, 1, 2, z2b)
+    if z2s > 0
+        f_addZone(z2h, z2l, -1, 2, z2s)
+
+// โซนที่ถูกปิดทะลุ = ใช้ไม่ได้แล้ว
+if zT.size() > 0
+    for i = zT.size() - 1 to 0
+        bool brk = zD.get(i) == 1 ? close < zB.get(i) : close > zT.get(i)
+        if brk
+            zT.remove(i)
+            zB.remove(i)
+            zD.remove(i)
+            zK.remove(i)
+            zTy.remove(i)
+
+// ═══════════════════════ KEY LEVEL : ระดับ MSNR (TF กราฟ) ═══════════════════════
+// V / A = body ของ swing low / high · RBS / SBR = body ของ swing ที่ถูกปิดทะลุ · QML = ไหล่ซ้ายของ Quasimodo
+var array<float>  lvP  = array.new<float>()
+var array<int>    lvD  = array.new<int>()
+var array<string> lvTy = array.new<string>()
+var array<int>    lvB  = array.new<int>()
+var array<int>    lvC  = array.new<int>()
+
+f_addLv(float p, int d, string ty, int b) =>
+    lvP.push(p)
+    lvD.push(d)
+    lvTy.push(ty)
+    lvB.push(b)
+    lvC.push(bar_index)
+    if lvP.size() > 120
+        lvP.shift()
+        lvD.shift()
+        lvTy.shift()
+        lvB.shift()
+        lvC.shift()
+
+float mph = ta.pivothigh(high, msnrLen, msnrLen)
+float mpl = ta.pivotlow(low, msnrLen, msnrLen)
+
+var array<float> uhP = array.new<float>()
+var array<float> uhV = array.new<float>()
+var array<int>   uhB = array.new<int>()
+var array<float> ulP = array.new<float>()
+var array<float> ulV = array.new<float>()
+var array<int>   ulB = array.new<int>()
+
+var float qH  = na
+var int   qHB = na
+var float qL  = na
+var int   qLB = na
+var float qmS = na
+var int   qmSB = na
+var float qmSTrig = na
+var float qmB = na
+var int   qmBB = na
+var float qmBTrig = na
+
+if useKL and not na(mph)
+    int   b  = bar_index - msnrLen
+    float bt = math.max(open[msnrLen], close[msnrLen])
+    f_addLv(bt, -1, "A", b)
+    uhP.push(mph)
+    uhV.push(bt)
+    uhB.push(b)
+    if uhP.size() > 40
+        uhP.shift()
+        uhV.shift()
+        uhB.shift()
+    if not na(qH) and mph > qH and qLB > qHB
+        qmS     := qH
+        qmSB    := qHB
+        qmSTrig := qL
+    qH  := mph
+    qHB := b
+
+if useKL and not na(mpl)
+    int   b  = bar_index - msnrLen
+    float bb = math.min(open[msnrLen], close[msnrLen])
+    f_addLv(bb, 1, "V", b)
+    ulP.push(mpl)
+    ulV.push(bb)
+    ulB.push(b)
+    if ulP.size() > 40
+        ulP.shift()
+        ulV.shift()
+        ulB.shift()
+    if not na(qL) and mpl < qL and qHB > qLB
+        qmB     := qL
+        qmBB    := qLB
+        qmBTrig := qH
+    qL  := mpl
+    qLB := b
+
+if uhP.size() > 0
+    for i = uhP.size() - 1 to 0
+        if close > uhP.get(i)
+            f_addLv(uhV.get(i), 1, "RBS", uhB.get(i))
+            uhP.remove(i)
+            uhV.remove(i)
+            uhB.remove(i)
+if ulP.size() > 0
+    for i = ulP.size() - 1 to 0
+        if close < ulP.get(i)
+            f_addLv(ulV.get(i), -1, "SBR", ulB.get(i))
+            ulP.remove(i)
+            ulV.remove(i)
+            ulB.remove(i)
+
+if not na(qmS) and close < qmSTrig
+    f_addLv(qmS, -1, "QML", qmSB)
+    qmS := na
+if not na(qmB) and close > qmBTrig
+    f_addLv(qmB, 1, "QML", qmBB)
+    qmB := na
+
+// ระดับนี้อยู่ในโซนทิศเดียวกันบน TF k หรือไม่
+f_zoneHas(float p, int d, int k) =>
+    bool   ok = false
+    string ty = ""
+    if zT.size() > 0
+        for i = 0 to zT.size() - 1
+            if zK.get(i) == k and zD.get(i) == d and p <= zT.get(i) and p >= zB.get(i)
+                int t = zTy.get(i)
+                ok := true
+                ty := t == 3 ? "OB+" + (d == 1 ? "Demand" : "Supply") : t == 2 ? (d == 1 ? "Demand" : "Supply") : "OB"
+                break
+    [ok, ty]
+
+f_tfLbl(int k) =>
+    k == 0 ? f_tfStr(timeframe.period) : k == 1 ? f_tfStr(klTF1) : f_tfStr(klTF2)
+
+// หา Key Level ในช่วงราคา [lo, hi] · ระดับ MSNR ที่ยังไม่ถูกใช้ + ซ้อนโซนตาม TF ที่เปิด
+f_findKL(int d, float lo, float hi) =>
+    float  best  = na
+    string bestT = ""
+    int    bestB = na
+    if lvP.size() > 0
+        for i = 0 to lvP.size() - 1
+            float p = lvP.get(i)
+            if lvD.get(i) == d and p >= lo and p <= hi
+                int    need  = 0
+                int    got   = 0
+                string tfTxt = ""
+                for k = 0 to 2
+                    bool en = k == 0 ? ok0 : k == 1 ? ok1 : ok2
+                    if en
+                        need += 1
+                        [has, zty] = f_zoneHas(p, d, k)
+                        if has
+                            got   += 1
+                            tfTxt += (tfTxt == "" ? "" : " + ") + zty + " " + f_tfLbl(k)
+                bool pass = need == 0 or (klMatch == "ทุก TF ที่เปิด" ? got == need : got >= 1)
+                if pass
+                    bool deep   = klPick == "โซนสุดท้าย (ลึกสุด)"
+                    bool better = na(best) or (deep ? (d == 1 ? p < best : p > best) : (d == 1 ? p > best : p < best))
+                    if better
+                        best  := p
+                        bestT := lvTy.get(i) + " · " + tfTxt
+                        bestB := lvB.get(i)
+    [best, bestT, bestB]
 
 // ═══════════════════════ SWINGS ═══════════════════════
 float ph  = ta.pivothigh(high, pivLen, pivLen)
@@ -122,6 +370,10 @@ var float        hbHid  = na
 var float        hbIdm  = na
 var bool         hbIdmS = false
 var float        hbTP   = na
+var int          hbLQ   = 0
+var float        hbKL   = na
+var line         hbKLl  = na
+var label        hbKLb  = na
 var line         hbLK   = na
 var line         hbLH   = na
 var line         hbLI   = na
@@ -157,7 +409,7 @@ if bullMSS
                     break
     if idx >= 1 and hid > lo and (fvg or not needDisp)
         if hbA
-            f_fade(hbLs, hbLbs)
+            f_end(hbLs, hbLbs, hbKLl, hbKLb)
         hbA    := true
         hbMss  := bar_index
         hbKey  := lo
@@ -165,12 +417,15 @@ if bullMSS
         hbIdm  := na
         hbIdmS := false
         hbTP   := high
-        hbSt   := needIDM ? "รอ IDM" : "รอกวาด Hidden"
+        hbLQ   := 0
+        hbKL   := na
+        hbKLl  := na
+        hbKLb  := na
         hbLs.push(line.new(shB, shP, bar_index, shP, color = cBull, style = line.style_dotted))
         hbLbs.push(f_txt(int(math.round((shB + bar_index) / 2)), shP, "MSS", cBull, label.style_label_down))
         hbLK := line.new(bar_index - idx, lo, bar_index, lo, color = cKey, width = 2)
         hbLs.push(hbLK)
-        hbLbs.push(f_txt(bar_index - idx, lo, "Key", cKey, label.style_label_up))
+        hbLbs.push(f_txt(bar_index - idx, lo, "Origin", cKey, label.style_label_up))
         hbLH := line.new(bar_index - hOff, hid, bar_index, hid, color = cHid, style = line.style_dashed)
         hbLs.push(hbLH)
         hbLbs.push(f_txt(bar_index - hOff, hid, "hidden liQ", cHid, label.style_label_left))
@@ -178,6 +433,8 @@ if bullMSS
 
 if hbA and bar_index > hbMss
     hbTP := math.max(hbTP, high)
+    if not na(ipl) and bar_index - idmLen > hbMss
+        hbLQ += 1
     if na(hbIdm) and not na(ipl) and bar_index - idmLen > hbMss and ipl > hbHid
         hbIdm := ipl
         hbLI  := line.new(bar_index - idmLen, ipl, bar_index, ipl, color = cIdm, style = line.style_dotted)
@@ -185,26 +442,45 @@ if hbA and bar_index > hbMss
         hbLbs.push(f_txt(bar_index - idmLen, ipl, "IDM", cIdm, label.style_label_up))
     if not na(hbIdm) and not hbIdmS and low < hbIdm
         hbIdmS := true
-        hbSt   := "รอกวาด Hidden"
     line.set_x2(hbLK, bar_index)
     line.set_x2(hbLH, bar_index)
     if not na(hbLI)
         line.set_x2(hbLI, bar_index)
+    // Key Level ในขา MSS (Origin → High ของขา)
+    if useKL
+        [kl, klt, klb] = f_findKL(1, hbKey, hbTP)
+        hbKL := kl
+        if not na(kl)
+            if na(hbKLl)
+                hbKLl := line.new(klb, kl, bar_index, kl, color = cKL, width = 2)
+                hbKLb := label.new(bar_index, kl, "", style = label.style_label_left, color = cNone, textcolor = cKL, size = size.tiny)
+            line.set_xy1(hbKLl, klb, kl)
+            line.set_xy2(hbKLl, bar_index, kl)
+            label.set_xy(hbKLb, bar_index, kl)
+            label.set_text(hbKLb, "Key " + klt)
+        else if not na(hbKLl)
+            line.delete(hbKLl)
+            label.delete(hbKLb)
+            hbKLl := na
+            hbKLb := na
     bool okIdm = not needIDM or hbIdmS
+    bool klOK  = not useKL or (not na(hbKL) and low <= hbKL and hbLQ >= lqMin)
+    hbSt := not okIdm ? "รอ IDM" : useKL and na(hbKL) ? "ไม่มี Key Level" : useKL and hbLQ < lqMin ? "รอ LQ" : useKL ? "รอแตะ Key" : "รอกวาด Hidden"
     if close < hbKey
         hbA  := false
         hbSt := "Invalid"
-        f_fade(hbLs, hbLbs)
-    else if okIdm and low < hbHid and (not needKey or low <= hbKey)
+        f_end(hbLs, hbLbs, hbKLl, hbKLb)
+    else if okIdm and low < hbHid and (not needKey or low <= hbKey) and klOK
         hbA   := false
         hbSig := true
         hbSt  := "BUY เปิดอยู่"
-        f_fade(hbLs, hbLbs)
-        trades.push(f_open(0, true, hbKey, hlTPMode == "RR คงที่" ? na : hbTP, "Hidden"))
+        float ent = klLimit ? math.min(hbKL, open) : close
+        f_end(hbLs, hbLbs, hbKLl, hbKLb)
+        trades.push(f_open(0, true, ent, hbKey, hlTPMode == "RR คงที่" ? na : hbTP, "Hidden"))
     else if bar_index - hbMss > hlExpire
         hbA  := false
         hbSt := "หมดอายุ"
-        f_fade(hbLs, hbLbs)
+        f_end(hbLs, hbLbs, hbKLl, hbKLb)
 
 // ═══════════════════════ HIDDEN LIQUIDITY : SELL ═══════════════════════
 var bool         hsA    = false
@@ -214,6 +490,10 @@ var float        hsHid  = na
 var float        hsIdm  = na
 var bool         hsIdmS = false
 var float        hsTP   = na
+var int          hsLQ   = 0
+var float        hsKL   = na
+var line         hsKLl  = na
+var label        hsKLb  = na
 var line         hsLK   = na
 var line         hsLH   = na
 var line         hsLI   = na
@@ -249,7 +529,7 @@ if bearMSS
                     break
     if idx >= 1 and hid < hi and (fvg or not needDisp)
         if hsA
-            f_fade(hsLs, hsLbs)
+            f_end(hsLs, hsLbs, hsKLl, hsKLb)
         hsA    := true
         hsMss  := bar_index
         hsKey  := hi
@@ -257,12 +537,15 @@ if bearMSS
         hsIdm  := na
         hsIdmS := false
         hsTP   := low
-        hsSt   := needIDM ? "รอ IDM" : "รอกวาด Hidden"
+        hsLQ   := 0
+        hsKL   := na
+        hsKLl  := na
+        hsKLb  := na
         hsLs.push(line.new(slB, slP, bar_index, slP, color = cBear, style = line.style_dotted))
         hsLbs.push(f_txt(int(math.round((slB + bar_index) / 2)), slP, "MSS", cBear, label.style_label_up))
         hsLK := line.new(bar_index - idx, hi, bar_index, hi, color = cKey, width = 2)
         hsLs.push(hsLK)
-        hsLbs.push(f_txt(bar_index - idx, hi, "Key", cKey, label.style_label_down))
+        hsLbs.push(f_txt(bar_index - idx, hi, "Origin", cKey, label.style_label_down))
         hsLH := line.new(bar_index - hOff, hid, bar_index, hid, color = cHid, style = line.style_dashed)
         hsLs.push(hsLH)
         hsLbs.push(f_txt(bar_index - hOff, hid, "hidden liQ", cHid, label.style_label_left))
@@ -270,6 +553,8 @@ if bearMSS
 
 if hsA and bar_index > hsMss
     hsTP := math.min(hsTP, low)
+    if not na(iph) and bar_index - idmLen > hsMss
+        hsLQ += 1
     if na(hsIdm) and not na(iph) and bar_index - idmLen > hsMss and iph < hsHid
         hsIdm := iph
         hsLI  := line.new(bar_index - idmLen, iph, bar_index, iph, color = cIdm, style = line.style_dotted)
@@ -277,26 +562,44 @@ if hsA and bar_index > hsMss
         hsLbs.push(f_txt(bar_index - idmLen, iph, "IDM", cIdm, label.style_label_down))
     if not na(hsIdm) and not hsIdmS and high > hsIdm
         hsIdmS := true
-        hsSt   := "รอกวาด Hidden"
     line.set_x2(hsLK, bar_index)
     line.set_x2(hsLH, bar_index)
     if not na(hsLI)
         line.set_x2(hsLI, bar_index)
+    if useKL
+        [kl, klt, klb] = f_findKL(-1, hsTP, hsKey)
+        hsKL := kl
+        if not na(kl)
+            if na(hsKLl)
+                hsKLl := line.new(klb, kl, bar_index, kl, color = cKL, width = 2)
+                hsKLb := label.new(bar_index, kl, "", style = label.style_label_left, color = cNone, textcolor = cKL, size = size.tiny)
+            line.set_xy1(hsKLl, klb, kl)
+            line.set_xy2(hsKLl, bar_index, kl)
+            label.set_xy(hsKLb, bar_index, kl)
+            label.set_text(hsKLb, "Key " + klt)
+        else if not na(hsKLl)
+            line.delete(hsKLl)
+            label.delete(hsKLb)
+            hsKLl := na
+            hsKLb := na
     bool okIdm = not needIDM or hsIdmS
+    bool klOK  = not useKL or (not na(hsKL) and high >= hsKL and hsLQ >= lqMin)
+    hsSt := not okIdm ? "รอ IDM" : useKL and na(hsKL) ? "ไม่มี Key Level" : useKL and hsLQ < lqMin ? "รอ LQ" : useKL ? "รอแตะ Key" : "รอกวาด Hidden"
     if close > hsKey
         hsA  := false
         hsSt := "Invalid"
-        f_fade(hsLs, hsLbs)
-    else if okIdm and high > hsHid and (not needKey or high >= hsKey)
+        f_end(hsLs, hsLbs, hsKLl, hsKLb)
+    else if okIdm and high > hsHid and (not needKey or high >= hsKey) and klOK
         hsA   := false
         hsSig := true
         hsSt  := "SELL เปิดอยู่"
-        f_fade(hsLs, hsLbs)
-        trades.push(f_open(1, false, hsKey, hlTPMode == "RR คงที่" ? na : hsTP, "Hidden"))
+        float ent = klLimit ? math.max(hsKL, open) : close
+        f_end(hsLs, hsLbs, hsKLl, hsKLb)
+        trades.push(f_open(1, false, ent, hsKey, hlTPMode == "RR คงที่" ? na : hsTP, "Hidden"))
     else if bar_index - hsMss > hlExpire
         hsA  := false
         hsSt := "หมดอายุ"
-        f_fade(hsLs, hsLbs)
+        f_end(hsLs, hsLbs, hsKLl, hsKLb)
 
 // ═══════════════════════ SINGLE LIQUIDITY + CE 0.5 (HTF) ═══════════════════════
 // แท่ง 1 = แท่งก่อนหน้า, แท่ง 2 = แท่งไส้ยาว (swing), แท่ง 3 = แท่งถัดไป (single liQ)
@@ -311,7 +614,7 @@ f_htf() =>
 
 [qBOK, qBCE, qBLiq, qBExt, qSOK, qSCE, qSLiq, qSExt, qWickT, qThirdT] = request.security(syminfo.tickerid, htf, f_htf(), lookahead = barmerge.lookahead_on)
 
-bool htfOK  = timeframe.in_seconds(htf) > timeframe.in_seconds(timeframe.period)
+bool htfOK  = timeframe.in_seconds(htf) > chartSec
 bool newHtf = ta.change(qThirdT) != 0
 
 // ----- BUY -----
@@ -320,6 +623,10 @@ var int          qbS   = na
 var float        qbCE  = na
 var float        qbLq  = na
 var float        qbEx  = na
+var int          qbLQ  = 0
+var float        qbKL  = na
+var line         qbKLl = na
+var label        qbKLb = na
 var line         qbL1  = na
 var line         qbL2  = na
 var line         qbL3  = na
@@ -330,13 +637,17 @@ bool qbSig = false
 
 if showSQ and htfOK and newHtf and qBOK
     if qbA
-        f_fade(qbLs, qbLbs)
-    qbA  := true
-    qbS  := bar_index
-    qbCE := qBCE
-    qbLq := qBLiq
-    qbEx := qBExt
-    qbSt := "รอกวาด Single liQ"
+        f_end(qbLs, qbLbs, qbKLl, qbKLb)
+    qbA   := true
+    qbS   := bar_index
+    qbCE  := qBCE
+    qbLq  := qBLiq
+    qbEx  := qBExt
+    qbLQ  := 0
+    qbKL  := na
+    qbKLl := na
+    qbKLb := na
+    qbSt  := "รอกวาด Single liQ"
     qbL1 := line.new(qThirdT, qBLiq, time, qBLiq, xloc = xloc.bar_time, color = cHid, style = line.style_dashed)
     qbL2 := line.new(qWickT, qBCE, time, qBCE, xloc = xloc.bar_time, color = cCE, width = 2)
     qbL3 := line.new(qWickT, qBExt, time, qBExt, xloc = xloc.bar_time, color = cKey, style = line.style_dotted)
@@ -349,20 +660,42 @@ else if qbA
     line.set_x2(qbL1, time)
     line.set_x2(qbL2, time)
     line.set_x2(qbL3, time)
+    if not na(ipl) and bar_index - idmLen > qbS
+        qbLQ += 1
+    // Key Level ระหว่างปลายไส้ HTF กับ single liQ
+    if useKL
+        [kl, klt, klb] = f_findKL(1, qbEx, qbLq)
+        qbKL := kl
+        if not na(kl)
+            if na(qbKLl)
+                qbKLl := line.new(klb, kl, bar_index, kl, color = cKL, width = 2)
+                qbKLb := label.new(bar_index, kl, "", style = label.style_label_left, color = cNone, textcolor = cKL, size = size.tiny)
+            line.set_xy1(qbKLl, klb, kl)
+            line.set_xy2(qbKLl, bar_index, kl)
+            label.set_xy(qbKLb, bar_index, kl)
+            label.set_text(qbKLb, "Key " + klt)
+        else if not na(qbKLl)
+            line.delete(qbKLl)
+            label.delete(qbKLb)
+            qbKLl := na
+            qbKLb := na
+    bool klOK = not useKL or (not na(qbKL) and low <= qbKL and qbLQ >= lqMin)
+    qbSt := useKL and na(qbKL) ? "ไม่มี Key Level" : useKL and qbLQ < lqMin ? "รอ LQ" : useKL ? "รอแตะ Key" : "รอกวาด Single liQ"
     if close < qbEx
         qbA  := false
         qbSt := "Invalid"
-        f_fade(qbLs, qbLbs)
-    else if low < qbLq and (not needCE or low <= qbCE)
+        f_end(qbLs, qbLbs, qbKLl, qbKLb)
+    else if low < qbLq and (not needCE or low <= qbCE) and klOK
         qbA   := false
         qbSig := true
         qbSt  := "BUY เปิดอยู่"
-        f_fade(qbLs, qbLbs)
-        trades.push(f_open(2, true, qbEx, na, "Single"))
+        float ent = klLimit ? math.min(qbKL, open) : close
+        f_end(qbLs, qbLbs, qbKLl, qbKLb)
+        trades.push(f_open(2, true, ent, qbEx, na, "Single"))
     else if bar_index - qbS > sqExpire
         qbA  := false
         qbSt := "หมดอายุ"
-        f_fade(qbLs, qbLbs)
+        f_end(qbLs, qbLbs, qbKLl, qbKLb)
 
 // ----- SELL -----
 var bool         qsA   = false
@@ -370,6 +703,10 @@ var int          qsS   = na
 var float        qsCE  = na
 var float        qsLq  = na
 var float        qsEx  = na
+var int          qsLQ  = 0
+var float        qsKL  = na
+var line         qsKLl = na
+var label        qsKLb = na
 var line         qsL1  = na
 var line         qsL2  = na
 var line         qsL3  = na
@@ -380,13 +717,17 @@ bool qsSig = false
 
 if showSQ and htfOK and newHtf and qSOK
     if qsA
-        f_fade(qsLs, qsLbs)
-    qsA  := true
-    qsS  := bar_index
-    qsCE := qSCE
-    qsLq := qSLiq
-    qsEx := qSExt
-    qsSt := "รอกวาด Single liQ"
+        f_end(qsLs, qsLbs, qsKLl, qsKLb)
+    qsA   := true
+    qsS   := bar_index
+    qsCE  := qSCE
+    qsLq  := qSLiq
+    qsEx  := qSExt
+    qsLQ  := 0
+    qsKL  := na
+    qsKLl := na
+    qsKLb := na
+    qsSt  := "รอกวาด Single liQ"
     qsL1 := line.new(qThirdT, qSLiq, time, qSLiq, xloc = xloc.bar_time, color = cHid, style = line.style_dashed)
     qsL2 := line.new(qWickT, qSCE, time, qSCE, xloc = xloc.bar_time, color = cCE, width = 2)
     qsL3 := line.new(qWickT, qSExt, time, qSExt, xloc = xloc.bar_time, color = cKey, style = line.style_dotted)
@@ -399,20 +740,41 @@ else if qsA
     line.set_x2(qsL1, time)
     line.set_x2(qsL2, time)
     line.set_x2(qsL3, time)
+    if not na(iph) and bar_index - idmLen > qsS
+        qsLQ += 1
+    if useKL
+        [kl, klt, klb] = f_findKL(-1, qsLq, qsEx)
+        qsKL := kl
+        if not na(kl)
+            if na(qsKLl)
+                qsKLl := line.new(klb, kl, bar_index, kl, color = cKL, width = 2)
+                qsKLb := label.new(bar_index, kl, "", style = label.style_label_left, color = cNone, textcolor = cKL, size = size.tiny)
+            line.set_xy1(qsKLl, klb, kl)
+            line.set_xy2(qsKLl, bar_index, kl)
+            label.set_xy(qsKLb, bar_index, kl)
+            label.set_text(qsKLb, "Key " + klt)
+        else if not na(qsKLl)
+            line.delete(qsKLl)
+            label.delete(qsKLb)
+            qsKLl := na
+            qsKLb := na
+    bool klOK = not useKL or (not na(qsKL) and high >= qsKL and qsLQ >= lqMin)
+    qsSt := useKL and na(qsKL) ? "ไม่มี Key Level" : useKL and qsLQ < lqMin ? "รอ LQ" : useKL ? "รอแตะ Key" : "รอกวาด Single liQ"
     if close > qsEx
         qsA  := false
         qsSt := "Invalid"
-        f_fade(qsLs, qsLbs)
-    else if high > qsLq and (not needCE or high >= qsCE)
+        f_end(qsLs, qsLbs, qsKLl, qsKLb)
+    else if high > qsLq and (not needCE or high >= qsCE) and klOK
         qsA   := false
         qsSig := true
         qsSt  := "SELL เปิดอยู่"
-        f_fade(qsLs, qsLbs)
-        trades.push(f_open(3, false, qsEx, na, "Single"))
+        float ent = klLimit ? math.max(qsKL, open) : close
+        f_end(qsLs, qsLbs, qsKLl, qsKLb)
+        trades.push(f_open(3, false, ent, qsEx, na, "Single"))
     else if bar_index - qsS > sqExpire
         qsA  := false
         qsSt := "หมดอายุ"
-        f_fade(qsLs, qsLbs)
+        f_end(qsLs, qsLbs, qsKLl, qsKLb)
 
 // ═══════════════════════ TRADE MANAGEMENT ═══════════════════════
 if trades.size() > 0
@@ -448,6 +810,19 @@ if trades.size() > 0
                 box.set_right(t.bxTP, bar_index + 1)
                 box.set_right(t.bxSL, bar_index + 1)
 
+// ระดับ MSNR ที่ราคาแตะแล้ว = ถูกใช้ ไม่นับเป็น Key อีก
+if lvP.size() > 0
+    for i = lvP.size() - 1 to 0
+        if bar_index > lvC.get(i)
+            float p    = lvP.get(i)
+            bool  used = lvD.get(i) == 1 ? low <= p : high >= p
+            if used
+                lvP.remove(i)
+                lvD.remove(i)
+                lvTy.remove(i)
+                lvB.remove(i)
+                lvC.remove(i)
+
 plotshape(hbSig or qbSig, "Entry Buy", shape.triangleup, location.belowbar, cBull, size = size.tiny)
 plotshape(hsSig or qsSig, "Entry Sell", shape.triangledown, location.abovebar, cBear, size = size.tiny)
 
@@ -460,32 +835,45 @@ f_pos(string p) =>
         => position.bottom_left
 
 f_col(string s) =>
-    str.contains(s, "✓") ? cTP : str.contains(s, "✗") ? cSL : str.contains(s, "BUY") ? cBull : str.contains(s, "SELL") ? cBear : (s == "Invalid" or s == "หมดอายุ" or s == "หมดเวลา") ? color.gray : color.white
+    str.contains(s, "✓") ? cTP : str.contains(s, "✗") ? cSL : str.contains(s, "BUY") ? cBull : str.contains(s, "SELL") ? cBear : (s == "Invalid" or s == "หมดอายุ" or s == "หมดเวลา" or s == "ไม่มี Key Level") ? color.gray : color.white
 
-f_lvl(bool active, float v) =>
-    active ? str.tostring(v, format.mintick) : "-"
+f_lvl(bool active, float kl, float v) =>
+    active ? str.tostring(useKL and not na(kl) ? kl : v, format.mintick) : "-"
 
-var table dash = table.new(f_pos(dashPos), 3, 6, bgcolor = color.new(#131722, 10), border_width = 1, border_color = color.new(color.gray, 70))
+f_klInfo() =>
+    string s = ""
+    if ok0
+        s += f_tfStr(timeframe.period)
+    if ok1
+        s += (s == "" ? "" : " + ") + f_tfStr(klTF1)
+    if ok2
+        s += (s == "" ? "" : " + ") + f_tfStr(klTF2)
+    not useKL ? "ปิด" : s == "" ? "ไม่มี TF ใหญ่กว่ากราฟ · ใช้ MSNR อย่างเดียว" : s + (klMatch == "ทุก TF ที่เปิด" ? " (ทุก TF)" : " (≥1 TF)")
+
+var table dash = table.new(f_pos(dashPos), 3, 7, bgcolor = color.new(#131722, 10), border_width = 1, border_color = color.new(color.gray, 70))
 
 if showDash and barstate.islast
     table.cell(dash, 0, 0, "HTF CE0.5", text_color = color.white, text_size = size.small)
     table.cell(dash, 1, 0, "สถานะ", text_color = color.white, text_size = size.small)
-    table.cell(dash, 2, 0, "Level", text_color = color.white, text_size = size.small)
+    table.cell(dash, 2, 0, useKL ? "Key / Level" : "Level", text_color = color.white, text_size = size.small)
     table.cell(dash, 0, 1, "Hidden ▲", text_color = cBull, text_size = size.small)
     table.cell(dash, 1, 1, hbSt, text_color = f_col(hbSt), text_size = size.small)
-    table.cell(dash, 2, 1, f_lvl(hbA, hbHid), text_color = cHid, text_size = size.small)
+    table.cell(dash, 2, 1, f_lvl(hbA, hbKL, hbHid), text_color = useKL ? cKL : cHid, text_size = size.small)
     table.cell(dash, 0, 2, "Hidden ▼", text_color = cBear, text_size = size.small)
     table.cell(dash, 1, 2, hsSt, text_color = f_col(hsSt), text_size = size.small)
-    table.cell(dash, 2, 2, f_lvl(hsA, hsHid), text_color = cHid, text_size = size.small)
+    table.cell(dash, 2, 2, f_lvl(hsA, hsKL, hsHid), text_color = useKL ? cKL : cHid, text_size = size.small)
     table.cell(dash, 0, 3, "Single ▲", text_color = cBull, text_size = size.small)
     table.cell(dash, 1, 3, qbSt, text_color = f_col(qbSt), text_size = size.small)
-    table.cell(dash, 2, 3, f_lvl(qbA, qbCE), text_color = cCE, text_size = size.small)
+    table.cell(dash, 2, 3, f_lvl(qbA, qbKL, qbCE), text_color = useKL ? cKL : cCE, text_size = size.small)
     table.cell(dash, 0, 4, "Single ▼", text_color = cBear, text_size = size.small)
     table.cell(dash, 1, 4, qsSt, text_color = f_col(qsSt), text_size = size.small)
-    table.cell(dash, 2, 4, f_lvl(qsA, qsCE), text_color = cCE, text_size = size.small)
+    table.cell(dash, 2, 4, f_lvl(qsA, qsKL, qsCE), text_color = useKL ? cKL : cCE, text_size = size.small)
     table.cell(dash, 0, 5, "HTF", text_color = color.gray, text_size = size.small)
-    table.cell(dash, 1, 5, htfOK ? htf : "HTF ต้องสูงกว่า TF กราฟ", text_color = htfOK ? color.gray : cBear, text_size = size.small)
+    table.cell(dash, 1, 5, htfOK ? f_tfStr(htf) : "HTF ต้องสูงกว่า TF กราฟ", text_color = htfOK ? color.gray : cBear, text_size = size.small)
     table.cell(dash, 2, 5, "", text_size = size.small)
+    table.cell(dash, 0, 6, "Key ซ้อน", text_color = color.gray, text_size = size.small)
+    table.cell(dash, 1, 6, f_klInfo(), text_color = useKL ? cKL : color.gray, text_size = size.small)
+    table.cell(dash, 2, 6, "", text_size = size.small)
 
 // ═══════════════════════ ALERTS ═══════════════════════
 alertcondition(hbSig, "Hidden BUY", "Hidden Liquidity BUY | {{ticker}} {{interval}} @ {{close}}")
