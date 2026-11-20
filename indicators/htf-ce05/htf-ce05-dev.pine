@@ -1,6 +1,6 @@
 // ════════════════════════════════════════════════════════════════
 // HTF CE0.5 — DEV · 3 เซ็ตอัพ (Hidden / Single / single liQ + ยืนยัน LTF) · 2 ออเดอร์ (Key Level + CE 0.5)  (Pine Script v6)
-// ✏️ ไฟล์สำรองสำหรับแก้/ทดลอง (2026-11-20 · กัน Limit ผิดฝั่ง · SL buffer ATR · BE · สถิติแยกเซ็ตอัพ · MSS ต้องยืนยัน · ยังไม่ย้ายเข้า MAIN) · ไฟล์หลัก: indicators/htf-ce05/main/htf-ce05-main.pine
+// ✏️ ไฟล์สำรองสำหรับแก้/ทดลอง (2026-11-20 · กัน Limit ผิดฝั่ง · SL buffer ATR · BE · สถิติแยกเซ็ตอัพ · MSS ต้องยืนยัน · Single ต้องมี MSS · ยังไม่ย้ายเข้า MAIN) · ไฟล์หลัก: indicators/htf-ce05/main/htf-ce05-main.pine
 // ════════════════════════════════════════════════════════════════
 //@version=6
 indicator("HTF CE0.5 DEV", shorttitle = "HTF CE0.5 DEV", overlay = true, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 500, max_bars_back = 500)
@@ -21,6 +21,7 @@ bool   needFvg = input.bool(true, "แท่ง MSS ต้องมี FVG", gro
 int    mssBars = input.int(1, "ยืนยัน MSS: แท่งถัดไปต้องวิ่งต่อภายใน (แท่ง) · 0 = ไม่ต้องยืนยัน", minval = 0, maxval = 5, group = G1)
 string mssConf = input.string("ปิดเลย High/Low แท่งทะลุ", "วิ่งต่อ =", options = ["ปิดเลย High/Low แท่งทะลุ", "ปิดเลยระดับ MSS"], group = G1)
 bool   needIDM = input.bool(true, "Hidden: ต้องกิน IDM ก่อนเข้า", group = G1)
+bool   mss2    = input.bool(true, "Single: ต้องมี MSS บน TF กราฟก่อนตั้ง CE", group = G1)
 int    lqMin   = input.int(1, "LQ ก่อนถึง Key อย่างน้อย (swing ย่อย · 0 = ปิด)", minval = 0, group = G1)
 
 string G5 = "Key Level (ออเดอร์ A)"
@@ -603,7 +604,7 @@ f_newEv(bool bull, int sT, int nT, float ext, float ce, float liq, bool mssBefor
         ev.ls.push(line.new(mFrom, mL, time, mL, xloc = xloc.bar_time, color = col, style = line.style_dotted))
         ev.lbs.push(label.new(mFrom, mL, "MSS", xloc = xloc.bar_time, style = bull ? label.style_label_down : label.style_label_up, color = cNone, textcolor = col, size = size.tiny))
     ev.st1 := not use1 ? "ปิด" : ev.m1 ? "รอ Key Level" : "รอ MSS"
-    ev.st2 := not use2 ? "ปิด" : ev.single ? "—" : "ไม่ใช่ Single"
+    ev.st2 := not use2 ? "ปิด" : not ev.single ? "ไม่ใช่ Single" : mss2 and not ev.m1 ? "รอ MSS" : "—"
     ev.st3 := not use3 ? "ปิด" : ev.single ? "รอราคาถึง CE" : "ไม่ใช่ Single"
     ev
 
@@ -618,10 +619,18 @@ f_ev(Ev ev, bool mssNow, float mssL, int mssFrom, float ipv) =>
     else if bar_index - ev.sBar > evExp
         f_kill(ev, "หมดอายุ")
     else
-        // ── 2) Single Liquidity: Limit ที่ CE 0.5 (ต้องมี MSNR ซ้อน) ──
+        // ── MSS บน TF กราฟหลังแท่ง Sweep (ใช้ร่วม: Hidden + Single) ──
+        if not ev.m1 and mssNow
+            ev.m1    := true
+            ev.m1Bar := bar_index
+            ev.ls.push(line.new(mssFrom, mssL, time, mssL, xloc = xloc.bar_time, color = col, style = line.style_dotted))
+            ev.lbs.push(label.new(mssFrom, mssL, "MSS", xloc = xloc.bar_time, style = bull ? label.style_label_down : label.style_label_up, color = cNone, textcolor = col, size = size.tiny))
+        // ── 2) Single Liquidity: MSS → Limit ที่ CE 0.5 (ต้องมี MSNR ซ้อน) ──
         if use2 and ev.single and not ev.ceDone
             [cOk, cTy] = f_ceMsnr(d, ev.ce)
-            if cOk or not ceNeed
+            if mss2 and not ev.m1
+                ev.st2 := "รอ MSS"
+            else if cOk or not ceNeed
                 string r = f_place(ev, 2, "CE" + (cOk ? " + " + cTy : ""), ev.ce, ev.ext, na)
                 ev.ceDone := true
                 ev.st2    := r == "" ? "Limit CE" : "CE: " + r
@@ -630,11 +639,6 @@ f_ev(Ev ev, bool mssNow, float mssL, int mssFrom, float ipv) =>
         // ── 1) Hidden Liquidity: MSS → Key Level ระหว่างปลายไส้ sweep กับ hidden liQ ──
         if use1
             ev.leg1 := bull ? math.max(ev.leg1, high) : math.min(ev.leg1, low)
-            if not ev.m1 and mssNow
-                ev.m1    := true
-                ev.m1Bar := bar_index
-                ev.ls.push(line.new(mssFrom, mssL, time, mssL, xloc = xloc.bar_time, color = col, style = line.style_dotted))
-                ev.lbs.push(label.new(mssFrom, mssL, "MSS", xloc = xloc.bar_time, style = bull ? label.style_label_down : label.style_label_up, color = cNone, textcolor = col, size = size.tiny))
             if ev.m1
                 if not na(ipv) and bar_index - idmLen > ev.m1Bar
                     ev.lq1 := ev.lq1 + 1
