@@ -1,0 +1,495 @@
+// ════════════════════════════════════════════════════════════════
+// HTF CE0.5 — DEV · Hidden Liquidity + Single Liquidity (HTF CE 0.5)  (Pine Script v6)
+// ✏️ ไฟล์สำรองสำหรับแก้/ทดลองเงื่อนไขใหม่ (สำเนาเดียวกับ MAIN ล่าสุด 2026-11-20) · ไฟล์หลัก (ห้ามแก้): indicators/htf-ce05/main/htf-ce05-main.pine
+// ════════════════════════════════════════════════════════════════
+//@version=6
+indicator("HTF CE0.5 DEV", shorttitle = "HTF CE0.5 DEV", overlay = true, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 500, max_bars_back = 500)
+
+// ═══════════════════════ INPUTS ═══════════════════════
+string G1 = "Hidden Liquidity"
+bool   showHL   = input.bool(true, "เปิดใช้ Hidden Liquidity", group = G1)
+int    pivLen   = input.int(5, "Swing length (MSS / Key)", minval = 2, group = G1)
+int    idmLen   = input.int(2, "Swing length (IDM)", minval = 1, group = G1)
+string hlMode   = input.string("แท่งถัดจาก Key", "นิยาม Hidden liQ", options = ["แท่งถัดจาก Key", "แท่งต้น FVG"], group = G1)
+bool   needDisp = input.bool(true, "MSS ต้องมี FVG (displacement)", group = G1)
+bool   needIDM  = input.bool(true, "ต้องกิน IDM ก่อน", group = G1)
+bool   needKey  = input.bool(false, "ต้องแตะ Key Level ด้วย", group = G1)
+int    hlExpire = input.int(150, "หมดอายุหลัง MSS (แท่ง)", minval = 10, group = G1)
+
+string G2 = "Single Liquidity + CE 0.5"
+bool   showSQ   = input.bool(true, "เปิดใช้ Single Liquidity", group = G2)
+string htf      = input.timeframe("60", "HTF (ต้องสูงกว่า TF กราฟ)", group = G2)
+bool   needCE   = input.bool(true, "ต้องถึง CE 0.5", group = G2)
+int    sqExpire = input.int(150, "หมดอายุ (แท่ง)", minval = 10, group = G2)
+
+string G4 = "Entry / SL / TP"
+bool   showBox  = input.bool(true, "แสดงกล่อง Entry / SL / TP", group = G4)
+string hlTPMode = input.string("High/Low หลัง MSS", "TP ของ Hidden", options = ["High/Low หลัง MSS", "RR คงที่"], group = G4)
+float  rr       = input.float(2.0, "RR (ใช้กับ Single และโหมด RR คงที่)", minval = 0.5, step = 0.5, group = G4)
+float  slBuf    = input.float(0.0, "SL buffer (หน่วยราคา เช่น ทอง 0.5)", minval = 0, step = 0.1, group = G4)
+int    maxTrade = input.int(100, "ปิดออเดอร์อัตโนมัติหลัง (แท่ง)", minval = 5, group = G4)
+
+string G3 = "การแสดงผล"
+color  cBull    = input.color(#2962FF, "Buy", group = G3)
+color  cBear    = input.color(#F23645, "Sell", group = G3)
+color  cKey     = input.color(#787B86, "Key Level / ปลายไส้", group = G3)
+color  cHid     = input.color(#FF9800, "Hidden / Single liQ", group = G3)
+color  cIdm     = input.color(#9C27B0, "IDM", group = G3)
+color  cCE      = input.color(#00BCD4, "CE 0.5", group = G3)
+int    fadeTr   = input.int(75, "ความจางของเซ็ตอัพที่ใช้แล้ว (0-95)", minval = 0, maxval = 95, group = G3)
+bool   showDash = input.bool(true, "แสดง Dashboard", group = G3)
+string dashPos  = input.string("Top Right", "ตำแหน่ง Dashboard", options = ["Top Right", "Bottom Right", "Top Left", "Bottom Left"], group = G3)
+
+color cSL   = #F23645
+color cTP   = #089981
+color cFade = color.new(color.gray, fadeTr)
+color cNone = color.new(color.white, 100)
+
+// ═══════════════════════ HELPERS ═══════════════════════
+f_txt(int x, float y, string t, color c, string st) =>
+    label.new(x, y, t, style = st, color = cNone, textcolor = c, size = size.tiny)
+
+f_txtT(int x, float y, string t, color c, string st) =>
+    label.new(x, y, t, xloc = xloc.bar_time, style = st, color = cNone, textcolor = c, size = size.tiny)
+
+// ทำให้เซ็ตอัพที่จบแล้วเป็นสีเทาจาง
+f_fade(array<line> ls, array<label> lbs) =>
+    for l in ls
+        line.set_color(l, cFade)
+    for lb in lbs
+        label.set_textcolor(lb, cFade)
+    array.clear(ls)
+    array.clear(lbs)
+
+type Trade
+    int   kind
+    bool  isLong
+    float entry
+    float sl
+    float tp
+    int   start
+    box   bxTP
+    box   bxSL
+    label lbE
+
+// เปิดออเดอร์ที่ราคาปิดแท่งสัญญาณ
+f_open(int kind, bool isLong, float sl0, float tp0, string name) =>
+    float entry = close
+    float sl    = isLong ? sl0 - slBuf : sl0 + slBuf
+    float risk  = math.abs(entry - sl)
+    float tp    = tp0
+    if na(tp) or (isLong ? tp <= entry : tp >= entry)
+        tp := isLong ? entry + risk * rr : entry - risk * rr
+    float rrv = risk > 0 ? math.abs(tp - entry) / risk : 0.0
+    box b1 = na
+    box b2 = na
+    if showBox
+        b1 := box.new(bar_index, math.max(tp, entry), bar_index + 1, math.min(tp, entry), border_color = color.new(cTP, 40), bgcolor = color.new(cTP, 82))
+        b2 := box.new(bar_index, math.max(sl, entry), bar_index + 1, math.min(sl, entry), border_color = color.new(cSL, 40), bgcolor = color.new(cSL, 82))
+    string t = name + (isLong ? " BUY @ " : " SELL @ ") + str.tostring(entry, format.mintick) + "\nSL " + str.tostring(sl, format.mintick) + " | TP " + str.tostring(tp, format.mintick) + " | RR 1:" + str.tostring(rrv, "#.##")
+    label lb = label.new(bar_index, sl, t, style = isLong ? label.style_label_up : label.style_label_down, color = isLong ? cBull : cBear, textcolor = color.white, size = size.small)
+    Trade.new(kind, isLong, entry, sl, tp, bar_index, b1, b2, lb)
+
+var array<Trade> trades = array.new<Trade>()
+
+// ═══════════════════════ SWINGS ═══════════════════════
+float ph  = ta.pivothigh(high, pivLen, pivLen)
+float pl  = ta.pivotlow(low, pivLen, pivLen)
+float iph = ta.pivothigh(high, idmLen, idmLen)
+float ipl = ta.pivotlow(low, idmLen, idmLen)
+
+var float shP    = na
+var int   shB    = na
+var bool  shUsed = true
+var float slP    = na
+var int   slB    = na
+var bool  slUsed = true
+
+if not na(ph)
+    shP    := ph
+    shB    := bar_index - pivLen
+    shUsed := false
+if not na(pl)
+    slP    := pl
+    slB    := bar_index - pivLen
+    slUsed := false
+
+// ═══════════════════════ HIDDEN LIQUIDITY : BUY ═══════════════════════
+var bool         hbA    = false
+var int          hbMss  = na
+var float        hbKey  = na
+var float        hbHid  = na
+var float        hbIdm  = na
+var bool         hbIdmS = false
+var float        hbTP   = na
+var line         hbLK   = na
+var line         hbLH   = na
+var line         hbLI   = na
+var string       hbSt   = "—"
+var array<line>  hbLs   = array.new<line>()
+var array<label> hbLbs  = array.new<label>()
+bool hbSig = false
+
+bool bullMSS = showHL and not shUsed and not na(shP) and close > shP
+if bullMSS
+    shUsed := true
+    int   n   = math.min(bar_index - shB, 400)
+    float lo  = low
+    int   idx = 0
+    if n >= 1
+        for i = 1 to n
+            if low[i] < lo
+                lo  := low[i]
+                idx := i
+    float hid  = na
+    int   hOff = na
+    bool  fvg  = false
+    if idx >= 1
+        hid  := low[idx - 1]
+        hOff := idx - 1
+        if idx >= 2
+            for j = idx to 2
+                if low[j - 2] > high[j]
+                    fvg := true
+                    if hlMode == "แท่งต้น FVG"
+                        hOff := j == idx ? j - 1 : j
+                        hid  := low[hOff]
+                    break
+    if idx >= 1 and hid > lo and (fvg or not needDisp)
+        if hbA
+            f_fade(hbLs, hbLbs)
+        hbA    := true
+        hbMss  := bar_index
+        hbKey  := lo
+        hbHid  := hid
+        hbIdm  := na
+        hbIdmS := false
+        hbTP   := high
+        hbSt   := needIDM ? "รอ IDM" : "รอกวาด Hidden"
+        hbLs.push(line.new(shB, shP, bar_index, shP, color = cBull, style = line.style_dotted))
+        hbLbs.push(f_txt(int(math.round((shB + bar_index) / 2)), shP, "MSS", cBull, label.style_label_down))
+        hbLK := line.new(bar_index - idx, lo, bar_index, lo, color = cKey, width = 2)
+        hbLs.push(hbLK)
+        hbLbs.push(f_txt(bar_index - idx, lo, "Key", cKey, label.style_label_up))
+        hbLH := line.new(bar_index - hOff, hid, bar_index, hid, color = cHid, style = line.style_dashed)
+        hbLs.push(hbLH)
+        hbLbs.push(f_txt(bar_index - hOff, hid, "hidden liQ", cHid, label.style_label_left))
+        hbLI := na
+
+if hbA and bar_index > hbMss
+    hbTP := math.max(hbTP, high)
+    if na(hbIdm) and not na(ipl) and bar_index - idmLen > hbMss and ipl > hbHid
+        hbIdm := ipl
+        hbLI  := line.new(bar_index - idmLen, ipl, bar_index, ipl, color = cIdm, style = line.style_dotted)
+        hbLs.push(hbLI)
+        hbLbs.push(f_txt(bar_index - idmLen, ipl, "IDM", cIdm, label.style_label_up))
+    if not na(hbIdm) and not hbIdmS and low < hbIdm
+        hbIdmS := true
+        hbSt   := "รอกวาด Hidden"
+    line.set_x2(hbLK, bar_index)
+    line.set_x2(hbLH, bar_index)
+    if not na(hbLI)
+        line.set_x2(hbLI, bar_index)
+    bool okIdm = not needIDM or hbIdmS
+    if close < hbKey
+        hbA  := false
+        hbSt := "Invalid"
+        f_fade(hbLs, hbLbs)
+    else if okIdm and low < hbHid and (not needKey or low <= hbKey)
+        hbA   := false
+        hbSig := true
+        hbSt  := "BUY เปิดอยู่"
+        f_fade(hbLs, hbLbs)
+        trades.push(f_open(0, true, hbKey, hlTPMode == "RR คงที่" ? na : hbTP, "Hidden"))
+    else if bar_index - hbMss > hlExpire
+        hbA  := false
+        hbSt := "หมดอายุ"
+        f_fade(hbLs, hbLbs)
+
+// ═══════════════════════ HIDDEN LIQUIDITY : SELL ═══════════════════════
+var bool         hsA    = false
+var int          hsMss  = na
+var float        hsKey  = na
+var float        hsHid  = na
+var float        hsIdm  = na
+var bool         hsIdmS = false
+var float        hsTP   = na
+var line         hsLK   = na
+var line         hsLH   = na
+var line         hsLI   = na
+var string       hsSt   = "—"
+var array<line>  hsLs   = array.new<line>()
+var array<label> hsLbs  = array.new<label>()
+bool hsSig = false
+
+bool bearMSS = showHL and not slUsed and not na(slP) and close < slP
+if bearMSS
+    slUsed := true
+    int   n   = math.min(bar_index - slB, 400)
+    float hi  = high
+    int   idx = 0
+    if n >= 1
+        for i = 1 to n
+            if high[i] > hi
+                hi  := high[i]
+                idx := i
+    float hid  = na
+    int   hOff = na
+    bool  fvg  = false
+    if idx >= 1
+        hid  := high[idx - 1]
+        hOff := idx - 1
+        if idx >= 2
+            for j = idx to 2
+                if high[j - 2] < low[j]
+                    fvg := true
+                    if hlMode == "แท่งต้น FVG"
+                        hOff := j == idx ? j - 1 : j
+                        hid  := high[hOff]
+                    break
+    if idx >= 1 and hid < hi and (fvg or not needDisp)
+        if hsA
+            f_fade(hsLs, hsLbs)
+        hsA    := true
+        hsMss  := bar_index
+        hsKey  := hi
+        hsHid  := hid
+        hsIdm  := na
+        hsIdmS := false
+        hsTP   := low
+        hsSt   := needIDM ? "รอ IDM" : "รอกวาด Hidden"
+        hsLs.push(line.new(slB, slP, bar_index, slP, color = cBear, style = line.style_dotted))
+        hsLbs.push(f_txt(int(math.round((slB + bar_index) / 2)), slP, "MSS", cBear, label.style_label_up))
+        hsLK := line.new(bar_index - idx, hi, bar_index, hi, color = cKey, width = 2)
+        hsLs.push(hsLK)
+        hsLbs.push(f_txt(bar_index - idx, hi, "Key", cKey, label.style_label_down))
+        hsLH := line.new(bar_index - hOff, hid, bar_index, hid, color = cHid, style = line.style_dashed)
+        hsLs.push(hsLH)
+        hsLbs.push(f_txt(bar_index - hOff, hid, "hidden liQ", cHid, label.style_label_left))
+        hsLI := na
+
+if hsA and bar_index > hsMss
+    hsTP := math.min(hsTP, low)
+    if na(hsIdm) and not na(iph) and bar_index - idmLen > hsMss and iph < hsHid
+        hsIdm := iph
+        hsLI  := line.new(bar_index - idmLen, iph, bar_index, iph, color = cIdm, style = line.style_dotted)
+        hsLs.push(hsLI)
+        hsLbs.push(f_txt(bar_index - idmLen, iph, "IDM", cIdm, label.style_label_down))
+    if not na(hsIdm) and not hsIdmS and high > hsIdm
+        hsIdmS := true
+        hsSt   := "รอกวาด Hidden"
+    line.set_x2(hsLK, bar_index)
+    line.set_x2(hsLH, bar_index)
+    if not na(hsLI)
+        line.set_x2(hsLI, bar_index)
+    bool okIdm = not needIDM or hsIdmS
+    if close > hsKey
+        hsA  := false
+        hsSt := "Invalid"
+        f_fade(hsLs, hsLbs)
+    else if okIdm and high > hsHid and (not needKey or high >= hsKey)
+        hsA   := false
+        hsSig := true
+        hsSt  := "SELL เปิดอยู่"
+        f_fade(hsLs, hsLbs)
+        trades.push(f_open(1, false, hsKey, hlTPMode == "RR คงที่" ? na : hsTP, "Hidden"))
+    else if bar_index - hsMss > hlExpire
+        hsA  := false
+        hsSt := "หมดอายุ"
+        f_fade(hsLs, hsLbs)
+
+// ═══════════════════════ SINGLE LIQUIDITY + CE 0.5 (HTF) ═══════════════════════
+// แท่ง 1 = แท่งก่อนหน้า, แท่ง 2 = แท่งไส้ยาว (swing), แท่ง 3 = แท่งถัดไป (single liQ)
+f_htf() =>
+    bool  bP  = low[1] < low[2] and low[1] < low and math.min(open[1], close[1]) > low[1]
+    float bCE = (math.min(open[1], close[1]) + low[1]) / 2
+    bool  bOK = bP and low > bCE
+    bool  sP  = high[1] > high[2] and high[1] > high and math.max(open[1], close[1]) < high[1]
+    float sCE = (math.max(open[1], close[1]) + high[1]) / 2
+    bool  sOK = sP and high < sCE
+    [bOK[1], bCE[1], low[1], low[2], sOK[1], sCE[1], high[1], high[2], time[2], time[1]]
+
+[qBOK, qBCE, qBLiq, qBExt, qSOK, qSCE, qSLiq, qSExt, qWickT, qThirdT] = request.security(syminfo.tickerid, htf, f_htf(), lookahead = barmerge.lookahead_on)
+
+bool htfOK  = timeframe.in_seconds(htf) > timeframe.in_seconds(timeframe.period)
+bool newHtf = ta.change(qThirdT) != 0
+
+// ----- BUY -----
+var bool         qbA   = false
+var int          qbS   = na
+var float        qbCE  = na
+var float        qbLq  = na
+var float        qbEx  = na
+var line         qbL1  = na
+var line         qbL2  = na
+var line         qbL3  = na
+var string       qbSt  = "—"
+var array<line>  qbLs  = array.new<line>()
+var array<label> qbLbs = array.new<label>()
+bool qbSig = false
+
+if showSQ and htfOK and newHtf and qBOK
+    if qbA
+        f_fade(qbLs, qbLbs)
+    qbA  := true
+    qbS  := bar_index
+    qbCE := qBCE
+    qbLq := qBLiq
+    qbEx := qBExt
+    qbSt := "รอกวาด Single liQ"
+    qbL1 := line.new(qThirdT, qBLiq, time, qBLiq, xloc = xloc.bar_time, color = cHid, style = line.style_dashed)
+    qbL2 := line.new(qWickT, qBCE, time, qBCE, xloc = xloc.bar_time, color = cCE, width = 2)
+    qbL3 := line.new(qWickT, qBExt, time, qBExt, xloc = xloc.bar_time, color = cKey, style = line.style_dotted)
+    qbLs.push(qbL1)
+    qbLs.push(qbL2)
+    qbLs.push(qbL3)
+    qbLbs.push(f_txtT(qThirdT, qBLiq, "single liQ", cHid, label.style_label_left))
+    qbLbs.push(f_txtT(qWickT, qBCE, "CE 0.5", cCE, label.style_label_right))
+else if qbA
+    line.set_x2(qbL1, time)
+    line.set_x2(qbL2, time)
+    line.set_x2(qbL3, time)
+    if close < qbEx
+        qbA  := false
+        qbSt := "Invalid"
+        f_fade(qbLs, qbLbs)
+    else if low < qbLq and (not needCE or low <= qbCE)
+        qbA   := false
+        qbSig := true
+        qbSt  := "BUY เปิดอยู่"
+        f_fade(qbLs, qbLbs)
+        trades.push(f_open(2, true, qbEx, na, "Single"))
+    else if bar_index - qbS > sqExpire
+        qbA  := false
+        qbSt := "หมดอายุ"
+        f_fade(qbLs, qbLbs)
+
+// ----- SELL -----
+var bool         qsA   = false
+var int          qsS   = na
+var float        qsCE  = na
+var float        qsLq  = na
+var float        qsEx  = na
+var line         qsL1  = na
+var line         qsL2  = na
+var line         qsL3  = na
+var string       qsSt  = "—"
+var array<line>  qsLs  = array.new<line>()
+var array<label> qsLbs = array.new<label>()
+bool qsSig = false
+
+if showSQ and htfOK and newHtf and qSOK
+    if qsA
+        f_fade(qsLs, qsLbs)
+    qsA  := true
+    qsS  := bar_index
+    qsCE := qSCE
+    qsLq := qSLiq
+    qsEx := qSExt
+    qsSt := "รอกวาด Single liQ"
+    qsL1 := line.new(qThirdT, qSLiq, time, qSLiq, xloc = xloc.bar_time, color = cHid, style = line.style_dashed)
+    qsL2 := line.new(qWickT, qSCE, time, qSCE, xloc = xloc.bar_time, color = cCE, width = 2)
+    qsL3 := line.new(qWickT, qSExt, time, qSExt, xloc = xloc.bar_time, color = cKey, style = line.style_dotted)
+    qsLs.push(qsL1)
+    qsLs.push(qsL2)
+    qsLs.push(qsL3)
+    qsLbs.push(f_txtT(qThirdT, qSLiq, "single liQ", cHid, label.style_label_left))
+    qsLbs.push(f_txtT(qWickT, qSCE, "CE 0.5", cCE, label.style_label_right))
+else if qsA
+    line.set_x2(qsL1, time)
+    line.set_x2(qsL2, time)
+    line.set_x2(qsL3, time)
+    if close > qsEx
+        qsA  := false
+        qsSt := "Invalid"
+        f_fade(qsLs, qsLbs)
+    else if high > qsLq and (not needCE or high >= qsCE)
+        qsA   := false
+        qsSig := true
+        qsSt  := "SELL เปิดอยู่"
+        f_fade(qsLs, qsLbs)
+        trades.push(f_open(3, false, qsEx, na, "Single"))
+    else if bar_index - qsS > sqExpire
+        qsA  := false
+        qsSt := "หมดอายุ"
+        f_fade(qsLs, qsLbs)
+
+// ═══════════════════════ TRADE MANAGEMENT ═══════════════════════
+if trades.size() > 0
+    for i = trades.size() - 1 to 0
+        Trade t = trades.get(i)
+        if bar_index > t.start
+            bool hitSL  = t.isLong ? low <= t.sl : high >= t.sl
+            bool hitTP  = t.isLong ? high >= t.tp : low <= t.tp
+            bool timeUp = bar_index - t.start >= maxTrade
+            if hitSL or hitTP or timeUp
+                string res = hitSL ? "SL ✗" : hitTP ? "TP ✓" : "หมดเวลา"
+                color  rc  = hitSL ? cSL : hitTP ? cTP : color.gray
+                if not na(t.bxTP)
+                    box.set_right(t.bxTP, bar_index)
+                    box.set_right(t.bxSL, bar_index)
+                    box.set_bgcolor(t.bxTP, color.new(color.gray, 90))
+                    box.set_bgcolor(t.bxSL, color.new(color.gray, 90))
+                    box.set_border_color(t.bxTP, cFade)
+                    box.set_border_color(t.bxSL, cFade)
+                label.set_color(t.lbE, color.new(color.gray, 85))
+                label.set_textcolor(t.lbE, color.new(color.gray, 35))
+                label.new(bar_index, hitSL ? t.sl : hitTP ? t.tp : close, res, style = label.style_label_left, color = cNone, textcolor = color.new(rc, 30), size = size.small)
+                if t.kind == 0 and not hbA
+                    hbSt := res
+                else if t.kind == 1 and not hsA
+                    hsSt := res
+                else if t.kind == 2 and not qbA
+                    qbSt := res
+                else if t.kind == 3 and not qsA
+                    qsSt := res
+                trades.remove(i)
+            else if not na(t.bxTP)
+                box.set_right(t.bxTP, bar_index + 1)
+                box.set_right(t.bxSL, bar_index + 1)
+
+plotshape(hbSig or qbSig, "Entry Buy", shape.triangleup, location.belowbar, cBull, size = size.tiny)
+plotshape(hsSig or qsSig, "Entry Sell", shape.triangledown, location.abovebar, cBear, size = size.tiny)
+
+// ═══════════════════════ DASHBOARD ═══════════════════════
+f_pos(string p) =>
+    switch p
+        "Top Right"    => position.top_right
+        "Bottom Right" => position.bottom_right
+        "Top Left"     => position.top_left
+        => position.bottom_left
+
+f_col(string s) =>
+    str.contains(s, "✓") ? cTP : str.contains(s, "✗") ? cSL : str.contains(s, "BUY") ? cBull : str.contains(s, "SELL") ? cBear : (s == "Invalid" or s == "หมดอายุ" or s == "หมดเวลา") ? color.gray : color.white
+
+f_lvl(bool active, float v) =>
+    active ? str.tostring(v, format.mintick) : "-"
+
+var table dash = table.new(f_pos(dashPos), 3, 6, bgcolor = color.new(#131722, 10), border_width = 1, border_color = color.new(color.gray, 70))
+
+if showDash and barstate.islast
+    table.cell(dash, 0, 0, "HTF CE0.5", text_color = color.white, text_size = size.small)
+    table.cell(dash, 1, 0, "สถานะ", text_color = color.white, text_size = size.small)
+    table.cell(dash, 2, 0, "Level", text_color = color.white, text_size = size.small)
+    table.cell(dash, 0, 1, "Hidden ▲", text_color = cBull, text_size = size.small)
+    table.cell(dash, 1, 1, hbSt, text_color = f_col(hbSt), text_size = size.small)
+    table.cell(dash, 2, 1, f_lvl(hbA, hbHid), text_color = cHid, text_size = size.small)
+    table.cell(dash, 0, 2, "Hidden ▼", text_color = cBear, text_size = size.small)
+    table.cell(dash, 1, 2, hsSt, text_color = f_col(hsSt), text_size = size.small)
+    table.cell(dash, 2, 2, f_lvl(hsA, hsHid), text_color = cHid, text_size = size.small)
+    table.cell(dash, 0, 3, "Single ▲", text_color = cBull, text_size = size.small)
+    table.cell(dash, 1, 3, qbSt, text_color = f_col(qbSt), text_size = size.small)
+    table.cell(dash, 2, 3, f_lvl(qbA, qbCE), text_color = cCE, text_size = size.small)
+    table.cell(dash, 0, 4, "Single ▼", text_color = cBear, text_size = size.small)
+    table.cell(dash, 1, 4, qsSt, text_color = f_col(qsSt), text_size = size.small)
+    table.cell(dash, 2, 4, f_lvl(qsA, qsCE), text_color = cCE, text_size = size.small)
+    table.cell(dash, 0, 5, "HTF", text_color = color.gray, text_size = size.small)
+    table.cell(dash, 1, 5, htfOK ? htf : "HTF ต้องสูงกว่า TF กราฟ", text_color = htfOK ? color.gray : cBear, text_size = size.small)
+    table.cell(dash, 2, 5, "", text_size = size.small)
+
+// ═══════════════════════ ALERTS ═══════════════════════
+alertcondition(hbSig, "Hidden BUY", "Hidden Liquidity BUY | {{ticker}} {{interval}} @ {{close}}")
+alertcondition(hsSig, "Hidden SELL", "Hidden Liquidity SELL | {{ticker}} {{interval}} @ {{close}}")
+alertcondition(qbSig, "Single BUY", "Single Liquidity BUY | {{ticker}} {{interval}} @ {{close}}")
+alertcondition(qsSig, "Single SELL", "Single Liquidity SELL | {{ticker}} {{interval}} @ {{close}}")
+alertcondition(hbSig or hsSig or qbSig or qsSig, "Any signal", "HTF CE0.5 signal | {{ticker}} {{interval}} @ {{close}}")
