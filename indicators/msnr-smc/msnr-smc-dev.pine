@@ -513,7 +513,8 @@ f_sweepMark(int t, float p, string txt, bool up, color col) =>
                 label lb  = smL.get(i)
                 string tx = label.get_text(lb)
                 if not str.contains(tx, "Sweep")
-                    label.set_text(lb, txt + (str.contains(txt, "SMT") ? "" : " · " + tx))
+                    label.set_text(lb, str.replace(txt, " · SMT", "") + " · " + tx)
+                    label.set_textcolor(lb, colSMT)
                 merged := true
                 break
     if not merged
