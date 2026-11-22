@@ -3,6 +3,7 @@
 // ✏️ ไฟล์สำรองสำหรับแก้/ทดลอง · ไฟล์หลัก: indicators/msnr-smc/main/msnr-smc-main.pine
 // DEV 2026-11-22: + บริหารไม้ (TP1 แบ่งปิด + เลื่อน SL กันทุน) · Lot ตามความเสี่ยง USD · SL cap (points) · TP1 = Roadblock / 1R
 // DEV 2026-11-22 (2): + SMT divergence ทอง/เงิน · PO3 (Entry ฝั่งถูกของ Open H4) · Score เต็ม 8
+// DEV 2026-11-22 (3): SMT แบบ swing เทียบ swing (เวลาเดียวกัน) + วาดเส้น SMT บนกราฟ · Sweep ที่เงินไม่ยืนยัน = "Sweep · SMT"
 // ════════════════════════════════════════════════════════════════
 //@version=6
 indicator("MSNR × SMC DEV", shorttitle="MSNR SMC DEV", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=100, max_bars_back=500)
@@ -53,6 +54,7 @@ string kzNy     = input.session("1900-2200", "New York killzone (เวลาไ
 int    minScore = input.int(4, "ตั้ง Limit เฉพาะ Score ≥", minval=0, maxval=8, group=GQ, display=display.none, tooltip="Score 1 แต้มต่อข้อ: Key liquidity · Displacement · FVG · Entry ทับเส้น HTF · Entry อยู่ Discount/Premium · Killzone · SMT · PO3\n≥7 = A+ · 6 = A · 5 = B · ≤4 = C")
 bool   useSMT   = input.bool(true, "SMT divergence (เทียบสินทรัพย์ที่วิ่งตามกัน)", group=GQ)
 string smtSym   = input.symbol("OANDA:XAGUSD", "สัญลักษณ์เทียบ SMT", group=GQ, display=display.none, tooltip="ทอง → เงิน (XAGUSD) · ทองกวาด Low แต่เงินไม่ทำ Low ใหม่ = Bullish SMT · ทองกวาด High แต่เงินไม่ทำ High ใหม่ = Bearish SMT")
+bool   showSMT  = input.bool(true, "วาดเส้น SMT บนกราฟ", group=GQ)
 bool   reqPD    = input.bool(false, "บังคับ Entry อยู่ Discount (Buy) / Premium (Sell)", group=GQ)
 
 string G3 = "Entry (MSNR)"
@@ -105,6 +107,7 @@ color colS   = input.color(#26a69a, "Support / RBS / Buy", group=G5)
 color colQM  = input.color(#ff9800, "QM", group=G5)
 color colOCL = input.color(#ab47bc, "OCL", group=G5)
 color colSw  = input.color(#9598a1, "Sweep", group=G5)
+color colSMT = input.color(#7e57c2, "SMT", group=G5)
 
 // ───────── Types ─────────
 type Lvl
@@ -188,10 +191,17 @@ var float usedPDL = na
 
 // ───────── SMT: ทองกวาด แต่สินทรัพย์เทียบไม่ยืนยัน ─────────
 [xLo, xHi] = request.security(smtSym, timeframe.period, [low, high], ignore_invalid_symbol=true)
-float xLL     = ta.lowest(xLo, liqAge)[1]
-float xHH     = ta.highest(xHi, liqAge)[1]
-bool  smtBull = useSMT and not na(xLo) and not na(xLL) and xLo > xLL
-bool  smtBear = useSMT and not na(xHi) and not na(xHH) and xHi < xHH
+// จุดต่ำสุด/สูงสุดของสินทรัพย์เทียบรอบ swing (ดูก่อน-หลัง swing ของทอง sLen แท่ง)
+float xVal = ta.lowest(xLo, 2 * sLen + 1)
+float xPk  = ta.highest(xHi, 2 * sLen + 1)
+var float pGL = na
+var int   pGT = na
+var float pXL = na
+var float pGH = na
+var int   pHT = na
+var float pXH = na
+var int   smtUBar = -1000
+var int   smtDBar = -1000
 
 // ───────── สร้างแท่ง TF ใหญ่จากข้อมูลกราฟ (live ทุก tick) ─────────
 f_htfCandles(string tf) =>
@@ -442,6 +452,8 @@ var array<int>   sLB = array.new<int>()
 var array<int>   sLT = array.new<int>()
 var array<bool>  sLE = array.new<bool>()
 var array<bool>  sHE = array.new<bool>()
+var array<float> sLX = array.new<float>()
+var array<float> sHX = array.new<float>()
 var array<float> sHP = array.new<float>()
 var array<int>   sHB = array.new<int>()
 var array<int>   sHT = array.new<int>()
@@ -786,11 +798,22 @@ if barstate.isconfirmed
         sHB.push(bar_index - sLen)
         sHT.push(time[sLen])
         sHE.push(isEq)
+        sHX.push(xPk)
         if sHP.size() > 60
             sHP.shift()
             sHB.shift()
             sHT.shift()
             sHE.shift()
+            sHX.shift()
+        // SMT แบบ swing: ทองทำ High ที่สูงกว่า แต่เงินทำ High ที่ต่ำกว่า = Bearish SMT
+        if useSMT and not na(pGH) and not na(pXH) and not na(xPk) and sph > pGH and xPk < pXH
+            smtDBar := bar_index
+            if showSMT
+                f_keepL(line.new(pHT, pGH, time[sLen], sph, xloc=xloc.bar_time, color=colSMT, width=lw, style=line.style_dotted))
+                f_keepB(label.new(time[sLen], sph, "SMT", xloc=xloc.bar_time, style=label.style_label_down, color=cNone, textcolor=colSMT, size=txtSz))
+        pGH := sph
+        pHT := time[sLen]
+        pXH := xPk
     if not na(spl)
         bool isEq = false
         if sLP.size() > 0
@@ -802,19 +825,32 @@ if barstate.isconfirmed
         sLB.push(bar_index - sLen)
         sLT.push(time[sLen])
         sLE.push(isEq)
+        sLX.push(xVal)
         if sLP.size() > 60
             sLP.shift()
             sLB.shift()
             sLT.shift()
             sLE.shift()
+            sLX.shift()
+        // SMT แบบ swing: ทองทำ Low ที่ต่ำกว่า แต่เงินทำ Low ที่สูงกว่า = Bullish SMT
+        if useSMT and not na(pGL) and not na(pXL) and not na(xVal) and spl < pGL and xVal > pXL
+            smtUBar := bar_index
+            if showSMT
+                f_keepL(line.new(pGT, pGL, time[sLen], spl, xloc=xloc.bar_time, color=colSMT, width=lw, style=line.style_dotted))
+                f_keepB(label.new(time[sLen], spl, "SMT", xloc=xloc.bar_time, style=label.style_label_up, color=cNone, textcolor=colSMT, size=txtSz))
+        pGL := spl
+        pGT := time[sLen]
+        pXL := xVal
     float  uSwP = na
     int    uSwT = na
     bool   uKey = false
     string uTag = ""
+    float  uX   = na
     float  dSwP = na
     int    dSwT = na
     bool   dKey = false
     string dTag = ""
+    float  dX   = na
     if sLP.size() > 0
         for i = sLP.size() - 1 to 0
             float p = sLP.get(i)
@@ -823,6 +859,7 @@ if barstate.isconfirmed
                 sLB.remove(i)
                 sLT.remove(i)
                 sLE.remove(i)
+                sLX.remove(i)
             else if low < p
                 if close > p and bar_index - sLB.get(i) - 1 >= sGap
                     if sLE.get(i)
@@ -831,10 +868,12 @@ if barstate.isconfirmed
                     if na(uSwP) or p < uSwP
                         uSwP := p
                         uSwT := sLT.get(i)
+                        uX   := sLX.get(i)
                 sLP.remove(i)
                 sLB.remove(i)
                 sLT.remove(i)
                 sLE.remove(i)
+                sLX.remove(i)
     if sHP.size() > 0
         for i = sHP.size() - 1 to 0
             float p = sHP.get(i)
@@ -843,6 +882,7 @@ if barstate.isconfirmed
                 sHB.remove(i)
                 sHT.remove(i)
                 sHE.remove(i)
+                sHX.remove(i)
             else if high > p
                 if close < p and bar_index - sHB.get(i) - 1 >= sGap
                     if sHE.get(i)
@@ -851,10 +891,12 @@ if barstate.isconfirmed
                     if na(dSwP) or p > dSwP
                         dSwP := p
                         dSwT := sHT.get(i)
+                        dX   := sHX.get(i)
                 sHP.remove(i)
                 sHB.remove(i)
                 sHT.remove(i)
                 sHE.remove(i)
+                sHX.remove(i)
     // Key liquidity: PDH/PDL · Asia H/L (ไส้ทะลุแล้วปิดกลับ)
     bool hitPDL = useKey and not na(pdl) and low < pdl and close > pdl and (na(usedPDL) or pdl != usedPDL)
     bool hitAL  = useKey and not na(aL) and not inAsia and low < aL and close > aL
@@ -907,7 +949,9 @@ if barstate.isconfirmed
             swKey := bullSw ? uKey : dKey
             swTag := bullSw ? uTag : dTag
             kzHit := inKz
-            smtHit := bullSw ? smtBull : smtBear
+            // SMT: เงินไม่ทะลุ swing เดียวกันตอนทอง sweep · หรือมี SMT แบบ swing เกิดไม่นานก่อนหน้า
+            bool swSmt = useSMT and (bullSw ? (not na(uX) and not na(xLo) and xLo > uX) : (not na(dX) and not na(xHi) and xHi < dX))
+            smtHit := swSmt or (bullSw ? bar_index - smtUBar <= liqAge : bar_index - smtDBar <= liqAge)
             if bullSw and hitPDL
                 usedPDL := pdl
             if bullSw and hitAL
@@ -918,7 +962,7 @@ if barstate.isconfirmed
                 aH := na
             if showSM
                 f_keepL(line.new(swT, swP, time, swP, xloc=xloc.bar_time, color=colSw, width=lw, style=line.style_dotted))
-                f_keepB(label.new(time, swWk, "Sweep" + (swTag != "" ? " " + swTag : ""), xloc=xloc.bar_time, style=bullSw ? label.style_label_up : label.style_label_down, color=cNone, textcolor=colSw, size=txtSz))
+                f_keepB(label.new(time, swWk, "Sweep" + (swTag != "" ? " " + swTag : "") + (swSmt ? " · SMT" : ""), xloc=xloc.bar_time, style=bullSw ? label.style_label_up : label.style_label_down, color=cNone, textcolor=swSmt ? colSMT : colSw, size=txtSz))
                 msL := line.new(mt, m, time, m, xloc=xloc.bar_time, color=color.new(bullSw ? colS : colR, 40), width=lw, style=line.style_dashed)
 
 alertcondition(sigMss == 1, "MSS → Buy Limit", "MSNR×SMC: Sweep + MSS ขึ้น → ตั้ง Buy Limit")
