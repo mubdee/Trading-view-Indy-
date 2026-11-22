@@ -2,6 +2,7 @@
 // MSNR × SMC — DEV · POI = เลเวล MSNR ของ H1/H4 → Sweep → MSS บน TF ชาร์ต → Limit ที่เลเวล MSNR (Pine Script v6)
 // ✏️ ไฟล์สำรองสำหรับแก้/ทดลอง · ไฟล์หลัก: indicators/msnr-smc/main/msnr-smc-main.pine
 // DEV 2026-11-22: + บริหารไม้ (TP1 แบ่งปิด + เลื่อน SL กันทุน) · Lot ตามความเสี่ยง USD · SL cap (points) · TP1 = Roadblock / 1R
+// DEV 2026-11-22 (2): + SMT divergence ทอง/เงิน · PO3 (Entry ฝั่งถูกของ Open H4) · Score เต็ม 8
 // ════════════════════════════════════════════════════════════════
 //@version=6
 indicator("MSNR × SMC DEV", shorttitle="MSNR SMC DEV", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=100, max_bars_back=500)
@@ -15,8 +16,8 @@ indicator("MSNR × SMC DEV", shorttitle="MSNR SMC DEV", overlay=true, max_lines_
 
 // ───────── Inputs ─────────
 string G0 = "Higher Timeframe (POI)"
-string tf1      = input.timeframe("60",  "HTF 1 (เลเวล)", group=G0)
-string tf2      = input.timeframe("240", "HTF 2 (เลเวล + Storyline)", group=G0)
+string tf1      = input.timeframe("60",  "HTF 1 (เลเวล)", group=G0, display=display.none)
+string tf2      = input.timeframe("240", "HTF 2 (เลเวล + Storyline)", group=G0, display=display.none)
 int    pvLH     = input.int(3, "HTF Pivot ซ้าย", minval=1, group=G0, display=display.none)
 int    pvRH     = input.int(2, "HTF Pivot ขวา", minval=1, group=G0, display=display.none)
 bool   useGapH  = input.bool(true, "HTF Gap / OCL level", group=G0)
@@ -43,13 +44,15 @@ bool  reqDisp = input.bool(false, "แท่ง MSS ต้องมี Displacem
 float dispAtr = input.float(0.8, "Displacement: body ≥ (x ATR)", minval=0.1, step=0.1, group=G2, display=display.none)
 bool  reqFvg  = input.bool(false, "แท่ง MSS ต้องสร้าง FVG", group=G2)
 
-string GQ = "คุณภาพ Setup (Score 0-6)"
+string GQ = "คุณภาพ Setup (Score 0-8)"
 bool   useKey   = input.bool(true, "นับ Key liquidity: PDH/PDL · Asia H/L · EQH/EQL", group=GQ)
 float  eqTol    = input.float(0.1, "EQH/EQL tolerance (x ATR)", minval=0.01, step=0.01, group=GQ, display=display.none)
 string asiaSess = input.session("0700-1400", "Asia session (เวลาไทย)", group=GQ, display=display.none)
 string kzLon    = input.session("1400-1700", "London killzone (เวลาไทย)", group=GQ, display=display.none)
 string kzNy     = input.session("1900-2200", "New York killzone (เวลาไทย)", group=GQ, display=display.none)
-int    minScore = input.int(3, "ตั้ง Limit เฉพาะ Score ≥", minval=0, maxval=6, group=GQ, display=display.none, tooltip="Score 1 แต้มต่อข้อ: Key liquidity · Displacement · FVG · Entry ทับเส้น HTF · Entry อยู่ Discount/Premium · Killzone\n6 = A+ · 5 = A · 4 = B · ≤3 = C")
+int    minScore = input.int(4, "ตั้ง Limit เฉพาะ Score ≥", minval=0, maxval=8, group=GQ, display=display.none, tooltip="Score 1 แต้มต่อข้อ: Key liquidity · Displacement · FVG · Entry ทับเส้น HTF · Entry อยู่ Discount/Premium · Killzone · SMT · PO3\n≥7 = A+ · 6 = A · 5 = B · ≤4 = C")
+bool   useSMT   = input.bool(true, "SMT divergence (เทียบสินทรัพย์ที่วิ่งตามกัน)", group=GQ)
+string smtSym   = input.symbol("OANDA:XAGUSD", "สัญลักษณ์เทียบ SMT", group=GQ, display=display.none, tooltip="ทอง → เงิน (XAGUSD) · ทองกวาด Low แต่เงินไม่ทำ Low ใหม่ = Bullish SMT · ทองกวาด High แต่เงินไม่ทำ High ใหม่ = Bearish SMT")
 bool   reqPD    = input.bool(false, "บังคับ Entry อยู่ Discount (Buy) / Premium (Sell)", group=GQ)
 
 string G3 = "Entry (MSNR)"
@@ -87,9 +90,9 @@ bool   showDash  = input.bool(true, "Dashboard", group=G4)
 
 string GC = "แท่งเทียน TF ใหญ่ (ด้านขวาของกราฟ)"
 bool   showC   = input.bool(true, "แสดงแท่งเทียน TF ใหญ่", group=GC)
-string cTfA    = input.timeframe("240", "TF A", inline="ca", group=GC)
+string cTfA    = input.timeframe("240", "TF A", inline="ca", group=GC, display=display.none)
 int    cNA     = input.int(4, "จำนวนแท่ง", minval=1, maxval=20, inline="ca", group=GC, display=display.none)
-string cTfB    = input.timeframe("60", "TF B", inline="cb", group=GC)
+string cTfB    = input.timeframe("60", "TF B", inline="cb", group=GC, display=display.none)
 int    cNB     = input.int(6, "จำนวนแท่ง", minval=0, maxval=20, inline="cb", group=GC, display=display.none)
 int    cW      = input.int(3, "ความกว้างแท่ง (แท่งกราฟ)", minval=1, maxval=10, group=GC, display=display.none)
 bool   cOpen   = input.bool(true, "เส้น Open ของแท่ง TF ใหญ่ปัจจุบัน", group=GC)
@@ -183,6 +186,13 @@ else if inAsia[1]
 var float usedPDH = na
 var float usedPDL = na
 
+// ───────── SMT: ทองกวาด แต่สินทรัพย์เทียบไม่ยืนยัน ─────────
+[xLo, xHi] = request.security(smtSym, timeframe.period, [low, high], ignore_invalid_symbol=true)
+float xLL     = ta.lowest(xLo, liqAge)[1]
+float xHH     = ta.highest(xHi, liqAge)[1]
+bool  smtBull = useSMT and not na(xLo) and not na(xLL) and xLo > xLL
+bool  smtBear = useSMT and not na(xHi) and not na(xHH) and xHi < xHH
+
 // ───────── สร้างแท่ง TF ใหญ่จากข้อมูลกราฟ (live ทุก tick) ─────────
 f_htfCandles(string tf) =>
     var array<float> O = array.new<float>()
@@ -217,7 +227,7 @@ var array<line>  pL = array.new<line>()
 var array<label> pB = array.new<label>()
 
 f_grade(int sc) =>
-    sc >= 6 ? "A+" : sc == 5 ? "A" : sc == 4 ? "B" : "C"
+    sc >= 7 ? "A+" : sc == 6 ? "A" : sc == 5 ? "B" : "C"
 
 // ───────── Helpers ─────────
 var array<Lvl> lvL = array.new<Lvl>()
@@ -397,7 +407,7 @@ f_drawC(array<float> O, array<float> H, array<float> L, array<float> C, array<in
         // หัวกลุ่ม: ชื่อ TF + เวลาที่เหลือ
         int    rem = time_close(tf) - timenow
         string cd  = cTime and not na(rem) and rem > 0 ? "  " + (rem >= 3600000 ? str.tostring(math.floor(rem / 3600000)) + "h" : "") + str.tostring(math.floor((rem % 3600000) / 60000)) + "m" : ""
-        pB.push(label.new(bar_index + x0, top, f_tfTxt(tf) + cd, style=label.style_label_lower_left, color=cNone, textcolor=color.new(chart.fg_color, 30), size=txtSz))
+        pB.push(label.new(bar_index + x0, top + atr, f_tfTxt(tf) + cd, style=label.style_label_lower_left, color=cNone, textcolor=color.new(chart.fg_color, 30), size=txtSz))
         // เส้น Open ของแท่งปัจจุบัน
         if cOpen
             float oNow = O.get(k - 1)
@@ -471,6 +481,7 @@ var label  tB    = na
 var bool   swKey = false
 var string swTag = ""
 var bool   kzHit = false
+var bool   smtHit = false
 var float  mDisp = na
 var int    tSc   = 0
 var string ckTxt = ""
@@ -595,7 +606,7 @@ if barstate.isconfirmed
             else
                 nL += 1
             sumR += res
-            if tSc >= 5 and not tout
+            if tSc >= 6 and not tout
                 aW  += res > 0 ? 1 : 0
                 aL2 += res > 0 ? 0 : 1
                 aR  += res
@@ -610,7 +621,7 @@ if barstate.isconfirmed
             if (dir == 1 and low <= slP) or (dir == -1 and high >= slP)
                 nL   += 1
                 sumR -= 1.0
-                if tSc >= 5
+                if tSc >= 6
                     aL2 += 1
                     aR  -= 1.0
                 ss   := 0
@@ -672,11 +683,14 @@ if barstate.isconfirmed
         bool  inPD  = not na(ep) and (dir == 1 ? ep <= eq : ep >= eq)
         bool  dOk   = mDisp >= dispAtr * atr
         bool  fOk   = reqFvg or (dir == 1 ? low > high[2] : high < low[2])
-        int   sc    = (swKey ? 1 : 0) + (dOk ? 1 : 0) + (fOk ? 1 : 0) + (ov ? 1 : 0) + (inPD ? 1 : 0) + (kzHit ? 1 : 0)
-        ckTxt := (swKey ? "✓" : "✗") + "Key " + (dOk ? "✓" : "✗") + "Disp " + (fOk ? "✓" : "✗") + "FVG " + (ov ? "✓" : "✗") + "HTF " + (inPD ? "✓" : "✗") + "PD " + (kzHit ? "✓" : "✗") + "KZ"
+        // PO3: Buy ใต้ Open ของแท่ง TF A (H4) ปัจจุบัน / Sell เหนือ Open
+        float oA    = cAO.size() > 0 ? cAO.get(cAO.size() - 1) : na
+        bool  po3   = not na(ep) and not na(oA) and (dir == 1 ? ep < oA : ep > oA)
+        int   sc    = (swKey ? 1 : 0) + (dOk ? 1 : 0) + (fOk ? 1 : 0) + (ov ? 1 : 0) + (inPD ? 1 : 0) + (kzHit ? 1 : 0) + (smtHit ? 1 : 0) + (po3 ? 1 : 0)
+        ckTxt := (swKey ? "✓" : "✗") + "Key " + (dOk ? "✓" : "✗") + "Disp " + (fOk ? "✓" : "✗") + "FVG " + (ov ? "✓" : "✗") + "HTF " + (inPD ? "✓" : "✗") + "PD " + (kzHit ? "✓" : "✗") + "KZ " + (smtHit ? "✓" : "✗") + "SMT " + (po3 ? "✓" : "✗") + "PO3"
         tSc := sc
         if na(ep) or sc < minScore
-            skip := (dir == 1 ? "▲ " : "▼ ") + "ข้าม · Score " + str.tostring(sc) + "/6" + (na(ep) ? " · ไม่มีเลเวลใน Discount/Premium" : "")
+            skip := (dir == 1 ? "▲ " : "▼ ") + "ข้าม · Score " + str.tostring(sc) + "/8" + (na(ep) ? " · ไม่มีเลเวลใน Discount/Premium" : "")
             ss   := 0
         else
             skip  := ""
@@ -893,6 +907,7 @@ if barstate.isconfirmed
             swKey := bullSw ? uKey : dKey
             swTag := bullSw ? uTag : dTag
             kzHit := inKz
+            smtHit := bullSw ? smtBull : smtBear
             if bullSw and hitPDL
                 usedPDL := pdl
             if bullSw and hitAL
@@ -1042,7 +1057,7 @@ if barstate.islast
         table.cell(dash, 0, 4, "SL / TP", text_color=dim, text_size=size.tiny, text_halign=text.align_left)
         table.cell(dash, 1, 4, ss >= 4 ? str.tostring(slNow, format.mintick) + (tp1H ? " (BE)" : "") + " / " + (na(tp1P) ? "" : str.tostring(tp1P, format.mintick) + " · ") + str.tostring(tpP, format.mintick) + "  1:" + str.tostring(rrV, "#.#") : "—", text_color=fg, text_size=size.tiny, text_halign=text.align_right)
         table.cell(dash, 0, 5, "Score", text_color=dim, text_size=size.tiny, text_halign=text.align_left)
-        table.cell(dash, 1, 5, ckTxt == "" ? "—" : f_grade(tSc) + " " + str.tostring(tSc) + "/6  " + ckTxt, text_color=tSc >= 5 ? (dir == 1 ? colS : colR) : fg, text_size=size.tiny, text_halign=text.align_right)
+        table.cell(dash, 1, 5, ckTxt == "" ? "—" : f_grade(tSc) + " " + str.tostring(tSc) + "/8  " + ckTxt, text_color=tSc >= 6 ? (dir == 1 ? colS : colR) : fg, text_size=size.tiny, text_halign=text.align_right)
         table.cell(dash, 0, 6, "Stats", text_color=dim, text_size=size.tiny, text_halign=text.align_left)
         table.cell(dash, 1, 6, stat, text_color=fg, text_size=size.tiny, text_halign=text.align_right)
         int    nA    = aW + aL2
