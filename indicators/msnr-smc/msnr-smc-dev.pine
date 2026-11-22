@@ -6,6 +6,7 @@
 // DEV 2026-11-22 (3): SMT แบบ swing เทียบ swing (เวลาเดียวกัน) + วาดเส้น SMT บนกราฟ · Sweep ที่เงินไม่ยืนยัน = "Sweep · SMT"
 // DEV 2026-11-22 (4): SMT หลายทามเฟรม (M15 · H1 · H4) วาดบน M5 + แถว SMT ใน Dashboard · HTF SMT ช่วยนับแต้ม SMT
 // DEV 2026-11-22 (5): SMT ที่ swing เดียวกันหลาย TF รวมเป็นเส้นเดียว ป้ายเดียว (เช่น "SMT M5 · M15") · เลือกตำแหน่ง Dashboard ได้
+// DEV 2026-11-22 (6): ป้าย Sweep กับ SMT ที่จุดเดียวกันรวมเป็นป้ายเดียว (เช่น "Sweep EQH · SMT M5 · M15")
 // ════════════════════════════════════════════════════════════════
 //@version=6
 indicator("MSNR × SMC DEV", shorttitle="MSNR SMC DEV", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=100, max_bars_back=500)
@@ -481,8 +482,11 @@ f_smtMark(int t1, float p1, int t2, float p2, string nm, bool up, int win, bool 
             if math.abs(smP.get(i) - p2) <= tl and math.abs(smT.get(i) - t2) <= math.max(win, smW.get(i))
                 label lb  = smL.get(i)
                 string tx = label.get_text(lb)
-                if not str.contains(tx, nm)
-                    label.set_text(lb, tx + " · " + nm)
+                if not str.contains(tx, "SMT")
+                    label.set_text(lb, tx + " · SMT " + nm)
+                    label.set_textcolor(lb, colSMT)
+                else if not str.contains(tx, " " + nm)
+                    label.set_text(lb, tx + (str.endswith(tx, "SMT") ? " " : " · ") + nm)
                 merged := true
                 break
     if not merged
@@ -492,6 +496,32 @@ f_smtMark(int t1, float p1, int t2, float p2, string nm, bool up, int win, bool 
         smP.push(p2)
         smT.push(t2)
         smW.push(win)
+        if smL.size() > 20
+            label.delete(smL.shift())
+            smP.shift()
+            smT.shift()
+            smW.shift()
+
+// ป้าย Sweep: ถ้ามีป้าย SMT ที่จุดเดียวกันอยู่แล้ว → ใส่ "Sweep ..." ไว้หน้าป้ายเดิม
+f_sweepMark(int t, float p, string txt, bool up, color col) =>
+    bool  merged = false
+    float tl     = math.max(atr * 0.5, syminfo.mintick)
+    int   n      = smL.size()
+    if n > 0
+        for i = n - 1 to 0
+            if math.abs(smP.get(i) - p) <= tl and math.abs(smT.get(i) - t) <= math.max(chSec * 1000 * (sLen + 1), smW.get(i))
+                label lb  = smL.get(i)
+                string tx = label.get_text(lb)
+                if not str.contains(tx, "Sweep")
+                    label.set_text(lb, txt + (str.contains(txt, "SMT") ? "" : " · " + tx))
+                merged := true
+                break
+    if not merged
+        label lb = label.new(t, p, txt, xloc=xloc.bar_time, style=up ? label.style_label_up : label.style_label_down, color=cNone, textcolor=col, size=txtSz)
+        smL.push(lb)
+        smP.push(p)
+        smT.push(t)
+        smW.push(chSec * 1000 * (sLen + 1))
         if smL.size() > 20
             label.delete(smL.shift())
             smP.shift()
@@ -1069,7 +1099,7 @@ if barstate.isconfirmed
                 aH := na
             if showSM
                 f_keepL(line.new(swT, swP, time, swP, xloc=xloc.bar_time, color=colSw, width=lw, style=line.style_dotted))
-                f_keepB(label.new(time, swWk, "Sweep" + (swTag != "" ? " " + swTag : "") + (swSmt ? " · SMT" : ""), xloc=xloc.bar_time, style=bullSw ? label.style_label_up : label.style_label_down, color=cNone, textcolor=swSmt ? colSMT : colSw, size=txtSz))
+                f_sweepMark(time, swWk, "Sweep" + (swTag != "" ? " " + swTag : "") + (swSmt ? " · SMT" : ""), bullSw, swSmt ? colSMT : colSw)
                 msL := line.new(mt, m, time, m, xloc=xloc.bar_time, color=color.new(bullSw ? colS : colR, 40), width=lw, style=line.style_dashed)
 
 alertcondition(sigMss == 1, "MSS → Buy Limit", "MSNR×SMC: Sweep + MSS ขึ้น → ตั้ง Buy Limit")
