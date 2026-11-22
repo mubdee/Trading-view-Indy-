@@ -5,6 +5,7 @@
 // DEV 2026-11-22 (2): + SMT divergence ทอง/เงิน · PO3 (Entry ฝั่งถูกของ Open H4) · Score เต็ม 8
 // DEV 2026-11-22 (3): SMT แบบ swing เทียบ swing (เวลาเดียวกัน) + วาดเส้น SMT บนกราฟ · Sweep ที่เงินไม่ยืนยัน = "Sweep · SMT"
 // DEV 2026-11-22 (4): SMT หลายทามเฟรม (M15 · H1 · H4) วาดบน M5 + แถว SMT ใน Dashboard · HTF SMT ช่วยนับแต้ม SMT
+// DEV 2026-11-22 (5): SMT ที่ swing เดียวกันหลาย TF รวมเป็นเส้นเดียว ป้ายเดียว (เช่น "SMT M5 · M15") · เลือกตำแหน่ง Dashboard ได้
 // ════════════════════════════════════════════════════════════════
 //@version=6
 indicator("MSNR × SMC DEV", shorttitle="MSNR SMC DEV", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=100, max_bars_back=500)
@@ -98,6 +99,7 @@ int    lw        = input.int(1, "ความหนาเส้น (ทุกเ
 int    offs      = input.int(10, "ยื่นเส้นไปทางขวา (แท่ง)", minval=2, maxval=60, group=G4, display=display.none)
 string txtSz     = input.string(size.tiny, "ขนาดตัวอักษร", options=[size.tiny, size.small, size.normal], group=G4, display=display.none)
 bool   showDash  = input.bool(true, "Dashboard", group=G4)
+string dashPos   = input.string("ล่างขวา", "ตำแหน่ง Dashboard", options=["ล่างขวา", "บนขวา", "ล่างซ้าย", "บนซ้าย"], group=G4, display=display.none)
 
 string GC = "แท่งเทียน TF ใหญ่ (ด้านขวาของกราฟ)"
 bool   showC   = input.bool(true, "แสดงแท่งเทียน TF ใหญ่", group=GC)
@@ -465,6 +467,37 @@ f_drawC(array<float> O, array<float> H, array<float> L, array<float> C, array<in
         x += 3
     x
 
+// วาด SMT · ถ้ามี SMT ที่ swing เดียวกันอยู่แล้ว (ราคาใกล้กัน + เวลาอยู่ในแท่ง TF ใหญ่เดียวกัน) → ต่อชื่อ TF ในป้ายเดิม ไม่วาดซ้ำ
+var array<label> smL = array.new<label>()
+var array<float> smP = array.new<float>()
+var array<int>   smT = array.new<int>()
+var array<int>   smW = array.new<int>()
+f_smtMark(int t1, float p1, int t2, float p2, string nm, bool up, int win, bool htf) =>
+    bool  merged = false
+    float tl     = math.max(atr * 0.5, syminfo.mintick)
+    int   n      = smL.size()
+    if n > 0
+        for i = n - 1 to 0
+            if math.abs(smP.get(i) - p2) <= tl and math.abs(smT.get(i) - t2) <= math.max(win, smW.get(i))
+                label lb  = smL.get(i)
+                string tx = label.get_text(lb)
+                if not str.contains(tx, nm)
+                    label.set_text(lb, tx + " · " + nm)
+                merged := true
+                break
+    if not merged
+        f_keepL(line.new(t1, p1, t2, p2, xloc=xloc.bar_time, color=colSMT, width=lw, style=htf ? line.style_dashed : line.style_dotted))
+        label lb = label.new(t2, p2, "SMT " + nm, xloc=xloc.bar_time, style=up ? label.style_label_up : label.style_label_down, color=cNone, textcolor=colSMT, size=txtSz)
+        smL.push(lb)
+        smP.push(p2)
+        smT.push(t2)
+        smW.push(win)
+        if smL.size() > 20
+            label.delete(smL.shift())
+            smP.shift()
+            smT.shift()
+            smW.shift()
+
 // SMT ของ TF ใหญ่: ทอง LL + เงิน HL = Bullish · ทอง HH + เงิน LH = Bearish → วาดเส้นบนกราฟเล็ก
 f_smtTF(SmtTF s, bool on, string tf, bool nw, float gl, float gh, int gt, float xl, float xh) =>
     if on and nw and timeframe.in_seconds(tf) > chSec
@@ -473,8 +506,7 @@ f_smtTF(SmtTF s, bool on, string tf, bool nw, float gl, float gh, int gt, float 
             if not na(s.gl) and not na(s.xl) and gl < s.gl and xl > s.xl
                 s.ub := bar_index
                 if showSMT
-                    f_keepL(line.new(s.glt, s.gl, gt, gl, xloc=xloc.bar_time, color=colSMT, width=lw, style=line.style_dashed))
-                    f_keepB(label.new(gt, gl, "SMT " + nm, xloc=xloc.bar_time, style=label.style_label_up, color=cNone, textcolor=colSMT, size=txtSz))
+                    f_smtMark(s.glt, s.gl, gt, gl, nm, true, timeframe.in_seconds(tf) * 1000, true)
             s.gl  := gl
             s.glt := gt
             s.xl  := xl
@@ -482,8 +514,7 @@ f_smtTF(SmtTF s, bool on, string tf, bool nw, float gl, float gh, int gt, float 
             if not na(s.gh) and not na(s.xh) and gh > s.gh and xh < s.xh
                 s.db := bar_index
                 if showSMT
-                    f_keepL(line.new(s.ght, s.gh, gt, gh, xloc=xloc.bar_time, color=colSMT, width=lw, style=line.style_dashed))
-                    f_keepB(label.new(gt, gh, "SMT " + nm, xloc=xloc.bar_time, style=label.style_label_down, color=cNone, textcolor=colSMT, size=txtSz))
+                    f_smtMark(s.ght, s.gh, gt, gh, nm, false, timeframe.in_seconds(tf) * 1000, true)
             s.gh  := gh
             s.ght := gt
             s.xh  := xh
@@ -885,8 +916,7 @@ if barstate.isconfirmed
         if useSMT and not na(pGH) and not na(pXH) and not na(xPk) and sph > pGH and xPk < pXH
             smtDBar := bar_index
             if showSMT
-                f_keepL(line.new(pHT, pGH, time[sLen], sph, xloc=xloc.bar_time, color=colSMT, width=lw, style=line.style_dotted))
-                f_keepB(label.new(time[sLen], sph, "SMT " + f_tfTxt(timeframe.period), xloc=xloc.bar_time, style=label.style_label_down, color=cNone, textcolor=colSMT, size=txtSz))
+                f_smtMark(pHT, pGH, time[sLen], sph, f_tfTxt(timeframe.period), false, chSec * 1000, false)
         pGH := sph
         pHT := time[sLen]
         pXH := xPk
@@ -912,8 +942,7 @@ if barstate.isconfirmed
         if useSMT and not na(pGL) and not na(pXL) and not na(xVal) and spl < pGL and xVal > pXL
             smtUBar := bar_index
             if showSMT
-                f_keepL(line.new(pGT, pGL, time[sLen], spl, xloc=xloc.bar_time, color=colSMT, width=lw, style=line.style_dotted))
-                f_keepB(label.new(time[sLen], spl, "SMT " + f_tfTxt(timeframe.period), xloc=xloc.bar_time, style=label.style_label_up, color=cNone, textcolor=colSMT, size=txtSz))
+                f_smtMark(pGT, pGL, time[sLen], spl, f_tfTxt(timeframe.period), true, chSec * 1000, false)
         pGL := spl
         pGT := time[sLen]
         pXL := xVal
@@ -1050,7 +1079,8 @@ plotshape(sigFill == 1, title="Buy filled", style=shape.triangleup, location=loc
 plotshape(sigFill == -1, title="Sell filled", style=shape.triangledown, location=location.abovebar, color=colR, size=size.tiny, display=display.pane)
 
 // ───────── Render ─────────
-var table dash = table.new(position.bottom_right, 2, 10, bgcolor=color.new(chart.bg_color, 0), frame_color=color.new(chart.fg_color, 85), frame_width=1, border_width=0)
+string dPos = dashPos == "บนขวา" ? position.top_right : dashPos == "ล่างซ้าย" ? position.bottom_left : dashPos == "บนซ้าย" ? position.top_left : position.bottom_right
+var table dash = table.new(dPos, 2, 10, bgcolor=color.new(chart.bg_color, 0), frame_color=color.new(chart.fg_color, 85), frame_width=1, border_width=0)
 
 if barstate.islast
     array<float> vp = array.new<float>()
