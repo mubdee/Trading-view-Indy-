@@ -4,6 +4,7 @@
 // DEV 2026-11-22: + บริหารไม้ (TP1 แบ่งปิด + เลื่อน SL กันทุน) · Lot ตามความเสี่ยง USD · SL cap (points) · TP1 = Roadblock / 1R
 // DEV 2026-11-22 (2): + SMT divergence ทอง/เงิน · PO3 (Entry ฝั่งถูกของ Open H4) · Score เต็ม 8
 // DEV 2026-11-22 (3): SMT แบบ swing เทียบ swing (เวลาเดียวกัน) + วาดเส้น SMT บนกราฟ · Sweep ที่เงินไม่ยืนยัน = "Sweep · SMT"
+// DEV 2026-11-22 (4): SMT หลายทามเฟรม (M15 · H1 · H4) วาดบน M5 + แถว SMT ใน Dashboard · HTF SMT ช่วยนับแต้ม SMT
 // ════════════════════════════════════════════════════════════════
 //@version=6
 indicator("MSNR × SMC DEV", shorttitle="MSNR SMC DEV", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=100, max_bars_back=500)
@@ -55,6 +56,14 @@ int    minScore = input.int(4, "ตั้ง Limit เฉพาะ Score ≥", m
 bool   useSMT   = input.bool(true, "SMT divergence (เทียบสินทรัพย์ที่วิ่งตามกัน)", group=GQ)
 string smtSym   = input.symbol("OANDA:XAGUSD", "สัญลักษณ์เทียบ SMT", group=GQ, display=display.none, tooltip="ทอง → เงิน (XAGUSD) · ทองกวาด Low แต่เงินไม่ทำ Low ใหม่ = Bullish SMT · ทองกวาด High แต่เงินไม่ทำ High ใหม่ = Bearish SMT")
 bool   showSMT  = input.bool(true, "วาดเส้น SMT บนกราฟ", group=GQ)
+bool   smtU1    = input.bool(true, "SMT TF 1", inline="s1", group=GQ)
+string smtTf1   = input.timeframe("15", "", inline="s1", group=GQ, display=display.none)
+bool   smtU2    = input.bool(true, "SMT TF 2", inline="s2", group=GQ)
+string smtTf2   = input.timeframe("60", "", inline="s2", group=GQ, display=display.none)
+bool   smtU3    = input.bool(true, "SMT TF 3", inline="s3", group=GQ)
+string smtTf3   = input.timeframe("240", "", inline="s3", group=GQ, display=display.none)
+int    smtLenH  = input.int(2, "SMT TF ใหญ่: Swing length (แท่งของ TF นั้น)", minval=1, group=GQ, display=display.none)
+int    smtLive  = input.int(3, "SMT TF ใหญ่ยังนับ (แท่งของ TF นั้น)", minval=1, group=GQ, display=display.none, tooltip="SMT ของ TF ใหญ่ที่เกิดไม่เกินกี่แท่ง (ของ TF นั้น) ยังนับเป็นแต้ม SMT และขึ้น ▲/▼ ใน Dashboard")
 bool   reqPD    = input.bool(false, "บังคับ Entry อยู่ Discount (Buy) / Premium (Sell)", group=GQ)
 
 string G3 = "Entry (MSNR)"
@@ -202,6 +211,37 @@ var int   pHT = na
 var float pXH = na
 var int   smtUBar = -1000
 var int   smtDBar = -1000
+
+// ───────── SMT หลายทามเฟรม (แท่ง TF ใหญ่ที่ปิดแล้วเท่านั้น = ไม่ repaint) ─────────
+type SmtTF
+    string name
+    float  gl
+    int    glt
+    float  xl
+    float  gh
+    int    ght
+    float  xh
+    int    ub = -100000
+    int    db = -100000
+
+f_gSw(int L) =>
+    [ta.pivotlow(low, L, L)[1], ta.pivothigh(high, L, L)[1], time[L + 1]]
+f_xSw(int L) =>
+    [ta.lowest(low, 2 * L + 1)[1], ta.highest(high, 2 * L + 1)[1]]
+
+[g1L, g1H, g1T] = request.security(syminfo.tickerid, smtTf1, f_gSw(smtLenH), lookahead=barmerge.lookahead_on)
+[x1L, x1H]      = request.security(smtSym, smtTf1, f_xSw(smtLenH), lookahead=barmerge.lookahead_on, ignore_invalid_symbol=true)
+[g2L, g2H, g2T] = request.security(syminfo.tickerid, smtTf2, f_gSw(smtLenH), lookahead=barmerge.lookahead_on)
+[x2L, x2H]      = request.security(smtSym, smtTf2, f_xSw(smtLenH), lookahead=barmerge.lookahead_on, ignore_invalid_symbol=true)
+[g3L, g3H, g3T] = request.security(syminfo.tickerid, smtTf3, f_gSw(smtLenH), lookahead=barmerge.lookahead_on)
+[x3L, x3H]      = request.security(smtSym, smtTf3, f_xSw(smtLenH), lookahead=barmerge.lookahead_on, ignore_invalid_symbol=true)
+bool sn1 = timeframe.change(smtTf1)
+bool sn2 = timeframe.change(smtTf2)
+bool sn3 = timeframe.change(smtTf3)
+var SmtTF st1 = SmtTF.new("")
+var SmtTF st2 = SmtTF.new("")
+var SmtTF st3 = SmtTF.new("")
+int chSec = timeframe.in_seconds()
 
 // ───────── สร้างแท่ง TF ใหญ่จากข้อมูลกราฟ (live ทุก tick) ─────────
 f_htfCandles(string tf) =>
@@ -425,6 +465,37 @@ f_drawC(array<float> O, array<float> H, array<float> L, array<float> C, array<in
         x += 3
     x
 
+// SMT ของ TF ใหญ่: ทอง LL + เงิน HL = Bullish · ทอง HH + เงิน LH = Bearish → วาดเส้นบนกราฟเล็ก
+f_smtTF(SmtTF s, bool on, string tf, bool nw, float gl, float gh, int gt, float xl, float xh) =>
+    if on and nw and timeframe.in_seconds(tf) > chSec
+        string nm = f_tfTxt(tf)
+        if not na(gl) and not na(xl)
+            if not na(s.gl) and not na(s.xl) and gl < s.gl and xl > s.xl
+                s.ub := bar_index
+                if showSMT
+                    f_keepL(line.new(s.glt, s.gl, gt, gl, xloc=xloc.bar_time, color=colSMT, width=lw, style=line.style_dashed))
+                    f_keepB(label.new(gt, gl, "SMT " + nm, xloc=xloc.bar_time, style=label.style_label_up, color=cNone, textcolor=colSMT, size=txtSz))
+            s.gl  := gl
+            s.glt := gt
+            s.xl  := xl
+        if not na(gh) and not na(xh)
+            if not na(s.gh) and not na(s.xh) and gh > s.gh and xh < s.xh
+                s.db := bar_index
+                if showSMT
+                    f_keepL(line.new(s.ght, s.gh, gt, gh, xloc=xloc.bar_time, color=colSMT, width=lw, style=line.style_dashed))
+                    f_keepB(label.new(gt, gh, "SMT " + nm, xloc=xloc.bar_time, style=label.style_label_down, color=cNone, textcolor=colSMT, size=txtSz))
+            s.gh  := gh
+            s.ght := gt
+            s.xh  := xh
+
+// SMT ของ TF ใหญ่ยังสด (เกิดไม่เกิน smtLive แท่งของ TF นั้น) · คืน 1 / -1 / 0 (ล่าสุดชนะ)
+f_smtAct(SmtTF s, bool on, string tf) =>
+    int  w  = math.round(smtLive * timeframe.in_seconds(tf) / math.max(chSec, 1))
+    bool ok = on and useSMT and timeframe.in_seconds(tf) > chSec
+    bool u  = ok and bar_index - s.ub <= w
+    bool d  = ok and bar_index - s.db <= w
+    u and d ? (s.ub >= s.db ? 1 : -1) : u ? 1 : d ? -1 : 0
+
 // ───────── State ─────────
 var int story1 = 0
 var int story2 = 0
@@ -512,6 +583,11 @@ int sigFill = 0
 
 // ───────── Engine ─────────
 if barstate.isconfirmed
+    // ── SMT หลายทามเฟรม
+    if useSMT
+        f_smtTF(st1, smtU1, smtTf1, sn1, g1L, g1H, g1T, x1L, x1H)
+        f_smtTF(st2, smtU2, smtTf2, sn2, g2L, g2H, g2T, x2L, x2H)
+        f_smtTF(st3, smtU3, smtTf3, sn3, g3L, g3H, g3T, x3L, x3H)
     // ── HTF levels
     if nb2
         int s2 = f_htfClose(2, h2C, start2)
@@ -810,7 +886,7 @@ if barstate.isconfirmed
             smtDBar := bar_index
             if showSMT
                 f_keepL(line.new(pHT, pGH, time[sLen], sph, xloc=xloc.bar_time, color=colSMT, width=lw, style=line.style_dotted))
-                f_keepB(label.new(time[sLen], sph, "SMT", xloc=xloc.bar_time, style=label.style_label_down, color=cNone, textcolor=colSMT, size=txtSz))
+                f_keepB(label.new(time[sLen], sph, "SMT " + f_tfTxt(timeframe.period), xloc=xloc.bar_time, style=label.style_label_down, color=cNone, textcolor=colSMT, size=txtSz))
         pGH := sph
         pHT := time[sLen]
         pXH := xPk
@@ -837,7 +913,7 @@ if barstate.isconfirmed
             smtUBar := bar_index
             if showSMT
                 f_keepL(line.new(pGT, pGL, time[sLen], spl, xloc=xloc.bar_time, color=colSMT, width=lw, style=line.style_dotted))
-                f_keepB(label.new(time[sLen], spl, "SMT", xloc=xloc.bar_time, style=label.style_label_up, color=cNone, textcolor=colSMT, size=txtSz))
+                f_keepB(label.new(time[sLen], spl, "SMT " + f_tfTxt(timeframe.period), xloc=xloc.bar_time, style=label.style_label_up, color=cNone, textcolor=colSMT, size=txtSz))
         pGL := spl
         pGT := time[sLen]
         pXL := xVal
@@ -951,7 +1027,9 @@ if barstate.isconfirmed
             kzHit := inKz
             // SMT: เงินไม่ทะลุ swing เดียวกันตอนทอง sweep · หรือมี SMT แบบ swing เกิดไม่นานก่อนหน้า
             bool swSmt = useSMT and (bullSw ? (not na(uX) and not na(xLo) and xLo > uX) : (not na(dX) and not na(xHi) and xHi < dX))
-            smtHit := swSmt or (bullSw ? bar_index - smtUBar <= liqAge : bar_index - smtDBar <= liqAge)
+            int  dd    = bullSw ? 1 : -1
+            bool htfSm = f_smtAct(st1, smtU1, smtTf1) == dd or f_smtAct(st2, smtU2, smtTf2) == dd or f_smtAct(st3, smtU3, smtTf3) == dd
+            smtHit := swSmt or htfSm or (bullSw ? bar_index - smtUBar <= liqAge : bar_index - smtDBar <= liqAge)
             if bullSw and hitPDL
                 usedPDL := pdl
             if bullSw and hitAL
@@ -972,7 +1050,7 @@ plotshape(sigFill == 1, title="Buy filled", style=shape.triangleup, location=loc
 plotshape(sigFill == -1, title="Sell filled", style=shape.triangledown, location=location.abovebar, color=colR, size=size.tiny, display=display.pane)
 
 // ───────── Render ─────────
-var table dash = table.new(position.bottom_right, 2, 9, bgcolor=color.new(chart.bg_color, 0), frame_color=color.new(chart.fg_color, 85), frame_width=1, border_width=0)
+var table dash = table.new(position.bottom_right, 2, 10, bgcolor=color.new(chart.bg_color, 0), frame_color=color.new(chart.fg_color, 85), frame_width=1, border_width=0)
 
 if barstate.islast
     array<float> vp = array.new<float>()
@@ -1108,5 +1186,13 @@ if barstate.islast
         string statA = nA == 0 ? "—" : "W " + str.tostring(aW) + " · L " + str.tostring(aL2) + " · " + str.tostring(100.0 * aW / nA, "#") + "% · " + (aR >= 0 ? "+" : "") + str.tostring(aR, "#.#") + "R"
         table.cell(dash, 0, 7, "Stats A/A+", text_color=dim, text_size=size.tiny, text_halign=text.align_left)
         table.cell(dash, 1, 7, statA, text_color=fg, text_size=size.tiny, text_halign=text.align_right)
+        int    cS   = bar_index - smtUBar <= liqAge and smtUBar >= smtDBar ? 1 : bar_index - smtDBar <= liqAge ? -1 : bar_index - smtUBar <= liqAge ? 1 : 0
+        string sm0  = useSMT ? f_tfTxt(timeframe.period) + (cS == 1 ? " ▲" : cS == -1 ? " ▼" : " ·") : "ปิด"
+        int    a1   = f_smtAct(st1, smtU1, smtTf1)
+        int    a2   = f_smtAct(st2, smtU2, smtTf2)
+        int    a3   = f_smtAct(st3, smtU3, smtTf3)
+        string smR  = sm0 + (smtU1 ? "  " + f_tfTxt(smtTf1) + (a1 == 1 ? " ▲" : a1 == -1 ? " ▼" : " ·") : "") + (smtU2 ? "  " + f_tfTxt(smtTf2) + (a2 == 1 ? " ▲" : a2 == -1 ? " ▼" : " ·") : "") + (smtU3 ? "  " + f_tfTxt(smtTf3) + (a3 == 1 ? " ▲" : a3 == -1 ? " ▼" : " ·") : "")
+        table.cell(dash, 0, 9, "SMT", text_color=dim, text_size=size.tiny, text_halign=text.align_left)
+        table.cell(dash, 1, 9, smR, text_color=colSMT, text_size=size.tiny, text_halign=text.align_right)
         table.cell(dash, 0, 8, "Lot", text_color=dim, text_size=size.tiny, text_halign=text.align_left)
         table.cell(dash, 1, 8, ss >= 4 and not na(lotV) ? str.tostring(lotV, "#.##") + " lot · เสี่ยง $" + str.tostring(riskUsd, "#.##") + " · SL " + str.tostring(math.abs(enP - slP) / ptSize, "#") + " pts" : "—", text_color=fg, text_size=size.tiny, text_halign=text.align_right)
