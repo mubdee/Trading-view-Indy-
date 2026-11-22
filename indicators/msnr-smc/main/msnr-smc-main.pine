@@ -1,6 +1,6 @@
 // ════════════════════════════════════════════════════════════════
 // MSNR × SMC — MAIN · POI = เลเวล MSNR ของ H1/H4 → Sweep → MSS บน TF ชาร์ต → Limit ที่เลเวล MSNR (Pine Script v6)
-// ⭐ ไฟล์หลัก (อัปเดต 2026-11-22 · รวม DEV (1)-(6): บริหารไม้ · Lot · SMT หลาย TF · PO3 · Score 8 · ป้ายไม่ซ้อน) · ไฟล์สำรองสำหรับแก้: indicators/msnr-smc/msnr-smc-dev.pine
+// ⭐ ไฟล์หลัก (อัปเดต 2026-11-22 · รวม DEV (1)-(7): บริหารไม้ · Lot · SMT หลาย TF · PO3 · Score 8 · ป้ายไม่ซ้อน · เส้น SMT ตรงไส้) · ไฟล์สำรองสำหรับแก้: indicators/msnr-smc/msnr-smc-dev.pine
 // ════════════════════════════════════════════════════════════════
 //@version=6
 indicator("MSNR × SMC", shorttitle="MSNR SMC", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=100, max_bars_back=500)
@@ -523,25 +523,40 @@ f_sweepMark(int t, float p, string txt, bool up, color col) =>
             smT.shift()
             smW.shift()
 
+// หาแท่งบนกราฟที่ทำ High/Low จริงภายในแท่ง TF ใหญ่ (เปิดที่เวลา t ยาว ms) → คืนเวลาแท่งนั้น
+f_exactT(int t, int ms, bool lo, float p) =>
+    int   r = t
+    float e = syminfo.mintick / 2
+    for j = 0 to 499
+        int tj = time[j]
+        if na(tj) or tj < t
+            break
+        if tj < t + ms and (lo ? low[j] <= p + e : high[j] >= p - e)
+            r := tj
+    r
+
 // SMT ของ TF ใหญ่: ทอง LL + เงิน HL = Bullish · ทอง HH + เงิน LH = Bearish → วาดเส้นบนกราฟเล็ก
 f_smtTF(SmtTF s, bool on, string tf, bool nw, float gl, float gh, int gt, float xl, float xh) =>
     if on and nw and timeframe.in_seconds(tf) > chSec
         string nm = f_tfTxt(tf)
+        int    ms = timeframe.in_seconds(tf) * 1000
         if not na(gl) and not na(xl)
+            int tL = f_exactT(gt, ms, true, gl)
             if not na(s.gl) and not na(s.xl) and gl < s.gl and xl > s.xl
                 s.ub := bar_index
                 if showSMT
-                    f_smtMark(s.glt, s.gl, gt, gl, nm, true, timeframe.in_seconds(tf) * 1000, true)
+                    f_smtMark(s.glt, s.gl, tL, gl, nm, true, ms, true)
             s.gl  := gl
-            s.glt := gt
+            s.glt := tL
             s.xl  := xl
         if not na(gh) and not na(xh)
+            int tH = f_exactT(gt, ms, false, gh)
             if not na(s.gh) and not na(s.xh) and gh > s.gh and xh < s.xh
                 s.db := bar_index
                 if showSMT
-                    f_smtMark(s.ght, s.gh, gt, gh, nm, false, timeframe.in_seconds(tf) * 1000, true)
+                    f_smtMark(s.ght, s.gh, tH, gh, nm, false, ms, true)
             s.gh  := gh
-            s.ght := gt
+            s.ght := tH
             s.xh  := xh
 
 // SMT ของ TF ใหญ่ยังสด (เกิดไม่เกิน smtLive แท่งของ TF นั้น) · คืน 1 / -1 / 0 (ล่าสุดชนะ)
