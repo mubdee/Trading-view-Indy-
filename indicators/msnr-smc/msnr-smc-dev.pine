@@ -1,6 +1,7 @@
 // ════════════════════════════════════════════════════════════════
 // MSNR × SMC — DEV · POI = เลเวล MSNR ของ H1/H4 → Sweep → MSS บน TF ชาร์ต → Limit ที่เลเวล MSNR (Pine Script v6)
-// ✏️ ไฟล์สำรองสำหรับแก้/ทดลอง (สำเนาเดียวกับ MAIN 2026-11-22) · ไฟล์หลัก: indicators/msnr-smc/main/msnr-smc-main.pine
+// ✏️ ไฟล์สำรองสำหรับแก้/ทดลอง · ไฟล์หลัก: indicators/msnr-smc/main/msnr-smc-main.pine
+// DEV 2026-11-22: + บริหารไม้ (TP1 แบ่งปิด + เลื่อน SL กันทุน) · Lot ตามความเสี่ยง USD · SL cap (points) · TP1 = Roadblock / 1R
 // ════════════════════════════════════════════════════════════════
 //@version=6
 indicator("MSNR × SMC DEV", shorttitle="MSNR SMC DEV", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=100, max_bars_back=500)
@@ -62,6 +63,16 @@ int    fillBars  = input.int(0, "Limit ต้องโดนภายใน (แ
 int    maxHold   = input.int(150, "ปิดไม้อัตโนมัติถ้าเกิน (แท่ง)", minval=10, group=G3, display=display.none)
 bool   useSess   = input.bool(false, "หา Setup เฉพาะใน Session", group=G3)
 string sess      = input.session("1400-0200", "Session (เวลาไทย)", group=G3, display=display.none)
+
+string GM = "บริหารไม้ / ความเสี่ยง"
+string mgMode  = input.string("TP1 แบ่งปิด + กันทุน", "การบริหารไม้", options=["TP1 แบ่งปิด + กันทุน", "SL / TP ตายตัว"], group=GM, display=display.none, tooltip="TP1 แบ่งปิด + กันทุน = ถึง TP1 ปิดบางส่วน แล้วเลื่อน SL ไปที่ Entry (+buffer) ปล่อยที่เหลือไป TP2 · Stats คำนวณตามโหมดที่เลือก")
+string tp1Mode = input.string("Roadblock", "TP1", options=["Roadblock", "1R"], group=GM, display=display.none, tooltip="Roadblock = เลเวล MSNR ฝั่งตรงข้ามตัวแรกที่ขวางทางไป TP2 (ไม่มี = 1R)")
+float  partPct = input.float(50, "ปิดที่ TP1 (%)", minval=0, maxval=100, step=5, group=GM, display=display.none)
+float  bePts   = input.float(30, "SL กันทุน = Entry + (points)", minval=0, step=10, group=GM, display=display.none, tooltip="เผื่อ spread / ค่าคอม · XAUUSD 1 point = 0.01")
+float  riskUsd = input.float(10, "ความเสี่ยงต่อไม้ (USD)", minval=0.01, step=1, group=GM, display=display.none)
+float  ptSize  = input.float(0.01, "1 point = ราคาเท่าไร", minval=0.00001, step=0.001, group=GM, display=display.none)
+float  ctSz    = input.float(100, "Contract size ต่อ 1 lot", minval=0.0001, group=GM, display=display.none, tooltip="XAUUSD = 100 oz ต่อ 1 lot")
+float  slCap   = input.float(0, "SL ไกลสุด (points) · 0 = ปิด", minval=0, step=50, group=GM, display=display.none, tooltip="ถ้าไส้ sweep ไกลเกินค่านี้ → ตั้ง SL ที่ระยะนี้แทน (แบบ SFP SBR/RBS เช่น 1000 points)")
 
 string G4 = "ทั่วไป"
 float  tolA      = input.float(0.05, "Tolerance แตะ/ทะลุ (x ATR)", minval=0.0, step=0.01, group=G4, display=display.none)
@@ -440,6 +451,13 @@ var float  enP   = na
 var float  slP   = na
 var float  tpP   = na
 var float  rrV   = na
+var float  tp1P  = na
+var bool   tp1H  = false
+var float  slNow = na
+var float  rlz   = 0.0
+var float  lotV  = na
+var line   t1L   = na
+var label  t1B   = na
 var string enTxt = ""
 var int    stBar = 0
 var line   msL   = na
@@ -552,21 +570,22 @@ if barstate.isconfirmed
 
     // ── จัดการไม้ / Limit
     if ss == 5 and bar_index > stBar
-        float res  = na
-        bool  tout = false
-        float risk = math.abs(enP - slP)
-        if dir == 1
-            if low <= slP
-                res := -1.0
-            else if high >= tpP
-                res := (tpP - enP) / risk
+        float res   = na
+        bool  tout  = false
+        float risk  = math.abs(enP - slP)
+        float pt    = mgMode == "SL / TP ตายตัว" or na(tp1P) ? 0.0 : partPct / 100
+        bool  slHit = dir == 1 ? low <= slNow : high >= slNow
+        if slHit
+            res := rlz + (1 - (tp1H ? pt : 0.0)) * dir * (slNow - enP) / risk
         else
-            if high >= slP
-                res := -1.0
-            else if low <= tpP
-                res := (enP - tpP) / risk
+            if not tp1H and pt > 0 and (dir == 1 ? high >= tp1P : low <= tp1P)
+                tp1H  := true
+                rlz   := pt * math.abs(tp1P - enP) / risk
+                slNow := enP + dir * bePts * ptSize
+            if dir == 1 ? high >= tpP : low <= tpP
+                res := rlz + (1 - (tp1H ? pt : 0.0)) * math.abs(tpP - enP) / risk
         if na(res) and bar_index - stBar >= maxHold
-            res  := dir * (close - enP) / risk
+            res  := rlz + (1 - (tp1H ? pt : 0.0)) * dir * (close - enP) / risk
             tout := true
         if not na(res)
             if tout
@@ -602,6 +621,8 @@ if barstate.isconfirmed
             label.delete(eB)
             label.delete(sB)
             label.delete(tB)
+            line.delete(t1L)
+            label.delete(t1B)
             ss := 0
 
     // ── รอ MSS / เช็ก FVG
@@ -667,13 +688,33 @@ if barstate.isconfirmed
         string et  = enTxt
         sigMss := dir
         float sl   = dir == 1 ? swWk - slA * atr : swWk + slA * atr
+        if slCap > 0 and math.abs(ep - sl) > slCap * ptSize
+            sl := ep - dir * slCap * ptSize
         float risk = math.max(math.abs(ep - sl), syminfo.mintick)
         float tp   = f_target(dir, risk * minRR, ep)
         if na(tp)
             tp := ep + dir * risk * fbR
+        // TP1: Roadblock = เลเวล MSNR ฝั่งตรงข้ามตัวแรกระหว่าง Entry กับ TP2 · ไม่มี = 1R
+        float t1 = na
+        if tp1Mode == "Roadblock"
+            for m in lvL
+                if m.fresh and m.kind == -dir and math.abs(m.price - ep) >= 0.5 * risk
+                    if dir == 1 and m.price > ep and m.price < tp and (na(t1) or m.price < t1)
+                        t1 := m.price
+                    if dir == -1 and m.price < ep and m.price > tp and (na(t1) or m.price > t1)
+                        t1 := m.price
+        if na(t1)
+            t1 := ep + dir * risk
+        if (dir == 1 and t1 >= tp) or (dir == -1 and t1 <= tp)
+            t1 := na
         enP   := ep
         slP   := sl
         tpP   := tp
+        tp1P  := t1
+        tp1H  := false
+        slNow := sl
+        rlz   := 0.0
+        lotV  := math.floor(riskUsd / (risk * ctSz) * 100) / 100
         rrV   := math.abs(tp - ep) / risk
         enTxt := et + " · " + f_grade(tSc)
         ss    := 4
@@ -684,6 +725,8 @@ if barstate.isconfirmed
         label.delete(eB)
         label.delete(sB)
         label.delete(tB)
+        line.delete(t1L)
+        label.delete(t1B)
         int x2 = bar_index + offs
         color dc = dir == 1 ? colS : colR
         eL := line.new(bar_index, ep, x2, ep, color=dc, width=lw)
@@ -691,8 +734,11 @@ if barstate.isconfirmed
         tL := line.new(bar_index, tp, x2, tp, color=colS, width=lw, style=line.style_dotted)
         eB := label.new(x2, ep, (dir == 1 ? "Buy Limit · " : "Sell Limit · ") + enTxt, style=label.style_label_lower_left, color=cNone, textcolor=dc, size=txtSz)
         sB := label.new(x2, sl, "SL", style=label.style_label_lower_left, color=cNone, textcolor=colR, size=txtSz)
-        tB := label.new(x2, tp, "TP 1:" + str.tostring(rrV, "#.#"), style=label.style_label_lower_left, color=cNone, textcolor=colS, size=txtSz)
-        alert("MSNR×SMC " + (dir == 1 ? "▲ MSS → Buy Limit " : "▼ MSS → Sell Limit ") + str.tostring(ep, format.mintick) + " [" + enTxt + " · POI " + zTxt + " · " + ckTxt + "] | SL " + str.tostring(sl, format.mintick) + " | TP " + str.tostring(tp, format.mintick) + " | RR 1:" + str.tostring(rrV, "#.#") + " | " + syminfo.ticker, alert.freq_once_per_bar_close)
+        tB := label.new(x2, tp, (na(t1) or mgMode == "SL / TP ตายตัว" ? "TP 1:" : "TP2 1:") + str.tostring(rrV, "#.#"), style=label.style_label_lower_left, color=cNone, textcolor=colS, size=txtSz)
+        if not na(t1) and mgMode != "SL / TP ตายตัว"
+            t1L := line.new(bar_index, t1, x2, t1, color=color.new(colS, 50), width=lw, style=line.style_dotted)
+            t1B := label.new(x2, t1, "TP1 " + str.tostring(partPct, "#") + "% · BE", style=label.style_label_lower_left, color=cNone, textcolor=color.new(colS, 30), size=txtSz)
+        alert("MSNR×SMC " + (dir == 1 ? "▲ MSS → Buy Limit " : "▼ MSS → Sell Limit ") + str.tostring(ep, format.mintick) + " [" + enTxt + " · POI " + zTxt + " · " + ckTxt + "] | SL " + str.tostring(sl, format.mintick) + (na(t1) ? "" : " | TP1 " + str.tostring(t1, format.mintick)) + " | TP " + str.tostring(tp, format.mintick) + " | RR 1:" + str.tostring(rrV, "#.#") + " | Lot " + str.tostring(lotV, "#.##") + " (risk $" + str.tostring(riskUsd, "#.##") + ") | " + syminfo.ticker, alert.freq_once_per_bar_close)
 
     // ── โซนหมดอายุ / ราคาวิ่งทะลุโซน
     if ss == 1
@@ -867,7 +913,7 @@ plotshape(sigFill == 1, title="Buy filled", style=shape.triangleup, location=loc
 plotshape(sigFill == -1, title="Sell filled", style=shape.triangledown, location=location.abovebar, color=colR, size=size.tiny, display=display.pane)
 
 // ───────── Render ─────────
-var table dash = table.new(position.bottom_right, 2, 8, bgcolor=color.new(chart.bg_color, 0), frame_color=color.new(chart.fg_color, 85), frame_width=1, border_width=0)
+var table dash = table.new(position.bottom_right, 2, 9, bgcolor=color.new(chart.bg_color, 0), frame_color=color.new(chart.fg_color, 85), frame_width=1, border_width=0)
 
 if barstate.islast
     array<float> vp = array.new<float>()
@@ -970,6 +1016,8 @@ if barstate.islast
         label.set_x(eB, xR)
         label.set_x(sB, xR)
         label.set_x(tB, xR)
+        line.set_x2(t1L, xR)
+        label.set_x(t1B, xR)
 
     if showDash
         color  fg   = chart.fg_color
@@ -979,7 +1027,7 @@ if barstate.islast
         string sTxt = sty == 1 ? "▲ Bullish (" + sSrc + ")" : sty == -1 ? "▼ Bearish (" + sSrc + ")" : "— No trend"
         color  sCol = sty == 1 ? colS : sty == -1 ? colR : dim
         string arw  = dir == 1 ? "▲ " : "▼ "
-        string stTxt = ss == 0 ? (skip != "" ? skip : inSess ? "รอราคาแตะเลเวล HTF" : "นอก Session") : ss == 1 ? arw + "ในโซน " + zTxt + " · รอ Sweep" : ss == 2 or ss == 3 ? arw + "Sweep ✓ · รอ MSS " + (dir == 1 ? "> " : "< ") + str.tostring(mLvl, format.mintick) : ss == 4 ? arw + (dir == 1 ? "Buy" : "Sell") + " Limit " + str.tostring(enP, format.mintick) + " · " + enTxt : arw + "In trade " + str.tostring(enP, format.mintick)
+        string stTxt = ss == 0 ? (skip != "" ? skip : inSess ? "รอราคาแตะเลเวล HTF" : "นอก Session") : ss == 1 ? arw + "ในโซน " + zTxt + " · รอ Sweep" : ss == 2 or ss == 3 ? arw + "Sweep ✓ · รอ MSS " + (dir == 1 ? "> " : "< ") + str.tostring(mLvl, format.mintick) : ss == 4 ? arw + (dir == 1 ? "Buy" : "Sell") + " Limit " + str.tostring(enP, format.mintick) + " · " + enTxt : arw + "In trade " + str.tostring(enP, format.mintick) + (tp1H ? " · TP1 ✓ กันทุนแล้ว" : "")
         color  stCol = ss == 0 ? dim : dir == 1 ? colS : colR
         int    nWL   = nW + nL
         string stat  = nWL + nT == 0 ? "—" : "W " + str.tostring(nW) + " · L " + str.tostring(nL) + (nT > 0 ? " · T " + str.tostring(nT) : "") + " · " + (nWL > 0 ? str.tostring(100.0 * nW / nWL, "#") + "%" : "-") + " · " + (sumR >= 0 ? "+" : "") + str.tostring(sumR, "#.#") + "R"
@@ -992,7 +1040,7 @@ if barstate.islast
         table.cell(dash, 0, 3, "Setup", text_color=dim, text_size=size.tiny, text_halign=text.align_left)
         table.cell(dash, 1, 3, stTxt, text_color=stCol, text_size=size.tiny, text_halign=text.align_right)
         table.cell(dash, 0, 4, "SL / TP", text_color=dim, text_size=size.tiny, text_halign=text.align_left)
-        table.cell(dash, 1, 4, ss >= 4 ? str.tostring(slP, format.mintick) + " / " + str.tostring(tpP, format.mintick) + "  1:" + str.tostring(rrV, "#.#") : "—", text_color=fg, text_size=size.tiny, text_halign=text.align_right)
+        table.cell(dash, 1, 4, ss >= 4 ? str.tostring(slNow, format.mintick) + (tp1H ? " (BE)" : "") + " / " + (na(tp1P) ? "" : str.tostring(tp1P, format.mintick) + " · ") + str.tostring(tpP, format.mintick) + "  1:" + str.tostring(rrV, "#.#") : "—", text_color=fg, text_size=size.tiny, text_halign=text.align_right)
         table.cell(dash, 0, 5, "Score", text_color=dim, text_size=size.tiny, text_halign=text.align_left)
         table.cell(dash, 1, 5, ckTxt == "" ? "—" : f_grade(tSc) + " " + str.tostring(tSc) + "/6  " + ckTxt, text_color=tSc >= 5 ? (dir == 1 ? colS : colR) : fg, text_size=size.tiny, text_halign=text.align_right)
         table.cell(dash, 0, 6, "Stats", text_color=dim, text_size=size.tiny, text_halign=text.align_left)
@@ -1001,3 +1049,5 @@ if barstate.islast
         string statA = nA == 0 ? "—" : "W " + str.tostring(aW) + " · L " + str.tostring(aL2) + " · " + str.tostring(100.0 * aW / nA, "#") + "% · " + (aR >= 0 ? "+" : "") + str.tostring(aR, "#.#") + "R"
         table.cell(dash, 0, 7, "Stats A/A+", text_color=dim, text_size=size.tiny, text_halign=text.align_left)
         table.cell(dash, 1, 7, statA, text_color=fg, text_size=size.tiny, text_halign=text.align_right)
+        table.cell(dash, 0, 8, "Lot", text_color=dim, text_size=size.tiny, text_halign=text.align_left)
+        table.cell(dash, 1, 8, ss >= 4 and not na(lotV) ? str.tostring(lotV, "#.##") + " lot · เสี่ยง $" + str.tostring(riskUsd, "#.##") + " · SL " + str.tostring(math.abs(enP - slP) / ptSize, "#") + " pts" : "—", text_color=fg, text_size=size.tiny, text_halign=text.align_right)

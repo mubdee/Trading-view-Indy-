@@ -14,3 +14,5 @@
 7. Dashboard: Storyline · Next R/S · Setup · SL/TP · Score · Stats (ทั้งหมด + เฉพาะ A/A+)
 
 Alert: MSS → Buy/Sell Limit · Limit Filled · หรือ "Any alert() function call" (มี Entry / SL / TP / RR / Score ในข้อความ)
+
+**DEV (2026-11-22 · ยังไม่ย้ายเข้า MAIN):** บริหารไม้ — TP1 (Roadblock = เลเวล MSNR ฝั่งตรงข้ามตัวแรก หรือ 1R) ปิด 50% แล้วเลื่อน SL ไป Entry + 30 points · Stats คำนวณตามโหมด · Lot ตามความเสี่ยง USD (XAUUSD 1 lot = 100 oz) · SL ไกลสุด (points) แบบ SFP SBR/RBS · Dashboard แถว Lot
