@@ -1,9 +1,13 @@
 // ════════════════════════════════════════════════════════════════
 // MSNR × SMC — MAIN · POI = เลเวล MSNR ของ H1/H4 → Sweep → MSS บน TF ชาร์ต → Limit ที่เลเวล MSNR (Pine Script v6)
 // ⭐ ไฟล์หลัก (อัปเดต 2026-11-23 · รวม DEV (1)-(8): บริหารไม้ · Lot · SMT หลาย TF · PO3 · Score 8 · ป้ายไม่ซ้อน · เส้น SMT ตรงไส้ · SMT เรียลไทม์ 4 TF) · ไฟล์สำรองสำหรับแก้: indicators/msnr-smc/msnr-smc-dev.pine
+// FAST 2026-11-23: แก้ RE10110 (เกิน 0.5 วิ) → คำนวณ/วาดเฉพาะช่วงท้ายกราฟ
+//   · calc_bars_count = 5000 (เพดานแท่งที่สคริปต์รันบนกราฟ)
+//   · Input "คำนวณย้อนหลัง (แท่ง)" (ค่าเริ่ม 2000) → Engine / SMT ทำงานเฉพาะช่วงท้าย
+//   · request.security ทุกตัวขอข้อมูลเฉพาะช่วงท้าย (calc_bars_count) แทนทั้งประวัติ
 // ════════════════════════════════════════════════════════════════
 //@version=6
-indicator("MSNR × SMC", shorttitle="MSNR SMC", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=100, max_bars_back=500)
+indicator("MSNR × SMC", shorttitle="MSNR SMC", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=100, max_bars_back=500, calc_bars_count=5000)
 
 // ═══════════════════════════════════════════════════════════════
 // Flow: เลเวล MSNR ของ HTF (H1/H4) ที่ยัง Fresh = POI
@@ -13,6 +17,10 @@ indicator("MSNR × SMC", shorttitle="MSNR SMC", overlay=true, max_lines_count=50
 // ═══════════════════════════════════════════════════════════════
 
 // ───────── Inputs ─────────
+string GP = "ความเร็ว (แก้ error สคริปต์ช้า)"
+int    calcN    = input.int(2000, "คำนวณย้อนหลัง (แท่ง)", minval=300, maxval=5000, step=100, group=GP, display=display.none, tooltip="สคริปต์คำนวณ Setup / SMT / เลเวล เฉพาะแท่งล่าสุดตามจำนวนนี้ (M5: 2000 แท่ง ≈ 7 วัน)\nถ้ายังขึ้น error 'takes too long' → ลดลง เช่น 1000-1500\nStats W/L นับเฉพาะช่วงนี้")
+int    htfN     = input.int(800, "TF ใหญ่: ขอข้อมูลย้อนหลัง (แท่งของ TF นั้น)", minval=100, maxval=5000, step=100, group=GP, display=display.none, tooltip="จำนวนแท่ง H1 / H4 / M15 / M30 / D และ SMT ที่ดึงมาคำนวณ · M15 800 แท่ง ≈ 2400 แท่ง M5 (ครอบช่วง 'คำนวณย้อนหลัง')\nน้อย = เร็วขึ้น")
+
 string G0 = "Higher Timeframe (POI)"
 string tf1      = input.timeframe("60",  "HTF 1 (เลเวล)", group=G0, display=display.none)
 string tf2      = input.timeframe("240", "HTF 2 (เลเวล + Storyline)", group=G0, display=display.none)
@@ -139,6 +147,8 @@ float tol    = atr * tolA
 int   barMs  = timeframe.in_seconds() * 1000
 bool  inSess = not useSess or not na(time(timeframe.period, sess, "Asia/Bangkok"))
 color cNone  = color.new(color.black, 100)
+// ช่วงที่คำนวณ: เฉพาะ calcN แท่งสุดท้ายของกราฟ (+ realtime)
+bool  inCalc = bar_index > last_bar_index - calcN
 
 f_tfTxt(string tf) =>
     int s = timeframe.in_seconds(tf)
@@ -167,8 +177,8 @@ f_htf(int L, int R, float gk) =>
     int   gd = bg ? -1 : ug ? 1 : 0
     [h[1], l[1], time[R + 1], g[1], gd[1], time[2], close[1]]
 
-[h1H, h1L, h1T, h1G, h1D, h1GT, h1C] = request.security(syminfo.tickerid, tf1, f_htf(pvLH, pvRH, gapA), lookahead=barmerge.lookahead_on)
-[h2H, h2L, h2T, h2G, h2D, h2GT, h2C] = request.security(syminfo.tickerid, tf2, f_htf(pvLH, pvRH, gapA), lookahead=barmerge.lookahead_on)
+[h1H, h1L, h1T, h1G, h1D, h1GT, h1C] = request.security(syminfo.tickerid, tf1, f_htf(pvLH, pvRH, gapA), lookahead=barmerge.lookahead_on, calc_bars_count=htfN)
+[h2H, h2L, h2T, h2G, h2D, h2GT, h2C] = request.security(syminfo.tickerid, tf2, f_htf(pvLH, pvRH, gapA), lookahead=barmerge.lookahead_on, calc_bars_count=htfN)
 bool nb1 = timeframe.change(tf1)
 bool nb2 = timeframe.change(tf2)
 
@@ -182,7 +192,7 @@ bool  bearOCL = close[1] < open[1] and close < open and gapSz >= math.max(gapA *
 bool  bullOCL = close[1] > open[1] and close > open and gapSz >= math.max(gapA * atr, syminfo.mintick)
 
 // ───────── Key liquidity: PDH/PDL · Asia H/L ─────────
-[pdh, pdl] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead=barmerge.lookahead_on)
+[pdh, pdl] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead=barmerge.lookahead_on, calc_bars_count=htfN)
 bool inAsia = not na(time(timeframe.period, asiaSess, "Asia/Bangkok"))
 bool inKz   = not na(time(timeframe.period, kzLon, "Asia/Bangkok")) or not na(time(timeframe.period, kzNy, "Asia/Bangkok"))
 var float aH   = na
@@ -199,7 +209,7 @@ var float usedPDH = na
 var float usedPDL = na
 
 // ───────── SMT: ทองกวาด แต่สินทรัพย์เทียบไม่ยืนยัน ─────────
-[xLo, xHi] = request.security(smtSym, timeframe.period, [low, high], ignore_invalid_symbol=true)
+[xLo, xHi] = request.security(smtSym, timeframe.period, [low, high], ignore_invalid_symbol=true, calc_bars_count=calcN + 100)
 // จุดต่ำสุด/สูงสุดของสินทรัพย์เทียบรอบ swing (ดูก่อน-หลัง swing ของทอง sLen แท่ง)
 float xVal = ta.lowest(xLo, 2 * sLen + 1)
 float xPk  = ta.highest(xHi, 2 * sLen + 1)
@@ -237,16 +247,16 @@ f_gSw(int L) =>
 f_xSw(int L) =>
     [ta.lowest(low, 2 * L + 1)[1], ta.highest(high, 2 * L + 1)[1]]
 
-[g1L, g1H, g1T] = request.security(syminfo.tickerid, smtTf1, f_gSw(smtLenH), lookahead=barmerge.lookahead_on)
-[x1L, x1H]      = request.security(smtSym, smtTf1, f_xSw(smtLenH), lookahead=barmerge.lookahead_on, ignore_invalid_symbol=true)
-[g2L, g2H, g2T] = request.security(syminfo.tickerid, smtTf2, f_gSw(smtLenH), lookahead=barmerge.lookahead_on)
-[x2L, x2H]      = request.security(smtSym, smtTf2, f_xSw(smtLenH), lookahead=barmerge.lookahead_on, ignore_invalid_symbol=true)
-[g3L, g3H, g3T] = request.security(syminfo.tickerid, smtTf3, f_gSw(smtLenH), lookahead=barmerge.lookahead_on)
-[x3L, x3H]      = request.security(smtSym, smtTf3, f_xSw(smtLenH), lookahead=barmerge.lookahead_on, ignore_invalid_symbol=true)
+[g1L, g1H, g1T] = request.security(syminfo.tickerid, smtTf1, f_gSw(smtLenH), lookahead=barmerge.lookahead_on, calc_bars_count=htfN)
+[x1L, x1H]      = request.security(smtSym, smtTf1, f_xSw(smtLenH), lookahead=barmerge.lookahead_on, ignore_invalid_symbol=true, calc_bars_count=htfN)
+[g2L, g2H, g2T] = request.security(syminfo.tickerid, smtTf2, f_gSw(smtLenH), lookahead=barmerge.lookahead_on, calc_bars_count=htfN)
+[x2L, x2H]      = request.security(smtSym, smtTf2, f_xSw(smtLenH), lookahead=barmerge.lookahead_on, ignore_invalid_symbol=true, calc_bars_count=htfN)
+[g3L, g3H, g3T] = request.security(syminfo.tickerid, smtTf3, f_gSw(smtLenH), lookahead=barmerge.lookahead_on, calc_bars_count=htfN)
+[x3L, x3H]      = request.security(smtSym, smtTf3, f_xSw(smtLenH), lookahead=barmerge.lookahead_on, ignore_invalid_symbol=true, calc_bars_count=htfN)
 bool sn1 = timeframe.change(smtTf1)
 bool sn2 = timeframe.change(smtTf2)
-[g4L, g4H, g4T] = request.security(syminfo.tickerid, smtTf4, f_gSw(smtLenH), lookahead=barmerge.lookahead_on)
-[x4L, x4H]      = request.security(smtSym, smtTf4, f_xSw(smtLenH), lookahead=barmerge.lookahead_on, ignore_invalid_symbol=true)
+[g4L, g4H, g4T] = request.security(syminfo.tickerid, smtTf4, f_gSw(smtLenH), lookahead=barmerge.lookahead_on, calc_bars_count=htfN)
+[x4L, x4H]      = request.security(smtSym, smtTf4, f_xSw(smtLenH), lookahead=barmerge.lookahead_on, ignore_invalid_symbol=true, calc_bars_count=htfN)
 bool sn3 = timeframe.change(smtTf3)
 bool sn4 = timeframe.change(smtTf4)
 var SmtTF st1 = SmtTF.new("")
@@ -728,7 +738,7 @@ int sigMss  = 0
 int sigFill = 0
 
 // ───────── Engine ─────────
-if barstate.isconfirmed
+if barstate.isconfirmed and inCalc
     // ── SMT หลายทามเฟรม
     if useSMT
         f_smtTF(st1, smtU1, smtTf1, sn1, g1L, g1H, g1T, x1L, x1H)
@@ -1194,11 +1204,11 @@ if barstate.isconfirmed
                 msL := line.new(mt, m, time, m, xloc=xloc.bar_time, color=color.new(bullSw ? colS : colR, 40), width=lw, style=line.style_dashed)
 
 // ───────── SMT เรียลไทม์ (ทุก tick · ไม่รอแท่งปิด) ─────────
-bool on1 = useSMT and smtU1 and timeframe.in_seconds(smtTf1) > chSec
-bool on2 = useSMT and smtU2 and timeframe.in_seconds(smtTf2) > chSec
-bool on3 = useSMT and smtU3 and timeframe.in_seconds(smtTf3) > chSec
-bool on4 = useSMT and smtU4 and timeframe.in_seconds(smtTf4) > chSec
-[lu0, ld0] = f_smtLive(st0, useSMT, pGL, pGT, pXL, pGH, pHT, pXH, false)
+bool on1 = inCalc and useSMT and smtU1 and timeframe.in_seconds(smtTf1) > chSec
+bool on2 = inCalc and useSMT and smtU2 and timeframe.in_seconds(smtTf2) > chSec
+bool on3 = inCalc and useSMT and smtU3 and timeframe.in_seconds(smtTf3) > chSec
+bool on4 = inCalc and useSMT and smtU4 and timeframe.in_seconds(smtTf4) > chSec
+[lu0, ld0] = f_smtLive(st0, inCalc and useSMT, pGL, pGT, pXL, pGH, pHT, pXH, false)
 [lu1, ld1] = f_smtLive(st1, on1, st1.gl, st1.glt, st1.xl, st1.gh, st1.ght, st1.xh, true)
 [lu2, ld2] = f_smtLive(st2, on2, st2.gl, st2.glt, st2.xl, st2.gh, st2.ght, st2.xh, true)
 [lu3, ld3] = f_smtLive(st3, on3, st3.gl, st3.glt, st3.xl, st3.gh, st3.ght, st3.xh, true)
