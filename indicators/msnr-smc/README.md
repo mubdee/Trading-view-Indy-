@@ -15,4 +15,6 @@
 
 Alert: MSS → Buy/Sell Limit · Limit Filled · หรือ "Any alert() function call" (มี Entry / SL / TP / RR / Score ในข้อความ)
 
-**MAIN = DEV (2026-11-22 · ย้ายเข้าไฟล์หลักแล้ว):** SMT หลายทามเฟรม (M15 · H1 · H4) วาดบน M5 + แถว SMT ใน Dashboard · เส้น SMT บนกราฟ (swing ทองเทียบ swing เงินเวลาเดียวกัน · Sweep ที่เงินไม่ยืนยันขึ้นป้าย `Sweep · SMT`) · SMT divergence ทอง/เงิน + PO3 (Entry ฝั่งถูกของ Open H4) → Score เต็ม 8 (A+ ≥7) · บริหารไม้ — TP1 (Roadblock = เลเวล MSNR ฝั่งตรงข้ามตัวแรก หรือ 1R) ปิด 50% แล้วเลื่อน SL ไป Entry + 30 points · Stats คำนวณตามโหมด · Lot ตามความเสี่ยง USD (XAUUSD 1 lot = 100 oz) · SL ไกลสุด (points) แบบ SFP SBR/RBS · Dashboard แถว Lot
+**MAIN = DEV (2026-11-23):** SMT เรียลไทม์ — ทองทะลุ swing ล่าสุดแต่เงินไม่ทะลุ → เส้นจาง + ป้าย `SMT? M5 M15 …` ขยับตามราคาทุก tick (เงินทะลุตาม = หายเอง · swing ยืนยัน = เปลี่ยนเป็นเส้น SMT จริง) · Dashboard `▲?/▼?` = เรียลไทม์ · Alert "Any alert() function call" แจ้ง SMT เรียลไทม์ · สแกน 4 TF: M15 · M30 · H1 · H4
+
+**(2026-11-22):** SMT หลายทามเฟรม (M15 · H1 · H4) วาดบน M5 + แถว SMT ใน Dashboard · เส้น SMT บนกราฟ (swing ทองเทียบ swing เงินเวลาเดียวกัน · Sweep ที่เงินไม่ยืนยันขึ้นป้าย `Sweep · SMT`) · SMT divergence ทอง/เงิน + PO3 (Entry ฝั่งถูกของ Open H4) → Score เต็ม 8 (A+ ≥7) · บริหารไม้ — TP1 (Roadblock = เลเวล MSNR ฝั่งตรงข้ามตัวแรก หรือ 1R) ปิด 50% แล้วเลื่อน SL ไป Entry + 30 points · Stats คำนวณตามโหมด · Lot ตามความเสี่ยง USD (XAUUSD 1 lot = 100 oz) · SL ไกลสุด (points) แบบ SFP SBR/RBS · Dashboard แถว Lot
