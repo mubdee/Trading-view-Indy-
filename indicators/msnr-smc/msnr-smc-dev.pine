@@ -11,6 +11,7 @@
 // DEV 2026-11-23 (8): SMT เรียลไทม์ (เส้นจาง + ป้าย "SMT?" ทันทีที่ทองทะลุ swing ล่าสุดแต่เงินไม่ทะลุ · ยืนยันแล้วเปลี่ยนเป็นเส้นจริง) · สแกน 4 TF: M15 · M30 · H1 · H4
 // DEV 2026-11-23 (9): FAST — แก้ RE10110 · calc_bars_count 5000 · Input "คำนวณย้อนหลัง" (2000) + "TF ใหญ่: ขอข้อมูลย้อนหลัง" (800) · Engine/SMT ทำงานเฉพาะช่วงท้ายกราฟ
 // DEV 2026-11-24 (10): เส้น Sweep ของ TF ใหญ่ (H1 · H4 = HTF 1 / HTF 2) บนกราฟเล็ก · ไส้แท่ง TF ใหญ่ทะลุ swing แล้วปิดกลับ · ป้าย "Sweep H1/H4" รวมกับป้าย Sweep/SMT ที่จุดเดียวกัน
+// DEV 2026-11-24 (11): Sweep TF ใหญ่สแกน 4 TF: M15 · M30 · H1 · H4 (เลือก/ปิดแยกได้)
 // ════════════════════════════════════════════════════════════════
 //@version=6
 indicator("MSNR × SMC DEV", shorttitle="MSNR SMC DEV", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=100, max_bars_back=500, calc_bars_count=5000)
@@ -107,7 +108,15 @@ float  mrgA      = input.float(0.25, "รวมเลเวลที่ใกล
 float  gapA      = input.float(0.05, "Gap ขั้นต่ำ (x ATR)", minval=0.0, step=0.01, group=G4, display=display.none)
 bool   freshOnly = input.bool(true, "แสดงเฉพาะเลเวล Fresh", group=G4)
 bool   showSM    = input.bool(true, "แสดง Sweep / MSS", group=G4)
-bool   showHSw   = input.bool(true, "แสดงเส้น Sweep ของ TF ใหญ่ (HTF 1 / HTF 2 = H1 / H4)", group=G4, tooltip="แท่ง H1 / H4 ที่ไส้ทะลุ swing ล่าสุดของ TF นั้นแล้วปิดกลับ → วาดเส้นประจาก swing ถึงไส้บนกราฟเล็ก + ป้าย \"Sweep H1\" / \"Sweep H4\" (ขึ้นตอนแท่ง TF ใหญ่ปิด)")
+bool   showHSw   = input.bool(true, "แสดงเส้น Sweep ของ TF ใหญ่", group=G4, tooltip="แท่ง M15 / M30 / H1 / H4 ที่ไส้ทะลุ swing ล่าสุดของ TF นั้นแล้วปิดกลับ → วาดเส้นประจาก swing ถึงไส้บนกราฟเล็ก + ป้าย \"Sweep M15\" … \"Sweep H4\" (ขึ้นตอนแท่ง TF นั้นปิด)")
+bool   hsU1      = input.bool(true, "Sweep TF 1", inline="w1", group=G4)
+string hsTf1     = input.timeframe("15", "", inline="w1", group=G4, display=display.none)
+bool   hsU2      = input.bool(true, "Sweep TF 2", inline="w2", group=G4)
+string hsTf2     = input.timeframe("30", "", inline="w2", group=G4, display=display.none)
+bool   hsU3      = input.bool(true, "Sweep TF 3", inline="w3", group=G4)
+string hsTf3     = input.timeframe("60", "", inline="w3", group=G4, display=display.none)
+bool   hsU4      = input.bool(true, "Sweep TF 4", inline="w4", group=G4)
+string hsTf4     = input.timeframe("240", "", inline="w4", group=G4, display=display.none)
 int    hswLen    = input.int(2, "Sweep TF ใหญ่: Swing length (แท่งของ TF นั้น)", minval=1, group=G4, display=display.none)
 int    hswAge    = input.int(20, "Sweep TF ใหญ่: swing ที่เกิดภายใน (แท่งของ TF นั้น)", minval=3, group=G4, display=display.none)
 int    lw        = input.int(1, "ความหนาเส้น (ทุกเส้นเท่ากัน)", minval=1, maxval=3, group=G4, display=display.none)
@@ -301,8 +310,14 @@ bool sn1 = timeframe.change(smtTf1)
 bool sn2 = timeframe.change(smtTf2)
 [g4L, g4H, g4T] = request.security(syminfo.tickerid, smtTf4, f_gSw(smtLenH), lookahead=barmerge.lookahead_on, calc_bars_count=htfN)
 [x4L, x4H]      = request.security(smtSym, smtTf4, f_xSw(smtLenH), lookahead=barmerge.lookahead_on, ignore_invalid_symbol=true, calc_bars_count=htfN)
-[w1H, w1HT, w1WH, w1L, w1LT, w1WL, w1T] = request.security(syminfo.tickerid, tf1, f_hSw(hswLen, hswAge), lookahead=barmerge.lookahead_on, calc_bars_count=htfN)
-[w2H, w2HT, w2WH, w2L, w2LT, w2WL, w2T] = request.security(syminfo.tickerid, tf2, f_hSw(hswLen, hswAge), lookahead=barmerge.lookahead_on, calc_bars_count=htfN)
+[w1H, w1HT, w1WH, w1L, w1LT, w1WL, w1T] = request.security(syminfo.tickerid, hsTf1, f_hSw(hswLen, hswAge), lookahead=barmerge.lookahead_on, calc_bars_count=htfN)
+[w2H, w2HT, w2WH, w2L, w2LT, w2WL, w2T] = request.security(syminfo.tickerid, hsTf2, f_hSw(hswLen, hswAge), lookahead=barmerge.lookahead_on, calc_bars_count=htfN)
+[w3H, w3HT, w3WH, w3L, w3LT, w3WL, w3T] = request.security(syminfo.tickerid, hsTf3, f_hSw(hswLen, hswAge), lookahead=barmerge.lookahead_on, calc_bars_count=htfN)
+[w4H, w4HT, w4WH, w4L, w4LT, w4WL, w4T] = request.security(syminfo.tickerid, hsTf4, f_hSw(hswLen, hswAge), lookahead=barmerge.lookahead_on, calc_bars_count=htfN)
+bool hn1 = timeframe.change(hsTf1)
+bool hn2 = timeframe.change(hsTf2)
+bool hn3 = timeframe.change(hsTf3)
+bool hn4 = timeframe.change(hsTf4)
 bool sn3 = timeframe.change(smtTf3)
 bool sn4 = timeframe.change(smtTf4)
 var SmtTF st1 = SmtTF.new("")
@@ -834,11 +849,15 @@ if barstate.isconfirmed and inCalc
         f_smtTF(st2, smtU2, smtTf2, sn2, g2L, g2H, g2T, x2L, x2H)
         f_smtTF(st3, smtU3, smtTf3, sn3, g3L, g3H, g3T, x3L, x3H)
         f_smtTF(st4, smtU4, smtTf4, sn4, g4L, g4H, g4T, x4L, x4H)
-    // ── Sweep ของ TF ใหญ่ (H1 / H4) → เส้นบนกราฟเล็ก
-    if showHSw and nb1
-        f_hswDraw(tf1, w1H, w1HT, w1WH, w1L, w1LT, w1WL, w1T)
-    if showHSw and nb2
-        f_hswDraw(tf2, w2H, w2HT, w2WH, w2L, w2LT, w2WL, w2T)
+    // ── Sweep ของ TF ใหญ่ (M15 / M30 / H1 / H4) → เส้นบนกราฟเล็ก
+    if showHSw and hsU1 and hn1
+        f_hswDraw(hsTf1, w1H, w1HT, w1WH, w1L, w1LT, w1WL, w1T)
+    if showHSw and hsU2 and hn2
+        f_hswDraw(hsTf2, w2H, w2HT, w2WH, w2L, w2LT, w2WL, w2T)
+    if showHSw and hsU3 and hn3
+        f_hswDraw(hsTf3, w3H, w3HT, w3WH, w3L, w3LT, w3WL, w3T)
+    if showHSw and hsU4 and hn4
+        f_hswDraw(hsTf4, w4H, w4HT, w4WH, w4L, w4LT, w4WL, w4T)
     // ── HTF levels
     if nb2
         int s2 = f_htfClose(2, h2C, start2)
