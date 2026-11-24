@@ -10,6 +10,7 @@
 // DEV 2026-11-23 (7): เส้น SMT ของ TF ใหญ่ชี้ที่แท่ง M5 ที่ทำ High/Low จริง (เดิมชี้ที่เวลาเปิดแท่ง TF ใหญ่ เส้นเลยไม่ตรงไส้)
 // DEV 2026-11-23 (8): SMT เรียลไทม์ (เส้นจาง + ป้าย "SMT?" ทันทีที่ทองทะลุ swing ล่าสุดแต่เงินไม่ทะลุ · ยืนยันแล้วเปลี่ยนเป็นเส้นจริง) · สแกน 4 TF: M15 · M30 · H1 · H4
 // DEV 2026-11-23 (9): FAST — แก้ RE10110 · calc_bars_count 5000 · Input "คำนวณย้อนหลัง" (2000) + "TF ใหญ่: ขอข้อมูลย้อนหลัง" (800) · Engine/SMT ทำงานเฉพาะช่วงท้ายกราฟ
+// DEV 2026-11-24 (10): เส้น Sweep ของ TF ใหญ่ (H1 · H4 = HTF 1 / HTF 2) บนกราฟเล็ก · ไส้แท่ง TF ใหญ่ทะลุ swing แล้วปิดกลับ · ป้าย "Sweep H1/H4" รวมกับป้าย Sweep/SMT ที่จุดเดียวกัน
 // ════════════════════════════════════════════════════════════════
 //@version=6
 indicator("MSNR × SMC DEV", shorttitle="MSNR SMC DEV", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=100, max_bars_back=500, calc_bars_count=5000)
@@ -106,6 +107,9 @@ float  mrgA      = input.float(0.25, "รวมเลเวลที่ใกล
 float  gapA      = input.float(0.05, "Gap ขั้นต่ำ (x ATR)", minval=0.0, step=0.01, group=G4, display=display.none)
 bool   freshOnly = input.bool(true, "แสดงเฉพาะเลเวล Fresh", group=G4)
 bool   showSM    = input.bool(true, "แสดง Sweep / MSS", group=G4)
+bool   showHSw   = input.bool(true, "แสดงเส้น Sweep ของ TF ใหญ่ (HTF 1 / HTF 2 = H1 / H4)", group=G4, tooltip="แท่ง H1 / H4 ที่ไส้ทะลุ swing ล่าสุดของ TF นั้นแล้วปิดกลับ → วาดเส้นประจาก swing ถึงไส้บนกราฟเล็ก + ป้าย \"Sweep H1\" / \"Sweep H4\" (ขึ้นตอนแท่ง TF ใหญ่ปิด)")
+int    hswLen    = input.int(2, "Sweep TF ใหญ่: Swing length (แท่งของ TF นั้น)", minval=1, group=G4, display=display.none)
+int    hswAge    = input.int(20, "Sweep TF ใหญ่: swing ที่เกิดภายใน (แท่งของ TF นั้น)", minval=3, group=G4, display=display.none)
 int    lw        = input.int(1, "ความหนาเส้น (ทุกเส้นเท่ากัน)", minval=1, maxval=3, group=G4, display=display.none)
 int    offs      = input.int(10, "ยื่นเส้นไปทางขวา (แท่ง)", minval=2, maxval=60, group=G4, display=display.none)
 string txtSz     = input.string(size.tiny, "ขนาดตัวอักษร", options=[size.tiny, size.small, size.normal], group=G4, display=display.none)
@@ -252,6 +256,41 @@ f_gSw(int L) =>
 f_xSw(int L) =>
     [ta.lowest(low, 2 * L + 1)[1], ta.highest(high, 2 * L + 1)[1]]
 
+// ───────── Sweep ของ TF ใหญ่ (คำนวณใน TF นั้น · ส่งเฉพาะแท่งที่ปิดแล้ว = ไม่ repaint) ─────────
+// ไส้ทะลุ swing ล่าสุด (เว้น ≥ 1 แท่งคั่น · swing ไม่เก่าเกิน age แท่ง) แล้วปิดกลับ = Sweep · ปิดทะลุ = swing นั้นใช้แล้ว
+f_hSw(int L, int age) =>
+    var float hP = na
+    var int   hT = na
+    var int   hB = na
+    var float lP = na
+    var int   lT = na
+    var int   lB = na
+    float sH  = na
+    int   sHT = na
+    float sL  = na
+    int   sLT = na
+    float p1  = ta.pivothigh(high, L, L)
+    float p2  = ta.pivotlow(low, L, L)
+    if not na(hP) and high > hP
+        if close < hP and bar_index - hB <= age and bar_index - hB >= 2
+            sH  := hP
+            sHT := hT
+        hP := na
+    if not na(lP) and low < lP
+        if close > lP and bar_index - lB <= age and bar_index - lB >= 2
+            sL  := lP
+            sLT := lT
+        lP := na
+    if not na(p1)
+        hP := p1
+        hT := time[L]
+        hB := bar_index - L
+    if not na(p2)
+        lP := p2
+        lT := time[L]
+        lB := bar_index - L
+    [sH[1], sHT[1], high[1], sL[1], sLT[1], low[1], time[1]]
+
 [g1L, g1H, g1T] = request.security(syminfo.tickerid, smtTf1, f_gSw(smtLenH), lookahead=barmerge.lookahead_on, calc_bars_count=htfN)
 [x1L, x1H]      = request.security(smtSym, smtTf1, f_xSw(smtLenH), lookahead=barmerge.lookahead_on, ignore_invalid_symbol=true, calc_bars_count=htfN)
 [g2L, g2H, g2T] = request.security(syminfo.tickerid, smtTf2, f_gSw(smtLenH), lookahead=barmerge.lookahead_on, calc_bars_count=htfN)
@@ -262,6 +301,8 @@ bool sn1 = timeframe.change(smtTf1)
 bool sn2 = timeframe.change(smtTf2)
 [g4L, g4H, g4T] = request.security(syminfo.tickerid, smtTf4, f_gSw(smtLenH), lookahead=barmerge.lookahead_on, calc_bars_count=htfN)
 [x4L, x4H]      = request.security(smtSym, smtTf4, f_xSw(smtLenH), lookahead=barmerge.lookahead_on, ignore_invalid_symbol=true, calc_bars_count=htfN)
+[w1H, w1HT, w1WH, w1L, w1LT, w1WL, w1T] = request.security(syminfo.tickerid, tf1, f_hSw(hswLen, hswAge), lookahead=barmerge.lookahead_on, calc_bars_count=htfN)
+[w2H, w2HT, w2WH, w2L, w2LT, w2WL, w2T] = request.security(syminfo.tickerid, tf2, f_hSw(hswLen, hswAge), lookahead=barmerge.lookahead_on, calc_bars_count=htfN)
 bool sn3 = timeframe.change(smtTf3)
 bool sn4 = timeframe.change(smtTf4)
 var SmtTF st1 = SmtTF.new("")
@@ -566,6 +607,49 @@ f_exactT(int t, int ms, bool lo, float p) =>
             r := tj
     r
 
+// ป้าย Sweep TF ใหญ่: ถ้ามีป้าย Sweep / SMT ที่ไส้เดียวกันอยู่แล้ว → ใส่ "Sweep H4" ไว้หน้าป้ายเดิม (ไม่ซ้อน)
+f_hswMark(int t, float p, string nm, bool up, int win) =>
+    bool   merged = false
+    float  tl     = math.max(atr * 0.5, syminfo.mintick)
+    string tx0    = "Sweep " + nm
+    int    n      = smL.size()
+    if n > 0
+        for i = n - 1 to 0
+            if math.abs(smP.get(i) - p) <= tl and math.abs(smT.get(i) - t) <= math.max(win, smW.get(i))
+                label  lb = smL.get(i)
+                string tx = label.get_text(lb)
+                if not str.contains(tx, tx0)
+                    label.set_text(lb, tx0 + " · " + tx)
+                merged := true
+                break
+    if not merged
+        label lb = label.new(t, p, tx0, xloc=xloc.bar_time, style=up ? label.style_label_up : label.style_label_down, color=cNone, textcolor=colSw, size=txtSz)
+        smL.push(lb)
+        smP.push(p)
+        smT.push(t)
+        smW.push(win)
+        if smL.size() > 20
+            label.delete(smL.shift())
+            smP.shift()
+            smT.shift()
+            smW.shift()
+
+// วาด Sweep ของ TF ใหญ่บนกราฟเล็ก: เส้นประจาก swing → แท่งที่ไส้ทะลุ (ชี้แท่งกราฟเล็กที่ทำ High/Low จริง)
+f_hswDraw(string tf, float sH, int sHT, float wH, float sL, int sLT, float wL, int bt) =>
+    if timeframe.in_seconds(tf) > chSec
+        string nm = f_tfTxt(tf)
+        int    ms = timeframe.in_seconds(tf) * 1000
+        if not na(sH) and not na(sHT)
+            int a = f_exactT(sHT, ms, false, sH)
+            int b = f_exactT(bt, ms, false, wH)
+            f_keepL(line.new(a, sH, b, sH, xloc=xloc.bar_time, color=colSw, width=lw, style=line.style_dashed))
+            f_hswMark(b, wH, nm, false, ms)
+        if not na(sL) and not na(sLT)
+            int a = f_exactT(sLT, ms, true, sL)
+            int b = f_exactT(bt, ms, true, wL)
+            f_keepL(line.new(a, sL, b, sL, xloc=xloc.bar_time, color=colSw, width=lw, style=line.style_dashed))
+            f_hswMark(b, wL, nm, true, ms)
+
 // SMT ของ TF ใหญ่: ทอง LL + เงิน HL = Bullish · ทอง HH + เงิน LH = Bearish → วาดเส้นบนกราฟเล็ก
 f_smtTF(SmtTF s, bool on, string tf, bool nw, float gl, float gh, int gt, float xl, float xh) =>
     if on and nw and timeframe.in_seconds(tf) > chSec
@@ -750,6 +834,11 @@ if barstate.isconfirmed and inCalc
         f_smtTF(st2, smtU2, smtTf2, sn2, g2L, g2H, g2T, x2L, x2H)
         f_smtTF(st3, smtU3, smtTf3, sn3, g3L, g3H, g3T, x3L, x3H)
         f_smtTF(st4, smtU4, smtTf4, sn4, g4L, g4H, g4T, x4L, x4H)
+    // ── Sweep ของ TF ใหญ่ (H1 / H4) → เส้นบนกราฟเล็ก
+    if showHSw and nb1
+        f_hswDraw(tf1, w1H, w1HT, w1WH, w1L, w1LT, w1WL, w1T)
+    if showHSw and nb2
+        f_hswDraw(tf2, w2H, w2HT, w2WH, w2L, w2LT, w2WL, w2T)
     // ── HTF levels
     if nb2
         int s2 = f_htfClose(2, h2C, start2)
