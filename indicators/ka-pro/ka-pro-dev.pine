@@ -1,5 +1,5 @@
 // ════════════════════════════════════════════════════════════════
-// KEY ALCHEMIST PRO v9.6 DEV (ไฟล์สำรองสำหรับแก้ · ทดลองก่อนย้ายเข้า MAIN) · HTF Liquidity Sweep (Turtle Soup) → CISD / MSS → OTE × Key Level × MSNR (Pine Script v6)
+// KEY ALCHEMIST PRO v9.7 DEV (ไฟล์สำรองสำหรับแก้ · ทดลองก่อนย้ายเข้า MAIN) · HTF Liquidity Sweep (Turtle Soup) → CISD / MSS → OTE × Key Level × MSNR (Pine Script v6)
 // อ้างอิง: Key Alchemist (amirxau77) · MSNR (SL 10 PIPS) · เลเวลจาก MSNR × SMC ตัวเดิม
 // v2 (2026-11-24):
 //   · Bias TF ใหญ่ (M5: H1 = TS · H4 = Bias) → เทรดเฉพาะทิศ Bias (ลดไม้สวนเทรนด์ที่โดน SL)
@@ -50,6 +50,9 @@
 //   · SMT ทอง × เงิน (XAGUSD): ทองกวาด High แต่เงินไม่ทำ High ใหม่ (หรือกลับกันที่ Low) = +1 คะแนน TS (บังคับได้)
 //   · แท่งกวาดต้องปฏิเสธชัด: ราคาปิดกลับ ≥ X% ของความยาวแท่ง (กวาดอ่อน = ไม่นับ TS)
 //   · Entry: เพิ่ม FVG ของขา displacement (CE ของ FVG แรกหลังจุด TS) เป็นเลเวลซ้อนใน OTE
+// v9.7 DEV (2026-11-25): เสถียร
+//   · ไม่เลื่อน SL กันทุน (BE) เป็นค่าเริ่มต้น → ถือถึง SL / TP2
+//   · โครงสร้าง MTF (ตาราง · Bias · filter · Reversal) ใช้เฉพาะแท่ง TF ใหญ่ที่ปิดแล้ว → ไม่เปลี่ยนกลางแท่ง ไม่ repaint ตอน realtime
 // ไม่ repaint: ข้อมูล HTF ใช้เฉพาะแท่งที่ปิดแล้ว · สัญญาณ TF ชาร์ตยืนยันตอนแท่งปิด
 // ════════════════════════════════════════════════════════════════
 //@version=6
@@ -141,7 +144,7 @@ float  slMinA  = input.float(1.0, "SL ขั้นต่ำ (x ATR)", minval=0.0
 float  minRR   = input.float(2.0, "TP2 ต้องได้อย่างน้อย (R)", minval=0.5, step=0.1, group=GR, display=display.none)
 float  maxRR   = input.float(4.0, "TP2 ไม่เกิน (R)", minval=1.0, step=0.5, group=GR, display=display.none, tooltip="ERL ไกลเกินนี้ → ใช้ระยะนี้แทน (ไม่ตั้งเป้า 15R-20R ที่ราคาไปไม่ถึง)")
 float  partPct = input.float(50, "ปิดที่ TP1 (%)", minval=0, maxval=100, step=5, group=GR, display=display.none)
-bool   beOn    = input.bool(true, "ถึง TP1 → เลื่อน SL กันทุน", group=GR)
+bool   beOn    = input.bool(false, "ถึง TP1 → เลื่อน SL กันทุน (BE)", group=GR, tooltip="ปิด = ถือถึง SL หรือ TP2 (ยังแบ่งปิดที่ TP1 ตาม % ที่ตั้ง)")
 int    fillHtf = input.int(3, "Limit ต้องโดนภายใน (แท่ง HTF) · 0 = ไม่จำกัด", minval=0, group=GR, display=display.none)
 int    maxAct  = input.int(3, "ไม้เปิดพร้อมกันสูงสุด", minval=1, maxval=10, group=GR, display=display.none)
 
@@ -329,11 +332,17 @@ f_struct(int L, int off) =>
         sl   := na
     [tr[off], ev[off], evP[off], evT0[off], evT1[off]]
 
-[mT0, mE0, mP0, mA0, mB0] = request.security(syminfo.tickerid, "240", f_struct(mLen, 0), lookahead=barmerge.lookahead_off, calc_bars_count=200)
-[mT1, mE1, mP1, mA1, mB1] = request.security(syminfo.tickerid, "60", f_struct(mLen, 0), lookahead=barmerge.lookahead_off, calc_bars_count=300)
-[mT2, mE2, mP2, mA2, mB2] = request.security(syminfo.tickerid, "15", f_struct(mLen, 0), lookahead=barmerge.lookahead_off, calc_bars_count=500)
-[mT3, mE3, mP3, mA3, mB3] = request.security(syminfo.tickerid, "5", f_struct(mLen, 0), lookahead=barmerge.lookahead_off, calc_bars_count=800)
-[mT4, mE4, mP4, mA4, mB4] = request.security(syminfo.tickerid, "1", f_struct(mLen, 0), lookahead=barmerge.lookahead_off, calc_bars_count=800)
+// เสถียร: TF ที่ใหญ่กว่าชาร์ต ใช้ค่าแท่งที่ปิดแล้ว ([1] + lookahead_on = ไม่ repaint · ไม่เปลี่ยนกลางแท่ง) · TF เท่า/เล็กกว่าชาร์ต ใช้ค่าล่าสุด
+int oH4  = timeframe.in_seconds("240") > timeframe.in_seconds() ? 1 : 0
+int oH1  = timeframe.in_seconds("60") > timeframe.in_seconds() ? 1 : 0
+int oM15 = timeframe.in_seconds("15") > timeframe.in_seconds() ? 1 : 0
+int oM5  = timeframe.in_seconds("5") > timeframe.in_seconds() ? 1 : 0
+int oM1  = timeframe.in_seconds("1") > timeframe.in_seconds() ? 1 : 0
+[mT0, mE0, mP0, mA0, mB0] = request.security(syminfo.tickerid, "240", f_struct(mLen, oH4), lookahead=barmerge.lookahead_on, calc_bars_count=200)
+[mT1, mE1, mP1, mA1, mB1] = request.security(syminfo.tickerid, "60", f_struct(mLen, oH1), lookahead=barmerge.lookahead_on, calc_bars_count=300)
+[mT2, mE2, mP2, mA2, mB2] = request.security(syminfo.tickerid, "15", f_struct(mLen, oM15), lookahead=barmerge.lookahead_on, calc_bars_count=500)
+[mT3, mE3, mP3, mA3, mB3] = request.security(syminfo.tickerid, "5", f_struct(mLen, oM5), lookahead=barmerge.lookahead_on, calc_bars_count=800)
+[mT4, mE4, mP4, mA4, mB4] = request.security(syminfo.tickerid, "1", f_struct(mLen, oM1), lookahead=barmerge.lookahead_on, calc_bars_count=800)
 
 // ───────── Bias: โครงสร้าง MTF (H4 + H1 ตัวเดียวกับตาราง) หรือ BOS ของ TF ใหญ่ ─────────
 bool useMB = biasMode == B_M
