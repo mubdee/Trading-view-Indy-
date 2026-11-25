@@ -1,0 +1,533 @@
+// ════════════════════════════════════════════════════════════════
+// KA SNIPER v1 (2026-11-25) · Top-down H4 → H1 → M15 → M5 → M1 · ออเดอร์เดียวที่ดีที่สุด (Pine Script v6)
+// แยกจาก KA PRO · ใช้แนวคิดเดียวกัน (Key Alchemist · Turtle Soup → CISD → OTE) แต่:
+//   · คำนวณทั้งหมดบนข้อมูล M5 (+ H4 / H1 / M15 / M1 / D) → ได้ออเดอร์เดียวกันทุก TF ของกราฟ (M1 · M5 · M15 ...)
+//   · ทีละ 1 ออเดอร์: Bias H4 + H1 → กวาด KEY (H4 · H1 · M15 · PDH/PDL · Asia · London) → แท่งปิดทะลุ CISD ด้วยเนื้อเทียน
+//     → Limit ที่ OTE M5 (เลเวลซ้อน FVG / CISD / KEY) · SL เลยไส้ · TP = Liquidity ฝั่งตรงข้าม (RR 2–5)
+//   · เช็กเรียลไทม์ทุกแท่ง M5 ที่ปิด (ไม่ repaint) · อ่านย้อนหลัง ~1 สัปดาห์ · เส้นบนกราฟเท่าที่จำเป็น
+// ════════════════════════════════════════════════════════════════
+//@version=6
+indicator("KA SNIPER · H4→M1 Top-down · 1 ออเดอร์", shorttitle="KA SNIPER", overlay=true, max_boxes_count=100, max_lines_count=50, max_labels_count=100, calc_bars_count=3000)
+
+// ───────── Inputs ─────────
+string G1 = "เงื่อนไขเข้าไม้"
+int    lookD   = input.int(5, "อ่านย้อนหลัง (วันเทรด · 5 ≈ 1 สัปดาห์)", minval=2, maxval=10, group=G1)
+bool   needKz  = input.bool(true, "ยืนยันเฉพาะใน Killzone", group=G1, tooltip="เวลา New York: London 02:00-05:00 · NY AM 07:00-11:00 · NY PM 13:30-16:00")
+int    minSc   = input.int(3, "คะแนนขั้นต่ำ (จาก 6)", minval=0, maxval=6, group=G1, tooltip="1 แต้มต่อข้อ: M15 ตรงทิศ · M1 ตรงทิศ · KEY แข็ง (H4 / PDH-PDL / ซ้อนหลายอย่าง) · อยู่ใน Killzone · Premium/Discount (เทียบ NY Midnight Open) · Entry ซ้อน FVG / CISD / KEY")
+float  bosBody = input.float(0.5, "BOS / CISD: เนื้อเทียน ≥ (% ของแท่ง)", minval=0.1, maxval=0.9, step=0.05, group=G1, tooltip="แท่งที่ปิดทะลุต้องเป็นแท่งทิศเดียวกัน และเนื้อเทียนยาว ≥ X% ของทั้งแท่ง · ไส้ทะลุไม่นับ")
+float  dispA   = input.float(1.0, "Displacement: เนื้อเทียน ≥ (x ATR) หรือมี FVG", minval=0.3, maxval=3.0, step=0.1, group=G1)
+int    armMax  = input.int(12, "รอ CISD ไม่เกิน (แท่ง M5)", minval=3, maxval=48, group=G1)
+int    pendMax = input.int(12, "Limit ต้องโดนภายใน (แท่ง M5)", minval=3, maxval=48, group=G1)
+float  oteA    = input.float(0.62, "OTE เริ่ม (Fib ของขา)", minval=0.5, maxval=0.75, step=0.01, group=G1)
+
+string G2 = "SL / TP / คุมไม้"
+float  slBuf   = input.float(0.2, "SL เลยไส้ (x ATR)", minval=0.0, step=0.05, group=G2)
+float  slMinA  = input.float(0.8, "SL ขั้นต่ำ (x ATR)", minval=0.2, step=0.1, group=G2)
+float  minRR   = input.float(2.0, "TP: RR ขั้นต่ำ", minval=1.0, step=0.5, group=G2)
+float  maxRR   = input.float(5.0, "TP: RR สูงสุด", minval=2.0, step=0.5, group=G2)
+float  defRR   = input.float(3.0, "TP: ถ้าไม่มี Liquidity ในช่วง ใช้ RR", minval=1.5, step=0.5, group=G2)
+int    dayMax  = input.int(2, "แพ้ครบกี่ไม้ต่อวัน → หยุด", minval=1, maxval=5, group=G2)
+
+string G3 = "แสดงผล"
+int    nKeep   = input.int(10, "แสดงออเดอร์ย้อนหลัง", minval=1, maxval=30, group=G3)
+bool   showNx  = input.bool(true, "เส้น KEY ถัดไป (BSL / SSL ที่รอกวาด)", group=G3)
+bool   showDash = input.bool(true, "Dashboard", group=G3)
+string dashPos = input.string("ล่างขวา", "ตำแหน่ง Dashboard", options=["ล่างขวา", "บนขวา", "ล่างซ้าย", "บนซ้าย"], group=G3)
+int    offs    = input.int(10, "ยื่นไปทางขวา (แท่ง)", minval=3, maxval=50, group=G3)
+color  colB    = input.color(#26a69a, "Buy / TP", group=G3)
+color  colS    = input.color(#ef5350, "Sell / SL", group=G3)
+color  colK    = input.color(#f5b041, "KEY", group=G3)
+color  colC    = input.color(#7e57c2, "CISD", group=G3)
+color  colT    = input.color(#9598a1, "ตัวอักษรรอง", group=G3)
+
+string TZ = "America/New_York"
+
+// ───────── ฟังก์ชันพื้นฐาน ─────────
+// แท่งนี้ทะลุ p ด้วยเนื้อเทียน (up = ขึ้น)
+f_bk(bool up, float p, float o, float c, float h, float l) =>
+    (up ? c > p and c > o : c < p and c < o) and math.abs(c - o) >= bosBody * (h - l)
+
+// Trend โครงสร้าง (BOS / CHoCH ปิดด้วยเนื้อเทียน)
+f_st(int L, int off) =>
+    float ph = ta.pivothigh(high, L, L)
+    float pl = ta.pivotlow(low, L, L)
+    var float sh = na
+    var float sl = na
+    var int   tr = 0
+    if not na(ph)
+        sh := ph
+    if not na(pl)
+        sl := pl
+    if not na(sh) and f_bk(true, sh, open, close, high, low)
+        tr := 1
+        sh := na
+    if not na(sl) and f_bk(false, sl, open, close, high, low)
+        tr := -1
+        sl := na
+    tr[off]
+
+// swing ที่ยืนยันแล้ว (แท่งที่ปิดแล้ว)
+f_sw(int L) =>
+    float ph = ta.pivothigh(high, L, L)
+    float pl = ta.pivotlow(low, L, L)
+    [ph[1], pl[1], time[L + 1]]
+
+// เวลาแท่ง M5 ที่ทำราคานั้นจริง (เส้นเริ่มตรงไส้)
+f_exT(float p, int t0, bool hi) =>
+    int r = t0
+    if not na(p) and not na(t0)
+        for j = 0 to 150
+            if na(time[j]) or time[j] < t0
+                break
+            if math.abs((hi ? high[j] : low[j]) - p) <= syminfo.mintick
+                r := time[j]
+    r
+
+// เพิ่ม KEY (รวมกับ KEY เดิมถ้าใกล้กัน)
+f_kAdd(array<float> kP, array<int> kS, array<string> kG, array<int> kT, array<int> kH, float p, int s, string g, int t, float mt) =>
+    if not na(p) and (s == 1 ? p > high : p < low)
+        bool done = false
+        if kP.size() > 0
+            for i = 0 to kP.size() - 1
+                if kS.get(i) == s and kH.get(i) < 0 and math.abs(kP.get(i) - p) <= mt
+                    if not str.contains(kG.get(i), g)
+                        kG.set(i, kG.get(i) + "·" + g)
+                    done := true
+                    break
+        if not done
+            kP.push(p)
+            kS.push(s)
+            kG.push(g)
+            kT.push(t)
+            kH.push(-1)
+            if kP.size() > 40
+                kP.shift()
+                kS.shift()
+                kG.shift()
+                kT.shift()
+                kH.shift()
+
+// CISD: open ของแท่งแรกในชุดที่วิ่งเข้าไปทำจุดสุด (kb = จุดสุดอยู่กี่แท่งก่อน)
+f_cisd(bool sell, int kb) =>
+    int j = kb
+    while j < kb + 20 and (sell ? close[j] <= open[j] : close[j] >= open[j])
+        j += 1
+    float lvl = open[j]
+    while j < kb + 60 and (sell ? close[j + 1] > open[j + 1] : close[j + 1] < open[j + 1])
+        j += 1
+        lvl := open[j]
+    lvl
+
+// ═════ Engine: ทำงานบนข้อมูล M5 เสมอ (ไม่ขึ้นกับ TF ของกราฟ) ═════
+f_eng(int off) =>
+    float atr = ta.atr(14)
+    float mt  = atr * 0.15
+    // ── Top-down: Trend H4 · H1 · M15 (แท่งที่ปิดแล้ว) · M5 · M1
+    int t4  = nz(request.security(syminfo.tickerid, "240", f_st(3, 1), lookahead=barmerge.lookahead_on, calc_bars_count=200))
+    int t1  = nz(request.security(syminfo.tickerid, "60", f_st(3, 1), lookahead=barmerge.lookahead_on, calc_bars_count=400))
+    int t15 = nz(request.security(syminfo.tickerid, "15", f_st(3, 1), lookahead=barmerge.lookahead_on, calc_bars_count=1200))
+    int t5  = f_st(3, 0)
+    int tm1 = nz(request.security(syminfo.tickerid, "1", f_st(3, 0), calc_bars_count=3000))
+    int bias = t4 != 0 and t4 == t1 ? t4 : 0
+    // ── KEY ของ TF ใหญ่
+    [a1H, a1L, a1T]   = request.security(syminfo.tickerid, "60", f_sw(2), lookahead=barmerge.lookahead_on, calc_bars_count=400)
+    [a4H, a4L, a4T]   = request.security(syminfo.tickerid, "240", f_sw(2), lookahead=barmerge.lookahead_on, calc_bars_count=200)
+    [a15H, a15L, a15T] = request.security(syminfo.tickerid, "15", f_sw(2), lookahead=barmerge.lookahead_on, calc_bars_count=1200)
+    [pdH, pdL, pdT]   = request.security(syminfo.tickerid, "D", [high[1], low[1], time[1]], lookahead=barmerge.lookahead_on, calc_bars_count=30)
+    var array<float>  kP = array.new<float>()
+    var array<int>    kS = array.new<int>()
+    var array<string> kG = array.new<string>()
+    var array<int>    kT = array.new<int>()
+    var array<int>    kH = array.new<int>()
+    if timeframe.change("15")
+        f_kAdd(kP, kS, kG, kT, kH, a15H, 1, "M15", f_exT(a15H, a15T, true), mt)
+        f_kAdd(kP, kS, kG, kT, kH, a15L, -1, "M15", f_exT(a15L, a15T, false), mt)
+    if timeframe.change("60")
+        f_kAdd(kP, kS, kG, kT, kH, a1H, 1, "H1", f_exT(a1H, a1T, true), mt)
+        f_kAdd(kP, kS, kG, kT, kH, a1L, -1, "H1", f_exT(a1L, a1T, false), mt)
+    if timeframe.change("240")
+        f_kAdd(kP, kS, kG, kT, kH, a4H, 1, "H4", f_exT(a4H, a4T, true), mt)
+        f_kAdd(kP, kS, kG, kT, kH, a4L, -1, "H4", f_exT(a4L, a4T, false), mt)
+    if timeframe.change("D")
+        f_kAdd(kP, kS, kG, kT, kH, pdH, 1, "PDH", f_exT(pdH, pdT, true), mt)
+        f_kAdd(kP, kS, kG, kT, kH, pdL, -1, "PDL", f_exT(pdL, pdT, false), mt)
+    // Asia (20:00-24:00 NY) · London (02:00-05:00 NY) High / Low
+    bool inAs = not na(time(timeframe.period, "2000-2359", TZ))
+    bool inLo = not na(time(timeframe.period, "0200-0500", TZ))
+    var float asH = na
+    var float asL = na
+    var int   asHT = na
+    var int   asLT = na
+    var float loH = na
+    var float loL = na
+    var int   loHT = na
+    var int   loLT = na
+    if inAs and not inAs[1]
+        asH  := high
+        asL  := low
+        asHT := time
+        asLT := time
+    else if inAs
+        if high > asH
+            asH  := high
+            asHT := time
+        if low < asL
+            asL  := low
+            asLT := time
+    if not inAs and inAs[1]
+        f_kAdd(kP, kS, kG, kT, kH, asH, 1, "ASIA", asHT, mt)
+        f_kAdd(kP, kS, kG, kT, kH, asL, -1, "ASIA", asLT, mt)
+    if inLo and not inLo[1]
+        loH  := high
+        loL  := low
+        loHT := time
+        loLT := time
+    else if inLo
+        if high > loH
+            loH  := high
+            loHT := time
+        if low < loL
+            loL  := low
+            loLT := time
+    if not inLo and inLo[1]
+        f_kAdd(kP, kS, kG, kT, kH, loH, 1, "LON", loHT, mt)
+        f_kAdd(kP, kS, kG, kT, kH, loL, -1, "LON", loLT, mt)
+    // ── วัน (NY) · NY Midnight Open · Killzone
+    int nyD = dayofmonth(time, TZ)
+    var float dOpen = na
+    var int   dayL  = 0
+    if nyD != nyD[1]
+        dOpen := open
+        dayL  := 0
+    bool inKz = not na(time(timeframe.period, "0200-0500", TZ)) or not na(time(timeframe.period, "0700-1100", TZ)) or not na(time(timeframe.period, "1330-1600", TZ))
+    // ── สถานะ: 0 รอ · 1 กวาดแล้วรอ CISD · 2 ตั้ง Limit · 3 ในไม้
+    var int    st    = 0
+    var int    aD    = 0
+    var float  aK    = na
+    var int    aKT   = na
+    var string aG    = ""
+    var float  aExt  = na
+    var int    aExtB = na
+    var int    aExtT = na
+    var float  aC    = na
+    var int    aArm  = na
+    var bool   aStr  = false
+    var int    oid   = 0
+    var int    oD    = 0
+    var float  oE    = na
+    var float  oSL   = na
+    var float  oTP   = na
+    var float  oRR   = na
+    var int    oT0   = na
+    var int    oT1   = na
+    var int    oB    = na
+    var int    oF    = na
+    var int    oStat = 0      // 2 ตั้ง Limit · 3 ในไม้ · 4 TP · 5 SL · 6 ยกเลิก
+    var int    oSc   = 0
+    var string oG    = ""
+    var int    nW    = 0
+    var int    nL    = 0
+    var float  sumR  = 0.0
+    var string msg   = "-"
+    // ── กวาด KEY: ไส้เลยแล้วปิดกลับ (ภายใน 3 แท่ง) · ยืนเลยเกิน 3 แท่ง = Breakout (ลบทิ้ง)
+    float  swP = na
+    int    swS = 0
+    string swG = ""
+    int    swT = na
+    int    swH = na
+    int    nSw = 0
+    if kP.size() > 0
+        for i = kP.size() - 1 to 0
+            float p = kP.get(i)
+            int   s = kS.get(i)
+            if kH.get(i) < 0 and (s == 1 ? high > p : low < p)
+                kH.set(i, bar_index)
+            int hb = kH.get(i)
+            if hb >= 0
+                bool back = s == 1 ? close < p : close > p
+                bool kill = back or bar_index - hb >= 3
+                if back and s == -bias
+                    if na(swP) or (s == 1 ? p > swP : p < swP)
+                        swP := p
+                        swT := kT.get(i)
+                    swH := na(swH) ? hb : math.min(swH, hb)
+                    swS := s
+                    nSw += 1
+                    swG := swG == "" ? kG.get(i) : swG + "·" + kG.get(i)
+                if kill
+                    kP.remove(i)
+                    kS.remove(i)
+                    kG.remove(i)
+                    kT.remove(i)
+                    kH.remove(i)
+    // ── จัดการออเดอร์ที่ค้าง
+    if st == 2 and bar_index > oB
+        bool sell = oD == -1
+        if sell ? high >= oE : low <= oE
+            if sell ? high >= oSL : low <= oSL
+                st    := 0
+                oStat := 5
+                oT1   := time
+                nL    += 1
+                sumR  -= 1.0
+                dayL  += 1
+                msg   := "SL −1R"
+            else
+                st    := 3
+                oStat := 3
+                oF    := bar_index
+                msg   := "Limit โดนแล้ว · ถือไม้"
+        else if (sell ? low <= oTP : high >= oTP) or bar_index - oB > pendMax or bias != oD
+            st    := 0
+            oStat := 6
+            oT1   := time
+            msg   := "ยกเลิก Limit · " + ((sell ? low <= oTP : high >= oTP) ? "ราคาไปถึง TP ก่อนโดน" : bias != oD ? "Bias เปลี่ยน" : "ไม่โดนภายในเวลา")
+    else if st == 3 and bar_index > oF
+        bool sell = oD == -1
+        if sell ? high >= oSL : low <= oSL
+            st    := 0
+            oStat := 5
+            oT1   := time
+            nL    += 1
+            sumR  -= 1.0
+            dayL  += 1
+            msg   := "SL −1R"
+        else if sell ? low <= oTP : high >= oTP
+            st    := 0
+            oStat := 4
+            oT1   := time
+            nW    += 1
+            sumR  += oRR
+            msg   := "TP +" + str.tostring(oRR, "#.#") + "R"
+    // ── กวาดแล้ว รอแท่งปิดทะลุ CISD ด้วยเนื้อเทียน
+    if st == 1 and bar_index > aArm
+        bool sell = aD == -1
+        if f_bk(sell, aK, open, close, high, low)
+            st  := 0
+            msg := "ราคาปิดกลับเลย KEY " + aG + " · ยกเลิก"
+        else if bar_index - aArm > armMax
+            st  := 0
+            msg := "ไม่เกิด CISD ภายในเวลา · ยกเลิก"
+        else if sell ? high > aExt : low < aExt
+            aExt  := sell ? high : low
+            aExtB := bar_index
+            aExtT := time
+            aC    := f_cisd(sell, 0)
+        else if f_bk(not sell, aC, open, close, high, low)
+            // ยืนยัน CISD → คำนวณ Entry ที่ OTE ของขา M5
+            int   n    = math.min(bar_index - aExtB, 60)
+            float legX = sell ? low : high
+            float bMx  = 0.0
+            float fCE  = na
+            for j = 0 to n
+                legX := sell ? math.min(legX, low[j]) : math.max(legX, high[j])
+                bMx  := math.max(bMx, math.abs(close[j] - open[j]))
+                if j <= n - 2 and (sell ? high[j] < low[j + 2] : low[j] > high[j + 2])
+                    fCE := sell ? (high[j] + low[j + 2]) / 2 : (low[j] + high[j + 2]) / 2
+            bool   disp = bMx >= dispA * atr or not na(fCE)
+            float  span = aExt - legX
+            float  z1   = legX + oteA * span
+            float  z2   = legX + 0.79 * span
+            float  zLo  = math.min(z1, z2)
+            float  zHi  = math.max(z1, z2)
+            float  p705 = legX + 0.705 * span
+            float  e    = p705
+            string eg   = "OTE"
+            float  bd   = 1e10
+            if not na(fCE) and fCE >= zLo and fCE <= zHi and math.abs(fCE - p705) < bd
+                e  := fCE
+                eg := "FVG"
+                bd := math.abs(fCE - p705)
+            if aC >= zLo and aC <= zHi and math.abs(aC - p705) < bd
+                e  := aC
+                eg := "CISD"
+                bd := math.abs(aC - p705)
+            if aK >= zLo and aK <= zHi and math.abs(aK - p705) < bd
+                e  := aK
+                eg := "KEY"
+                bd := math.abs(aK - p705)
+            float sl = sell ? aExt + slBuf * atr : aExt - slBuf * atr
+            if math.abs(sl - e) < slMinA * atr
+                sl := sell ? e + slMinA * atr : e - slMinA * atr
+            float  risk = math.abs(sl - e)
+            float  tp   = sell ? e - defRR * risk : e + defRR * risk
+            string tpG  = "RR " + str.tostring(defRR, "#.#")
+            float  bk   = na
+            if kP.size() > 0
+                for i = 0 to kP.size() - 1
+                    if kS.get(i) == (sell ? -1 : 1) and kH.get(i) < 0
+                        float kp = kP.get(i)
+                        float rr = (sell ? e - kp : kp - e) / risk
+                        if rr >= minRR and rr <= maxRR and (na(bk) or math.abs(kp - e) < math.abs(bk - e))
+                            bk  := kp
+                            tpG := kG.get(i)
+            if not na(bk)
+                tp := bk
+            int sc = (t15 == aD ? 1 : 0) + (tm1 == aD ? 1 : 0) + (aStr ? 1 : 0) + (inKz ? 1 : 0) + ((sell ? e >= dOpen : e <= dOpen) ? 1 : 0) + (eg != "OTE" ? 1 : 0)
+            string sd  = sell ? "SELL" : "BUY"
+            string why = not disp ? "ไม่มี Displacement" : (sell ? e <= close : e >= close) ? "ราคาวิ่งเลย OTE" : bias != aD ? "Bias เปลี่ยน" : needKz and not inKz ? "นอก Killzone" : sc < minSc ? "Score " + str.tostring(sc) + "/6 ต่ำไป" : dayL >= dayMax ? "แพ้ครบ " + str.tostring(dayMax) + " ไม้วันนี้ · หยุด" : ""
+            st := 0
+            if why == ""
+                st    := 2
+                oid   += 1
+                oD    := aD
+                oE    := e
+                oSL   := sl
+                oTP   := tp
+                oRR   := math.abs(tp - e) / risk
+                oT0   := time
+                oT1   := na
+                oB    := bar_index
+                oStat := 2
+                oSc   := sc
+                oG    := "กวาด " + aG + " → CISD → " + sd + " LIMIT ที่ " + eg + " · TP " + tpG
+                msg   := "ตั้ง " + sd + " LIMIT"
+            else
+                msg := "ข้าม " + sd + " (กวาด " + aG + ") · " + why
+    // ── เริ่ม Setup ใหม่ (เฉพาะตอนไม่มีออเดอร์ค้าง)
+    if swS != 0 and st <= 1
+        st   := 1
+        aD   := -swS
+        aK   := swP
+        aKT  := swT
+        aG   := swG
+        aStr := nSw >= 2 or str.contains(swG, "H4") or str.contains(swG, "PD") or str.contains(swG, "·")
+        int   n  = math.min(bar_index - swH, 60)
+        float ex = aD == -1 ? high : low
+        int   kb = 0
+        for j = 0 to n
+            if aD == -1 ? high[j] > ex : low[j] < ex
+                ex := aD == -1 ? high[j] : low[j]
+                kb := j
+        aExt  := ex
+        aExtB := bar_index - kb
+        aExtT := time[kb]
+        aC    := f_cisd(aD == -1, kb)
+        aArm  := bar_index
+        msg   := "กวาด " + swG + " → รอ CISD"
+    // ── KEY ถัดไป (ยังไม่ถูกแตะ)
+    float  nxH  = na
+    int    nxHT = na
+    string nxHG = ""
+    float  nxL  = na
+    int    nxLT = na
+    string nxLG = ""
+    if kP.size() > 0
+        for i = 0 to kP.size() - 1
+            float p = kP.get(i)
+            if kH.get(i) < 0
+                if kS.get(i) == 1 and p > close and (na(nxH) or p < nxH)
+                    nxH  := p
+                    nxHT := kT.get(i)
+                    nxHG := kG.get(i)
+                if kS.get(i) == -1 and p < close and (na(nxL) or p > nxL)
+                    nxL  := p
+                    nxLT := kT.get(i)
+                    nxLG := kG.get(i)
+    [bias[off], t4[off], t1[off], t15[off], t5[off], tm1[off], st[off], aD[off], aK[off], aKT[off], aC[off], aExtT[off], aG[off], oid[off], oD[off], oE[off], oSL[off], oTP[off], oRR[off], oT0[off], oT1[off], oStat[off], oSc[off], oG[off], nW[off], nL[off], sumR[off], nxH[off], nxHT[off], nxHG[off], nxL[off], nxLT[off], nxLG[off], msg[off]]
+
+// ═════ ดึงผลจาก Engine (M5) · กราฟ ≤ M5 ใช้แท่ง M5 ที่ปิดแล้ว (ไม่ repaint) ═════
+int eOff = timeframe.in_seconds() <= 300 ? 1 : 0
+[bias, t4, t1, t15, t5, tm1, st, aD, aK, aKT, aC, aExtT, aG, oid, oD, oE, oSL, oTP, oRR, oT0, oT1, oStat, oSc, oG, nW, nL, sumR, nxH, nxHT, nxHG, nxL, nxLT, nxLG, msg] = request.security(syminfo.tickerid, "5", f_eng(eOff), lookahead=barmerge.lookahead_on, calc_bars_count=lookD * 288 + 300)
+
+// ═════ วาดบนกราฟ ═════
+color cNone = color.new(color.black, 100)
+int   chMs  = timeframe.in_seconds() * 1000
+int   tR    = time + offs * chMs
+
+f_px(float p) =>
+    str.tostring(p, format.mintick)
+f_tr(int t) =>
+    t == 1 ? "▲" : t == -1 ? "▼" : "–"
+
+// ออเดอร์: กล่อง Risk / Reward + ป้าย (ย้อนหลังไม่เกิน nKeep)
+var box   cR    = na
+var box   cW    = na
+var label cL    = na
+var int   curId = 0
+var bool  fin   = true
+var array<box>   hB = array.new<box>()
+var array<label> hL = array.new<label>()
+
+f_otxt() =>
+    (oD == -1 ? "SELL" : "BUY") + " LIMIT " + f_px(oE) + " · SL " + f_px(oSL) + " · TP " + f_px(oTP) + " · RR " + str.tostring(oRR, "#.#") + " · " + str.tostring(oSc) + "/6"
+
+if oid > 0 and oid != curId and not na(oE) and not na(oT0)
+    curId := oid
+    fin   := false
+    cR := box.new(oT0, oE, tR, oSL, xloc=xloc.bar_time, border_color=color.new(colS, 50), border_width=1, bgcolor=color.new(colS, 85))
+    cW := box.new(oT0, oE, tR, oTP, xloc=xloc.bar_time, border_color=color.new(colB, 50), border_width=1, bgcolor=color.new(colB, 88))
+    cL := label.new(oT0, oE, f_otxt(), xloc=xloc.bar_time, style=label.style_label_right, color=cNone, textcolor=oD == -1 ? colS : colB, size=size.small, tooltip=oG)
+    hB.push(cR)
+    hB.push(cW)
+    hL.push(cL)
+    if hL.size() > nKeep
+        box.delete(hB.shift())
+        box.delete(hB.shift())
+        label.delete(hL.shift())
+    alert("KA SNIPER · " + syminfo.ticker + " · " + f_otxt() + " · " + oG, alert.freq_once_per_bar)
+
+if oid == curId and not fin and not na(cR)
+    if oStat <= 3
+        box.set_right(cR, tR)
+        box.set_right(cW, tR)
+        label.set_text(cL, (oStat == 3 ? "📍 ในไม้ · " : "") + f_otxt())
+    else
+        fin := true
+        int te = na(oT1) ? time : oT1
+        box.set_right(cR, te)
+        box.set_right(cW, te)
+        string rs = oStat == 4 ? " ✓ +" + str.tostring(oRR, "#.#") + "R" : oStat == 5 ? " ✗ −1R" : " · ยกเลิก"
+        label.set_text(cL, f_otxt() + rs)
+        if oStat == 6
+            box.set_bgcolor(cR, color.new(colT, 94))
+            box.set_bgcolor(cW, color.new(colT, 94))
+            box.set_border_color(cR, color.new(colT, 80))
+            box.set_border_color(cW, color.new(colT, 80))
+            label.set_textcolor(cL, color.new(colT, 30))
+        if oStat == 4 or oStat == 5
+            alert("KA SNIPER · " + syminfo.ticker + " · ปิด" + rs, alert.freq_once_per_bar)
+
+// เส้นสด: KEY ที่โดนกวาด + CISD ที่รอ · KEY ถัดไป
+var array<line>  lv = array.new<line>()
+var array<label> lt = array.new<label>()
+f_ln(int t0, float p, color c, string st0, string tx, string tip) =>
+    if not na(p) and not na(t0)
+        lv.push(line.new(t0, p, tR, p, xloc=xloc.bar_time, color=c, width=1, style=st0))
+        lt.push(label.new(tR, p, tx, xloc=xloc.bar_time, style=label.style_label_left, color=cNone, textcolor=c, size=size.tiny, tooltip=tip))
+
+if barstate.islast
+    while lv.size() > 0
+        line.delete(lv.pop())
+    while lt.size() > 0
+        label.delete(lt.pop())
+    if st == 1
+        f_ln(aKT, aK, colK, line.style_dashed, "กวาด " + aG, "KEY ที่โดนกวาด " + f_px(aK))
+        f_ln(aExtT, aC, colC, line.style_solid, "CISD " + (aD == -1 ? "▼" : "▲") + " รอแท่งปิดทะลุ", "แท่ง" + (aD == -1 ? "แดง" : "เขียว") + "ปิดทะลุ " + f_px(aC) + " ด้วยเนื้อเทียน → ตั้ง Limit ที่ OTE")
+    if showNx and st == 0
+        f_ln(nxHT, nxH, color.new(bias == -1 ? colS : colT, bias == -1 ? 20 : 60), line.style_dotted, "BSL " + nxHG + (bias == -1 ? " ← รอกวาด → SELL" : ""), "Buy-side liquidity " + f_px(nxH))
+        f_ln(nxLT, nxL, color.new(bias == 1 ? colB : colT, bias == 1 ? 20 : 60), line.style_dotted, "SSL " + nxLG + (bias == 1 ? " ← รอกวาด → BUY" : ""), "Sell-side liquidity " + f_px(nxL))
+
+// ═════ Dashboard ═════
+string dPos = dashPos == "บนขวา" ? position.top_right : dashPos == "ล่างซ้าย" ? position.bottom_left : dashPos == "บนซ้าย" ? position.top_left : position.bottom_right
+var table dash = table.new(dPos, 2, 8, bgcolor=color.new(chart.bg_color, 0), frame_color=color.new(chart.fg_color, 85), frame_width=1, border_width=0)
+f_row(int r, string a, string b, color c) =>
+    table.cell(dash, 0, r, a, text_color=colT, text_size=size.small, text_halign=text.align_left)
+    table.cell(dash, 1, r, b, text_color=c, text_size=size.small, text_halign=text.align_right)
+
+if showDash and barstate.islast
+    string sd  = aD == -1 ? "SELL" : "BUY"
+    string od  = oD == -1 ? "SELL" : "BUY"
+    color  bC  = bias == 1 ? colB : bias == -1 ? colS : colT
+    string stT = st == 1 ? "กวาด " + aG + " แล้ว → รอแท่ง" + (aD == -1 ? "แดง" : "เขียว") + "ปิดทะลุ CISD " + f_px(aC) : st == 2 ? "ตั้ง " + od + " LIMIT แล้ว · รอราคามาโดน" : st == 3 ? "📍 ถือ " + od + " อยู่" : bias == 0 ? "H4 / H1 ไม่ตรงกัน → ไม่เทรด" : "รอราคากวาด " + (bias == -1 ? "BSL " + f_px(nxH) : "SSL " + f_px(nxL))
+    string plT = bias == -1 ? "กวาด BSL " + nxHG + " " + f_px(nxH) + " → CISD ▼ → SELL LIMIT ที่ OTE" : bias == 1 ? "กวาด SSL " + nxLG + " " + f_px(nxL) + " → CISD ▲ → BUY LIMIT ที่ OTE" : "รอ H4 + H1 ไปทางเดียวกัน"
+    int    tot = nW + nL
+    bool   kzN = not na(time(timeframe.period, "0200-0500", TZ)) or not na(time(timeframe.period, "0700-1100", TZ)) or not na(time(timeframe.period, "1330-1600", TZ))
+    f_row(0, "KA SNIPER", "Bias " + f_tr(bias) + (bias == 0 ? " ไม่เทรด" : bias == 1 ? " หา BUY" : " หา SELL"), bC)
+    f_row(1, "H4 · H1 · M15 · M5 · M1", f_tr(t4) + "  " + f_tr(t1) + "  " + f_tr(t15) + "  " + f_tr(t5) + "  " + f_tr(tm1), chart.fg_color)
+    f_row(2, "สถานะ", stT, st == 0 ? chart.fg_color : aD == -1 or oD == -1 ? colS : colB)
+    f_row(3, "ออเดอร์", st >= 2 ? f_otxt() : "-", st >= 2 ? (oD == -1 ? colS : colB) : colT)
+    f_row(4, "แผนต่อไป", plT, colT)
+    f_row(5, "ล่าสุด", msg, colT)
+    f_row(6, "สถิติ " + str.tostring(lookD) + " วัน", str.tostring(nW) + "W / " + str.tostring(nL) + "L · " + str.tostring(sumR, "+#.#;-#.#") + "R" + (tot > 0 ? " · ชนะ " + str.tostring(math.round(100.0 * nW / tot)) + "%" : ""), sumR >= 0 ? colB : colS)
+    f_row(7, "เวลา (NY)", kzN ? "ใน Killzone ✓" : "นอก Killzone · London 02-05 · NY 07-11 · 13:30-16", kzN ? colB : colT)
