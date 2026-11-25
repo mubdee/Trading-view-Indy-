@@ -33,6 +33,7 @@
 ## ประวัติ
 - **v9.9 DEV (2026-11-25)** — KEY swing M15 + M30 · Reversal: M5 MSS + KEY ซ้อน ≥ 2 · KR เข้าที่ QM key
 - **v9.10 DEV (2026-11-25)** — Quarterly Theory (AMDX · Daye): Quarter วัน / 90 นาที · True Open · Manipulation Q1 → คะแนน/บังคับ · ไม่เทรด Q1 Asia · KEY High/Low Q1 · ไม้ REV ไม่ติด filter MTF
+- **v9.11 DEV (2026-11-25)** — เสถียร: ช่วงวิเคราะห์ย้อนหลัง N วัน (เริ่มเที่ยงคืน NY) · MTF M5/M15 ข้อมูลย้อนหลังพอทั้งช่วง · filter MTF ไม่นับ M1 · KR Entry ล็อกตอนเกิด Model
 - **v9.8 DEV (2026-11-25)** — ตาม ICT guide: EQH/EQL · Opening Range London/NY · OB (ICT) + Breaker · NY AM 07-10 · London Close · Macro · NY 9:30 · SMT กับ DXY
 - **v9.7 DEV (2026-11-25)** — ไม่ตั้ง BE (ค่าเริ่มต้น) · โครงสร้าง MTF / Bias ใช้แท่ง TF ใหญ่ที่ปิดแล้ว (ไม่ repaint)
 - **v9.6 DEV (2026-11-25)** — SMT ทอง×เงิน (+1 คะแนน / บังคับได้) · แท่งกวาดต้องปฏิเสธชัด · Entry FVG ของขา displacement
