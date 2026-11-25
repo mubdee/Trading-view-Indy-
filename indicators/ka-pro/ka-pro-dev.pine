@@ -1,5 +1,5 @@
 // ════════════════════════════════════════════════════════════════
-// KEY ALCHEMIST PRO v9.8 DEV (ไฟล์สำรองสำหรับแก้ · ทดลองก่อนย้ายเข้า MAIN) · HTF Liquidity Sweep (Turtle Soup) → CISD / MSS → OTE × Key Level × MSNR (Pine Script v6)
+// KEY ALCHEMIST PRO v9.9 DEV (ไฟล์สำรองสำหรับแก้ · ทดลองก่อนย้ายเข้า MAIN) · HTF Liquidity Sweep (Turtle Soup) → CISD / MSS → OTE × Key Level × MSNR (Pine Script v6)
 // อ้างอิง: Key Alchemist (amirxau77) · MSNR (SL 10 PIPS) · เลเวลจาก MSNR × SMC ตัวเดิม
 // v2 (2026-11-24):
 //   · Bias TF ใหญ่ (M5: H1 = TS · H4 = Bias) → เทรดเฉพาะทิศ Bias (ลดไม้สวนเทรนด์ที่โดน SL)
@@ -58,6 +58,10 @@
 //   · Entry: Order Block แบบ ICT (แท่งสวนทางสุดท้ายก่อน displacement) + Breaker (OB ฝั่งตรงข้ามที่ถูกทะลุหลังกวาด liQ)
 //   · เวลา: NY AM killzone 07:00-10:00 · London Close 11:00-12:00 · Macro 09:50-10:10 / 10:50-11:10 · เส้น NY Open 09:30
 //   · SMT เทียบ DXY ได้ (กลับทิศ): ทองกวาด High แต่ DXY ไม่ทำ Low ใหม่ = SMT ▼ · เลือก เงิน / DXY / อย่างใดอย่างหนึ่ง / ทั้งคู่
+// v9.9 DEV (2026-11-25):
+//   · KEY: swing M15 + M30 (ไส้ที่ยังไม่ถูกกวาด · Ts m15 / m30) เพิ่มจาก H1 / H4
+//   · Reversal แบบใหม่ (ค่าเริ่มต้น): สวน Bias ได้ถ้า M5 MSS กลับทิศแล้ว + KEY ที่ถูกกวาดซ้อนกัน ≥ 2 อย่าง (เช่น EQL·LOR·M15) · ไม้ REV ไม่ถูกยกเลิกตอน Bias สวน
+//   · KR เข้าที่ QM key (MSNR) ได้ (ค่าเริ่มต้น: QM ถ้ามี ไม่งั้น CE 0.5)
 // ไม่ repaint: ข้อมูล HTF ใช้เฉพาะแท่งที่ปิดแล้ว · สัญญาณ TF ชาร์ตยืนยันตอนแท่งปิด
 // ════════════════════════════════════════════════════════════════
 //@version=6
@@ -92,12 +96,18 @@ bool   useCE  = input.bool(true, "KEY: CE 0.5 ของไส้ swing TF ให
 bool   use3c  = input.bool(true, "KEY: โมเดล 3 แท่ง HTF (แท่ง 2 กวาดแท่ง 1 แล้วปิดกลับ)", group=G0)
 bool   useEq  = input.bool(true, "KEY: Equal Highs / Lows (EQH / EQL)", group=G0, tooltip="swing High/Low 2 จุดที่สูง/ต่ำเท่ากัน (ห่างไม่เกิน x ATR) และยังไม่ถูกกวาด = BSL / SSL ที่ชัด")
 float  eqA    = input.float(0.1, "EQH / EQL ห่างกันไม่เกิน (x ATR)", minval=0.02, step=0.02, group=G0, display=display.none)
+bool   useM15K = input.bool(true, "KEY: swing M15 (Ts m15)", group=G0, tooltip="swing High/Low ของ M15 ที่ยังไม่ถูกกวาด เป็น KEY (ใช้เมื่อกราฟเล็กกว่า M15)")
+bool   useM30K = input.bool(true, "KEY: swing M30 (Ts m30)", group=G0, tooltip="swing High/Low ของ M30 ที่ยังไม่ถูกกวาด เป็น KEY (ใช้เมื่อกราฟเล็กกว่า M30)")
 bool   useOR  = input.bool(true, "KEY: Opening Range London (02:00-02:30) · NY AM (09:30-10:00)", group=G0, tooltip="High / Low ของ 30 นาทีแรกของ London และ NY AM (เวลา New York) เป็น KEY ให้กวาด")
 string dirMode = input.string("Buy + Sell", "ทิศที่เทรด", options=["Buy + Sell", "Buy อย่างเดียว", "Sell อย่างเดียว"], group=G0)
 bool   useBias = input.bool(true, "เทรดเฉพาะทิศ Bias", group=G0, tooltip="Bias = ทิศ BOS ล่าสุด (ปิดเนื้อเทียนทะลุ swing)")
 string B_M = "โครงสร้าง MTF: H4 + H1 ตรงกัน (ตรงกับตาราง)"
 string biasMode = input.string(B_M, "Bias จาก", options=[B_M, "H4 + H1 ตรงกัน", "TF Bias (H4)", "TF ของ TS (H1)"], group=G0, tooltip="โครงสร้าง MTF = ใช้ Trend H4 + H1 ตัวเดียวกับตาราง MTF (แนะนำ · ไม่ขัดกับตาราง)\nH4 + H1 ตรงกัน = BOS ของ TF ใหญ่ (HTF Swing length) ทั้ง 2 TF ต้องทิศเดียวกัน ถ้าไม่ตรง = – (ไม่เทรด) · M5 ใช้ H4/H1 · TF อื่นตาม TF Pairing")
-bool   revOk  = input.bool(false, "Reversal: TS / KR / RE สวน Bias ได้ ถ้า M15 + M5 กลับทิศแล้ว", group=G0, tooltip="Bias H4/H1 ยังสวน แต่ M15 และ M5 ทำ CHoCH กลับมาทางเดียวกับไม้แล้ว → ยอมให้เข้า (ป้าย REV)\nดูแถว 'ไม้เงา' ใน Dashboard: ถ้า 'สวน Bias' เป็น + R ค่อยเปิด")
+string RV_OFF = "ปิด"
+string RV_MK  = "M5 MSS + KEY ซ้อน ≥ 2"
+string RV_TF  = "M15 + M5 กลับทิศ"
+string revMode = input.string(RV_MK, "Reversal: TS / KR / RE สวน Bias ได้เมื่อ", options=[RV_OFF, RV_MK, RV_TF], group=G0, tooltip="M5 MSS + KEY ซ้อน ≥ 2 = โครงสร้าง M5 กลับทิศมาทางไม้แล้ว และ KEY ที่ถูกกวาดซ้อนกันอย่างน้อย 2 อย่าง (เช่น EQL·LOR·M15 หรือ + SMT)\nM15 + M5 กลับทิศ = Trend M15 และ M5 ต้องกลับมาทางไม้ทั้งคู่\nไม้ที่เข้าแบบนี้มีป้าย REV · ดูผลในแถวไม้เงา 'สวน Bias'")
+int    revMin = input.int(2, "Reversal: KEY ซ้อนอย่างน้อย", minval=1, maxval=4, group=G0, display=display.none)
 int    rngLen = input.int(40, "HTF Dealing range (แท่ง HTF)", minval=10, group=G0, display=display.none, tooltip="ใช้หา Premium/Discount และ ERL สำรอง")
 
 string GM = "โครงสร้าง MTF (H4 → M1)"
@@ -134,7 +144,8 @@ bool   reqDisp  = input.bool(true, "บังคับขายืนยัน�
 
 string GK = "Key Alchemist Model (KR) · Re-entry (RE)"
 bool   useKR   = input.bool(true, "KR: รอราคากลับมาที่ KEY หลังกวาด liQ / IDM", group=GK, tooltip="หลัง TS → CISD/MSS: จด KEY ไว้ · รอ pullback ทำ IDM (swing ภายใน) · ราคากวาด IDM → ตั้ง Limit ที่ KEY [CE 0.5] · TP = SSL/BSL ใต้/เหนือ Accumulation")
-string krEnt   = input.string("CE 0.5", "KR เข้าที่", options=["CE 0.5", "KEY", "จุดสุด (Hidden liQ)"], group=GK, display=display.none, tooltip="จุดสุด = Hidden liQ model: รอราคากวาด IDM + Hidden liQ แล้วเข้าที่ swing เดิมของ TS")
+string K_QM    = "QM ถ้ามี / CE 0.5"
+string krEnt   = input.string(K_QM, "KR เข้าที่", options=[K_QM, "CE 0.5", "KEY", "จุดสุด (Hidden liQ)"], group=GK, display=display.none, tooltip="QM ถ้ามี = QM key (MSNR) ระหว่างราคากับจุดสุดที่ใกล้ KEY ที่สุด · ไม่มี QM → CE 0.5\n"จุดสุด = Hidden liQ model: รอราคากวาด IDM + Hidden liQ แล้วเข้าที่ swing เดิมของ TS")
 int    krLife  = input.int(24, "KR รอได้นาน (แท่ง TF ของ TS)", minval=2, maxval=120, group=GK, display=display.none)
 int    accLen  = input.int(20, "Accumulation: ช่วงแท่ง", minval=5, maxval=100, group=GK, display=display.none)
 float  accA    = input.float(4.0, "Accumulation: กรอบแคบกว่า (x ATR)", minval=1.0, step=0.5, group=GK, display=display.none)
@@ -312,6 +323,13 @@ f_bias(int L) =>
 
 [p1H, p1L, p1T, c1H, c1L, h3D, h3K, h3C, h3T] = request.security(syminfo.tickerid, htf, f_piv(hLen), lookahead=barmerge.lookahead_on, calc_bars_count=htfN)
 [p2H, p2L, p2T, c2H, c2L, x3D, x3K, x3C, x3T] = request.security(syminfo.tickerid, btf, f_piv(hLen), lookahead=barmerge.lookahead_on, calc_bars_count=htfN)
+// swing M15 / M30 (แท่งที่ปิดแล้ว · ไม่ repaint)
+f_swk(int L) =>
+    float ph = ta.pivothigh(high, L, L)
+    float pl = ta.pivotlow(low, L, L)
+    [ph[1], pl[1], time[L + 1]]
+[q1H, q1L, q1T] = request.security(syminfo.tickerid, "15", f_swk(hLen), lookahead=barmerge.lookahead_on, calc_bars_count=600)
+[q3H, q3L, q3T] = request.security(syminfo.tickerid, "30", f_swk(hLen), lookahead=barmerge.lookahead_on, calc_bars_count=400)
 [cMid, fbT, fbB, fuT, fuB]   = request.security(syminfo.tickerid, htf, f_ctx(rngLen), lookahead=barmerge.lookahead_on, calc_bars_count=htfN)
 int  bias4r = request.security(syminfo.tickerid, btf, f_bias(hLen), lookahead=barmerge.lookahead_on, calc_bars_count=htfN)
 int  bias1r = request.security(syminfo.tickerid, htf, f_bias(hLen), lookahead=barmerge.lookahead_on, calc_bars_count=htfN)
@@ -393,8 +411,9 @@ f_smtX(bool dxy, bool hiSide, int W, int LB) =>
     ok
 
 // Reversal: M15 + M5 กลับทิศไปทาง d แล้ว (ทั้ง 2 TF trend = d)
-f_rev(int d) =>
-    revOk and mT2 == d and mT3 == d
+f_rev(int d, string tg) =>
+    int nk = str.split(tg, "·").size() + (str.contains(tg, "SMT") ? 1 : 0) + (str.contains(tg, "sLiQ") ? 1 : 0)
+    revMode == RV_TF ? mT2 == d and mT3 == d : revMode == RV_MK ? mT3 == d and nk >= revMin : false
 
 // จำนวน TF (จาก 5) ที่โครงสร้างตรงกับทิศ d
 f_al(int d) =>
@@ -653,6 +672,12 @@ if newH1
         f_kAdd(kHi, c1H, tH1, htfT + " CE", c1H, mrg, true)
     if useCE and not na(p1L)
         f_kAdd(kLo, c1L, tL1, htfT + " CE", c1L, mrg, false)
+if useM15K and timeframe.in_seconds("15") > timeframe.in_seconds() and timeframe.change("15")
+    f_kAdd(kHi, q1H, f_exactT(q1H, q1T, true), "M15", na, mrg, true)
+    f_kAdd(kLo, q1L, f_exactT(q1L, q1T, false), "M15", na, mrg, false)
+if useM30K and timeframe.in_seconds("30") > timeframe.in_seconds() and timeframe.change("30")
+    f_kAdd(kHi, q3H, f_exactT(q3H, q3T, true), "M30", na, mrg, true)
+    f_kAdd(kLo, q3L, f_exactT(q3L, q3T, false), "M30", na, mrg, false)
 if newH4
     int tH2 = f_exactT(p2H, p2T, true)
     int tL2 = f_exactT(p2L, p2T, false)
@@ -799,6 +824,7 @@ type Tr
     int    bF    = na
     bool   t1Hit = false
     int    sk    = -1         // ไม้เงา: หมวดเหตุผลที่ถูกข้าม
+    bool   rv    = false      // ไม้ Reversal (สวน Bias) → ไม่ยกเลิกตอน Bias สวน
     box    bxR
     box    bxW
     line   l1
@@ -820,6 +846,18 @@ type KZ
     int    swB    = na
     int    nKR    = 0
     int    nRe    = 0
+
+// KR Entry: QM key (MSNR) ระหว่างราคากับจุดสุด ใกล้ KEY ที่สุด · ไม่มี → CE 0.5
+f_krE(KZ z) =>
+    bool  s = z.dir == -1
+    float q = na
+    if krEnt == K_QM
+        array<Lv> a = s ? resL : supL
+        for l in a
+            if str.contains(l.tag, "QM") and (s ? l.p > close and l.p <= z.ext : l.p < close and l.p >= z.ext)
+                if na(q) or math.abs(l.p - z.key) < math.abs(q - z.key)
+                    q := l.p
+    krEnt == "KEY" ? z.key : krEnt == "จุดสุด (Hidden liQ)" ? z.ext : not na(q) ? q : z.ce
 
 var array<Tr> act   = array.new<Tr>()
 var array<float> tR = array.new<float>(4, 0.0)   // Net R แยกประเภท
@@ -944,7 +982,7 @@ f_open(int typ, int dir, float e, float sl, float t1, float t2, bool liqT, strin
     f_keepL(l1)
     f_keepB(lb)
     dS.set(0, dS.get(0) + 1)
-    act.push(Tr.new(dir=dir, st=2, e=e, sl=sl, t1=t1, t2=t2, rr1=rr1, rr2=rr2, b0=bar_index, typ=typ, bxR=bR, bxW=bW, l1=l1, lb=lb))
+    act.push(Tr.new(dir=dir, st=2, e=e, sl=sl, t1=t1, t2=t2, rr1=rr1, rr2=rr2, b0=bar_index, typ=typ, bxR=bR, bxW=bW, l1=l1, lb=lb, rv=useBias and bias != dir))
     alert("KA PRO · " + syminfo.ticker + " · " + nm + " LIMIT " + f_px(e) + " · SL " + f_px(sl) + " · TP1 " + f_px(t1) + " · TP2 " + f_px(t2) + " · " + info, alert.freq_once_per_bar_close)
 
 // นับเหตุผลที่ Setup ถูกข้าม (แสดงใน Dashboard)
@@ -1287,7 +1325,7 @@ if armed and barstate.isconfirmed
                 sc += smtMode == SMT_SC and aSmt ? 1 : 0
                 string den = smtMode == SMT_SC ? "/9" : "/8"
                 string gr = f_grade(sc)
-                why := useBias and aBias != aDir and not f_rev(aDir) ? "สวน Bias" : f_mtfWhy(aDir) != "" ? f_mtfWhy(aDir) : reqDisp and not dispOk ? "ไม่มี Displacement" : reqPD and not aPd ? "ไม่อยู่ Premium/Discount" : reqKz and not inKz ? "นอก Killzone" : smtMode == SMT_REQ and not aSmt ? "ไม่มี SMT" : sc < minScore ? "Score " + str.tostring(sc) + den : act.size() >= maxAct ? "ไม้เต็ม" : f_gate(aDir, e)
+                why := useBias and aBias != aDir and not f_rev(aDir, aTag) ? "สวน Bias" : f_mtfWhy(aDir) != "" ? f_mtfWhy(aDir) : reqDisp and not dispOk ? "ไม่มี Displacement" : reqPD and not aPd ? "ไม่อยู่ Premium/Discount" : reqKz and not inKz ? "นอก Killzone" : smtMode == SMT_REQ and not aSmt ? "ไม่มี SMT" : sc < minScore ? "Score " + str.tostring(sc) + den : act.size() >= maxAct ? "ไม้เต็ม" : f_gate(aDir, e)
                 if why != ""
                     f_shd(0, aDir, e, sl, t1, t2, why)
                 if why == ""
@@ -1333,7 +1371,7 @@ if barstate.isconfirmed and zones.size() > 0
             // ① KR: กวาด IDM แล้ว → Limit ที่ KEY [CE 0.5] / จุดสุด (Hidden liQ)
             if useKR and z.nKR == 0 and z.idmHit and canRun
                 z.nKR := 1
-                float e = krEnt == "KEY" ? z.key : krEnt == "จุดสุด (Hidden liQ)" ? z.ext : z.ce
+                float e = f_krE(z)
                 if s ? e > close + tol and e <= z.ext : e < close - tol and e >= z.ext
                     float sl = s ? z.ext + slA * atr : z.ext - slA * atr
                     if math.abs(e - sl) < slMinA * atr
@@ -1345,11 +1383,11 @@ if barstate.isconfirmed and zones.size() > 0
                         t1 := s ? e - risk : e + risk
                     [tg, nTag] = f_tags(e, s, cz, z.ce, z.key, s ? tlBear : tlBull)
                     int sc = z.base + 1 + (isAcc ? 1 : 0) + (inKz ? 1 : 0) + (bias == z.dir ? 1 : 0) + (nTag >= 2 ? 1 : 0)
-                    string why = useBias and bias != z.dir and not f_rev(z.dir) ? "สวน Bias" : f_mtfWhy(z.dir) != "" ? f_mtfWhy(z.dir) : reqKz and not inKz ? "นอก Killzone" : sc < minScore ? "Score " + str.tostring(sc) + "/8" : act.size() >= maxAct ? "ไม้เต็ม" : f_gate(z.dir, e)
+                    string why = useBias and bias != z.dir and not f_rev(z.dir, z.tag) ? "สวน Bias" : f_mtfWhy(z.dir) != "" ? f_mtfWhy(z.dir) : reqKz and not inKz ? "นอก Killzone" : sc < minScore ? "Score " + str.tostring(sc) + "/8" : act.size() >= maxAct ? "ไม้เต็ม" : f_gate(z.dir, e)
                     if why == ""
                         f_open(1, z.dir, e, sl, t1, t2, liqT, f_grade(sc), str.tostring(sc) + "/8 · " + (useBias and bias != z.dir ? "REV · " : "") + z.tag + " · IDM✓" + (isAcc ? " ACC" : "") + (tg == "" ? "" : " · " + tg))
                         lastTxt := "KR " + sd + " " + f_grade(sc) + " (" + str.tostring(sc) + "/8) · IDM✓"
-                        lastE   := f_px(e) + " · " + (tg == "" ? krEnt : tg)
+                        lastE   := f_px(e) + " · " + (tg == "" ? "KR" : tg)
                         lastSl  := f_px(sl) + " / " + f_px(t2)
                         lastC   := s ? colSell : colBuy
                     else
@@ -1377,7 +1415,7 @@ if barstate.isconfirmed and zones.size() > 0
                         t1 := s ? e - risk : e + risk
                     [tg, nTag] = f_tags(e, s, cz, na, na, s ? tlBear : tlBull)
                     int sc = z.base + 1 + (inKz ? 1 : 0) + (bias == z.dir ? 1 : 0) + (nTag >= 1 ? 1 : 0) + (nTag >= 2 ? 1 : 0)
-                    string why = useBias and bias != z.dir and not f_rev(z.dir) ? "สวน Bias" : f_mtfWhy(z.dir) != "" ? f_mtfWhy(z.dir) : reqKz and not inKz ? "นอก Killzone" : sc < minScore ? "Score " + str.tostring(sc) + "/8" : act.size() >= maxAct ? "ไม้เต็ม" : f_gate(z.dir, e)
+                    string why = useBias and bias != z.dir and not f_rev(z.dir, z.tag) ? "สวน Bias" : f_mtfWhy(z.dir) != "" ? f_mtfWhy(z.dir) : reqKz and not inKz ? "นอก Killzone" : sc < minScore ? "Score " + str.tostring(sc) + "/8" : act.size() >= maxAct ? "ไม้เต็ม" : f_gate(z.dir, e)
                     if why == ""
                         f_open(2, z.dir, e, sl, t1, t2, liqT, f_grade(sc), str.tostring(sc) + "/8 · " + (useBias and bias != z.dir ? "REV · " : "") + "BOS" + (tg == "" ? "" : " · " + tg))
                         lastTxt := "RE " + sd + " " + f_grade(sc) + " (" + str.tostring(sc) + "/8) · หลัง BOS"
@@ -1437,7 +1475,7 @@ if act.size() > 0
                     t.st := 3
                     t.bF := bar_index
                     alert("KA PRO · " + syminfo.ticker + " · " + (s ? "SELL" : "BUY") + " filled " + f_px(t.e), alert.freq_once_per_bar)
-                else if (s ? low <= t.t1 : high >= t.t1) or (fillHtf > 0 and bar_index - t.b0 > fillHtf * nHtf) or (cxlFlip and useBias and bias != 0 and bias != t.dir and not f_rev(t.dir)) or (cxlEnd and not canRun)
+                else if (s ? low <= t.t1 : high >= t.t1) or (fillHtf > 0 and bar_index - t.b0 > fillHtf * nHtf) or (cxlFlip and useBias and bias != 0 and bias != t.dir and not t.rv) or (cxlEnd and not canRun)
                     res := "ยกเลิก"
         else if t.st == 3 and bar_index > t.bF
             float curSL = t.t1Hit and beOn ? t.e : t.sl
@@ -1624,7 +1662,7 @@ if barstate.islast
     if showArm and useKR
         for z in zones
             if z.nKR == 0
-                float kp = krEnt == "KEY" ? z.key : krEnt == "จุดสุด (Hidden liQ)" ? z.ext : z.ce
+                float kp = f_krE(z)
                 color zc = z.dir == -1 ? colSell : colBuy
                 f_ln(time[math.min(bar_index - z.born, 999)], kp, color.new(zc, 40), line.style_dashed)
                 f_rl(kp, "KR " + (z.dir == -1 ? "▼" : "▲") + (z.idmHit ? " Limit" : " รอ IDM"), zc, "Key Alchemist Model · " + z.tag + " · Entry " + f_px(kp) + (na(z.idm) ? "" : " · IDM " + f_px(z.idm)))
@@ -1695,12 +1733,12 @@ if barstate.islast
         for z in zones
             if z.nKR == 0
                 bool  s  = z.dir == -1
-                float e  = krEnt == "KEY" ? z.key : krEnt == "จุดสุด (Hidden liQ)" ? z.ext : z.ce
+                float e  = f_krE(z)
                 float sl = s ? z.ext + slA * atr : z.ext - slA * atr
                 if math.abs(e - sl) < slMinA * atr
                     sl := s ? e + slMinA * atr : e - slMinA * atr
                 [t2, lq] = f_t2(s, e, math.abs(e - sl))
-                string w = useBias and bias != z.dir and not f_rev(z.dir) ? "สวน Bias" : f_mtfWhy(z.dir) != "" ? f_mtfWhy(z.dir) : f_gate(z.dir, e)
+                string w = useBias and bias != z.dir and not f_rev(z.dir, z.tag) ? "สวน Bias" : f_mtfWhy(z.dir) != "" ? f_mtfWhy(z.dir) : f_gate(z.dir, e)
                 string cd = na(z.idm) ? "รอ pullback ทำ IDM ก่อน" : "ตั้งได้หลังราคากวาด IDM " + f_px(z.idm)
                 plS.push((w == "" ? "⏳ " : "✗ ") + "KR " + f_side(s) + " LIMIT " + f_px(e) + " · SL " + f_px(sl) + " · TP " + f_px(t2) + " · " + (w == "" ? cd : w))
                 plC.push(w == "" ? (s ? colSell : colBuy) : colTxt)
@@ -1723,18 +1761,18 @@ if barstate.islast
                 f_rl(org, "PLAN CT " + f_side(s) + " LIMIT", s ? colSell : colBuy, "ถ้าแท่งปิด" + (s ? "ใต้ " : "เหนือ ") + f_px(brk) + " → " + f_side(s) + " LIMIT " + f_px(org) + " · SL " + f_px(sl) + " · TP " + f_px(t2))
     // TS: กวาดแล้วรอ CISD
     if armed
-        string w = useBias and bias != aDir and not f_rev(aDir) ? "สวน Bias" : f_mtfWhy(aDir)
+        string w = useBias and bias != aDir and not f_rev(aDir, aTag) ? "สวน Bias" : f_mtfWhy(aDir)
         plS.push((w == "" ? "⏳ " : "✗ ") + "TS " + f_side(isS) + " · กวาด " + aTag + " แล้ว · รอแท่งปิด" + (isS ? "ใต้" : "เหนือ") + " CISD " + f_px(aCisd) + " → อินดี้ตั้ง Limit ที่ OTE/KEY ให้" + (w == "" ? "" : " · " + w))
         plC.push(w == "" ? (isS ? colSell : colBuy) : colTxt)
     else if not pastEnd
         array<KL> nb1 = f_nearK(kHi, true, 1)
         array<KL> ns1 = f_nearK(kLo, false, 1)
         if nb1.size() > 0 and allowS
-            bool ok = not useBias or bias == -1 or f_rev(-1)
+            bool ok = not useBias or bias == -1 or f_rev(-1, nb1.get(0).tag)
             plS.push((ok ? "⏳ " : "✗ ") + "TS SELL · รอไส้กวาด " + nb1.get(0).tag + " " + f_px(nb1.get(0).p) + " แล้วปิดกลับใต้ → CISD → อินดี้ตั้ง Limit" + (ok ? "" : " · สวน Bias (อย่าตั้งรอ)"))
             plC.push(ok ? colSell : colTxt)
         if ns1.size() > 0 and allowB
-            bool ok = not useBias or bias == 1 or f_rev(1)
+            bool ok = not useBias or bias == 1 or f_rev(1, ns1.get(0).tag)
             plS.push((ok ? "⏳ " : "✗ ") + "TS BUY · รอไส้กวาด " + ns1.get(0).tag + " " + f_px(ns1.get(0).p) + " แล้วปิดกลับเหนือ → CISD → อินดี้ตั้ง Limit" + (ok ? "" : " · สวน Bias (อย่าตั้งรอ)"))
             plC.push(ok ? colBuy : colTxt)
     // วาดป้าย: เรียงราคา แล้วรวมป้ายที่ใกล้กัน (< 0.35 ATR)
