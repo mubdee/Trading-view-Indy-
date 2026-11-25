@@ -1,5 +1,5 @@
 // ════════════════════════════════════════════════════════════════
-// KEY ALCHEMIST PRO v9.3 DEV (ไฟล์สำรองสำหรับแก้ · ทดลองก่อนย้ายเข้า MAIN) · HTF Liquidity Sweep (Turtle Soup) → CISD / MSS → OTE × Key Level × MSNR (Pine Script v6)
+// KEY ALCHEMIST PRO v9.4 DEV (ไฟล์สำรองสำหรับแก้ · ทดลองก่อนย้ายเข้า MAIN) · HTF Liquidity Sweep (Turtle Soup) → CISD / MSS → OTE × Key Level × MSNR (Pine Script v6)
 // อ้างอิง: Key Alchemist (amirxau77) · MSNR (SL 10 PIPS) · เลเวลจาก MSNR × SMC ตัวเดิม
 // v2 (2026-11-24):
 //   · Bias TF ใหญ่ (M5: H1 = TS · H4 = Bias) → เทรดเฉพาะทิศ Bias (ลดไม้สวนเทรนด์ที่โดน SL)
@@ -40,6 +40,9 @@
 //   · หา Setup เฉพาะในช่วง · จบช่วง → หยุดหาไม้ ยกเลิก Limit ที่ยังไม่โดน (เลือกได้) ไม้ที่เข้าแล้วปล่อยจนปิด
 //   · แรเงาช่วงบนกราฟ · Dashboard บอกช่วง + จำนวนแท่ง · MSNR อุ่นเครื่อง 300 แท่งก่อนเริ่มช่วง
 //   · MTF: TF ที่ไม่มีข้อมูลย้อนไปถึง (เช่น M1 ของวันเก่า) ไม่นับ → ช่วงเก่าไม่โดนตัดทิ้งเพราะข้อมูลขาด
+// v9.4 DEV (2026-11-25):
+//   · Bias ใช้โครงสร้างเดียวกับตาราง MTF (H4 + H1) เป็นค่าเริ่มต้น → ไม่ขัดกันอีก (เดิม Bias H4▲ แต่ตาราง H4▼)
+//   · Dashboard แถว "ข้ามเพราะ": นับว่า Setup ถูกข้าม/หมดเวลาเพราะอะไร (3 อันดับแรก) · เหตุผลทั้งหมดใน tooltip
 // ไม่ repaint: ข้อมูล HTF ใช้เฉพาะแท่งที่ปิดแล้ว · สัญญาณ TF ชาร์ตยืนยันตอนแท่งปิด
 // ════════════════════════════════════════════════════════════════
 //@version=6
@@ -74,7 +77,8 @@ bool   useCE  = input.bool(true, "KEY: CE 0.5 ของไส้ swing TF ให
 bool   use3c  = input.bool(true, "KEY: โมเดล 3 แท่ง HTF (แท่ง 2 กวาดแท่ง 1 แล้วปิดกลับ)", group=G0)
 string dirMode = input.string("Buy + Sell", "ทิศที่เทรด", options=["Buy + Sell", "Buy อย่างเดียว", "Sell อย่างเดียว"], group=G0)
 bool   useBias = input.bool(true, "เทรดเฉพาะทิศ Bias", group=G0, tooltip="Bias = ทิศ BOS ล่าสุด (ปิดเนื้อเทียนทะลุ swing)")
-string biasMode = input.string("H4 + H1 ตรงกัน", "Bias จาก", options=["H4 + H1 ตรงกัน", "TF Bias (H4)", "TF ของ TS (H1)"], group=G0, tooltip="H4 + H1 ตรงกัน = ทั้ง 2 TF ต้อง BOS ทิศเดียวกัน ถ้าไม่ตรง = – (ไม่เทรด) · M5 ใช้ H4/H1 · TF อื่นตาม TF Pairing")
+string B_M = "โครงสร้าง MTF: H4 + H1 ตรงกัน (ตรงกับตาราง)"
+string biasMode = input.string(B_M, "Bias จาก", options=[B_M, "H4 + H1 ตรงกัน", "TF Bias (H4)", "TF ของ TS (H1)"], group=G0, tooltip="โครงสร้าง MTF = ใช้ Trend H4 + H1 ตัวเดียวกับตาราง MTF (แนะนำ · ไม่ขัดกับตาราง)\nH4 + H1 ตรงกัน = BOS ของ TF ใหญ่ (HTF Swing length) ทั้ง 2 TF ต้องทิศเดียวกัน ถ้าไม่ตรง = – (ไม่เทรด) · M5 ใช้ H4/H1 · TF อื่นตาม TF Pairing")
 int    rngLen = input.int(40, "HTF Dealing range (แท่ง HTF)", minval=10, group=G0, display=display.none, tooltip="ใช้หา Premium/Discount และ ERL สำรอง")
 
 string GM = "โครงสร้าง MTF (H4 → M1)"
@@ -266,9 +270,8 @@ f_bias(int L) =>
 [p1H, p1L, p1T, c1H, c1L, h3D, h3K, h3C, h3T] = request.security(syminfo.tickerid, htf, f_piv(hLen), lookahead=barmerge.lookahead_on, calc_bars_count=htfN)
 [p2H, p2L, p2T, c2H, c2L, x3D, x3K, x3C, x3T] = request.security(syminfo.tickerid, btf, f_piv(hLen), lookahead=barmerge.lookahead_on, calc_bars_count=htfN)
 [cMid, fbT, fbB, fuT, fuB]   = request.security(syminfo.tickerid, htf, f_ctx(rngLen), lookahead=barmerge.lookahead_on, calc_bars_count=htfN)
-int  bias4 = request.security(syminfo.tickerid, btf, f_bias(hLen), lookahead=barmerge.lookahead_on, calc_bars_count=htfN)
-int  bias1 = request.security(syminfo.tickerid, htf, f_bias(hLen), lookahead=barmerge.lookahead_on, calc_bars_count=htfN)
-int  bias  = biasMode == "TF Bias (H4)" ? bias4 : biasMode == "TF ของ TS (H1)" ? bias1 : bias4 == bias1 ? bias4 : 0
+int  bias4r = request.security(syminfo.tickerid, btf, f_bias(hLen), lookahead=barmerge.lookahead_on, calc_bars_count=htfN)
+int  bias1r = request.security(syminfo.tickerid, htf, f_bias(hLen), lookahead=barmerge.lookahead_on, calc_bars_count=htfN)
 [dH, dLo, dT] = request.security(syminfo.tickerid, "D", [high[1], low[1], time[1]], lookahead=barmerge.lookahead_on, calc_bars_count=60)
 [wH, wL, wT] = request.security(syminfo.tickerid, "W", [high[1], low[1], time[1]], lookahead=barmerge.lookahead_on, calc_bars_count=20)
 // ───────── โครงสร้าง MTF: Trend + BOS/CHoCH ล่าสุด (ปิดเนื้อเทียนทะลุ swing) ─────────
@@ -311,6 +314,14 @@ f_struct(int L, int off) =>
 [mT2, mE2, mP2, mA2, mB2] = request.security(syminfo.tickerid, "15", f_struct(mLen, 0), lookahead=barmerge.lookahead_off, calc_bars_count=500)
 [mT3, mE3, mP3, mA3, mB3] = request.security(syminfo.tickerid, "5", f_struct(mLen, 0), lookahead=barmerge.lookahead_off, calc_bars_count=800)
 [mT4, mE4, mP4, mA4, mB4] = request.security(syminfo.tickerid, "1", f_struct(mLen, 0), lookahead=barmerge.lookahead_off, calc_bars_count=800)
+
+// ───────── Bias: โครงสร้าง MTF (H4 + H1 ตัวเดียวกับตาราง) หรือ BOS ของ TF ใหญ่ ─────────
+bool useMB = biasMode == B_M
+int  bias4 = useMB ? nz(mT0) : nz(bias4r)
+int  bias1 = useMB ? nz(mT1) : nz(bias1r)
+int  bias  = biasMode == "TF Bias (H4)" ? bias4 : biasMode == "TF ของ TS (H1)" ? bias1 : bias4 == bias1 ? bias4 : 0
+string b4T = useMB ? "H4" : btfT
+string b1T = useMB ? "H1" : htfT
 
 // จำนวน TF (จาก 5) ที่โครงสร้างตรงกับทิศ d
 f_al(int d) =>
@@ -787,8 +798,16 @@ f_open(int typ, int dir, float e, float sl, float t1, float t2, bool liqT, strin
     act.push(Tr.new(dir=dir, st=2, e=e, sl=sl, t1=t1, t2=t2, rr1=rr1, rr2=rr2, b0=bar_index, typ=typ, bxR=bR, bxW=bW, l1=l1, lb=lb))
     alert("KA PRO · " + syminfo.ticker + " · " + nm + " LIMIT " + f_px(e) + " · SL " + f_px(sl) + " · TP1 " + f_px(t1) + " · TP2 " + f_px(t2) + " · " + info, alert.freq_once_per_bar_close)
 
+// นับเหตุผลที่ Setup ถูกข้าม (แสดงใน Dashboard)
+var array<string> skNm = array.from("สวน Bias", "MTF", "Score ต่ำ", "นอก KZ", "ไม่มี Disp", "ไม่อยู่ P/D", "ไม้เต็ม", "วิ่งเลย OTE", "ไม่ทับ MSNR", "คุมไม้/วัน", "TS ไม่เกิด CISD", "TS โดนทะลุ")
+var array<int>    skN  = array.new<int>(12, 0)
+f_skCnt(string why) =>
+    int k = str.startswith(why, "สวน Bias") ? 0 : str.startswith(why, "โครงสร้าง MTF") ? 1 : str.startswith(why, "Score") ? 2 : str.startswith(why, "นอก Killzone") ? 3 : str.startswith(why, "ไม่มี Displacement") ? 4 : str.startswith(why, "ไม่อยู่ Premium") ? 5 : str.startswith(why, "ไม้เต็ม") ? 6 : str.startswith(why, "ราคาวิ่งเลย") ? 7 : str.startswith(why, "ไม่มีเลเวล MSNR") ? 8 : str.startswith(why, "TS ไม่เกิด") ? 10 : str.startswith(why, "TS โดนทะลุ") ? 11 : 9
+    skN.set(k, skN.get(k) + 1)
+
 // ป้าย ✕ ของ Setup ที่ไม่ผ่าน filter (เหตุผลใน tooltip)
 f_skip(bool s, string nm, string why) =>
+    f_skCnt(why)
     if showSkip
         f_keepB(label.new(bar_index, s ? high : low, "✕", style=s ? label.style_label_down : label.style_label_up, color=cNone, textcolor=color.new(colTxt, 30), size=size.tiny, tooltip=nm + " ข้าม · " + why))
 
@@ -905,6 +924,8 @@ if armed and barstate.isconfirmed
     bool inval = isS ? close > aExt : close < aExt
     if inval or bar_index - aArm > armHtf * nHtf or not canRun
         armed := false
+        if canRun
+            f_skCnt(inval ? "TS โดนทะลุ" : "TS ไม่เกิด")
         label.set_text(aTsLb, label.get_text(aTsLb) + (inval ? " ✕" : " ·"))
         label.set_textcolor(aTsLb, color.new(colTxt, 40))
     else
@@ -1529,7 +1550,7 @@ if useMtf and barstate.islast
 
 // ═════ Dashboard ═════
 string dPos = dashPos == "บนขวา" ? position.top_right : dashPos == "ล่างซ้าย" ? position.bottom_left : dashPos == "บนซ้าย" ? position.top_left : position.bottom_right
-var table dash = table.new(dPos, 2, 13, bgcolor=color.new(chart.bg_color, 0), frame_color=color.new(chart.fg_color, 85), frame_width=1, border_width=0)
+var table dash = table.new(dPos, 2, 14, bgcolor=color.new(chart.bg_color, 0), frame_color=color.new(chart.fg_color, 85), frame_width=1, border_width=0)
 f_row(int r, string a, string b, color cb) =>
     table.cell(dash, 0, r, a, text_color=colTxt, text_size=size.tiny, text_halign=text.align_left)
     table.cell(dash, 1, r, b, text_color=cb, text_size=size.tiny, text_halign=text.align_right)
@@ -1557,7 +1578,7 @@ if showDash and barstate.islast
     string nxC = useCT and bias != 0 and swLP.size() > 0 and swHP.size() > 0 ? (bias == -1 ? "▼ ปิดใต้ " + f_px(swLP.last()) : "▲ ปิดเหนือ " + f_px(swHP.last())) : "รอ Bias ชัด"
     string st = not tfOk ? "TF TS ต้องใหญ่กว่า TF ชาร์ต" : armed ? "กวาด " + aTag + (isS ? " ▼" : " ▲") + " · รอ " + (confMode == "CISD + MSS (ครบทั้งคู่)" ? "CISD+MSS" : confMode == "MSS (ชัวร์)" ? "MSS" : "CISD") : nP + nF > 0 ? "Limit " + str.tostring(nP) + " · ในไม้ " + str.tostring(nF) : "รอไม้ต่อไป"
     string ty = "TS " + str.tostring(tR.get(0), "+#.#;-#.#") + "(" + str.tostring(tN.get(0)) + ") · KR " + str.tostring(tR.get(1), "+#.#;-#.#") + "(" + str.tostring(tN.get(1)) + ") · RE " + str.tostring(tR.get(2), "+#.#;-#.#") + "(" + str.tostring(tN.get(2)) + ") · CT " + str.tostring(tR.get(3), "+#.#;-#.#") + "(" + str.tostring(tN.get(3)) + ")"
-    f_row(0, "KA PRO", "Bias " + btfT + (bias4 == 1 ? "▲" : bias4 == -1 ? "▼" : "–") + " " + htfT + (bias1 == 1 ? "▲" : bias1 == -1 ? "▼" : "–") + " → " + bTx, bC)
+    f_row(0, "KA PRO", "Bias " + b4T + (bias4 == 1 ? "▲" : bias4 == -1 ? "▼" : "–") + " " + b1T + (bias1 == 1 ? "▲" : bias1 == -1 ? "▼" : "–") + " → " + bTx, bC)
     f_row(1, "สถานะ", st, armed ? (isS ? colSell : colBuy) : chart.fg_color)
     f_row(2, "Next ▼ SELL", nxS + (useBias and bias != -1 ? " ✗Bias" : ""), useBias and bias != -1 ? colTxt : colSell)
     f_row(3, "Next ▲ BUY", nxB + (useBias and bias != 1 ? " ✗Bias" : ""), useBias and bias != 1 ? colTxt : colBuy)
@@ -1570,6 +1591,25 @@ if showDash and barstate.islast
     f_row(10, "แยกประเภท", ty, colTxt)
     string gw = f_gate(bias != 0 ? bias : 1, na)
     string rTx = rngN == 0 ? "ไม่มีแท่งในช่วงนี้ (เกิน 2500 แท่งที่โหลด?)" : str.format_time(rngT0, "dd/MM HH:mm") + " → " + (pastEnd ? str.format_time(rngT1, "dd/MM HH:mm") : "ล่าสุด") + " · " + str.tostring(rngN) + " แท่ง" + (rngMode == R_T and rA < firstT ? " · เริ่มจริงที่แท่งแรกที่โหลด" : "") + (pastEnd ? " · จบช่วง" : "")
+    // ข้ามเพราะ: 3 อันดับแรก · ทั้งหมดใน tooltip
+    array<int> cc0 = skN.copy()
+    string skTop = ""
+    for q = 1 to 3
+        int bi = -1
+        int bv = 0
+        for k = 0 to cc0.size() - 1
+            if cc0.get(k) > bv
+                bv := cc0.get(k)
+                bi := k
+        if bi >= 0
+            skTop := skTop + (skTop == "" ? "" : " · ") + skNm.get(bi) + " " + str.tostring(bv)
+            cc0.set(bi, 0)
+    string skAll = ""
+    for k = 0 to skN.size() - 1
+        if skN.get(k) > 0
+            skAll := skAll + skNm.get(k) + " " + str.tostring(skN.get(k)) + "\n"
+    table.cell(dash, 0, 13, "ข้ามเพราะ", text_color=colTxt, text_size=size.tiny, text_halign=text.align_left)
+    table.cell(dash, 1, 13, skTop == "" ? "-" : skTop, text_color=skTop == "" ? colTxt : colKey, text_size=size.tiny, text_halign=text.align_right, tooltip=skAll == "" ? "ยังไม่มี Setup ถูกข้าม" : "Setup ที่ถูกข้ามในช่วงวิเคราะห์:\n" + skAll)
     f_row(12, "ช่วงวิเคราะห์", rTx, rngN == 0 ? colSell : pastEnd ? colKey : chart.fg_color)
     f_row(11, "วันนี้ (NY)", str.tostring(dS.get(0), "#") + " ไม้ · " + str.tostring(dS.get(1), "+#.#;-#.#") + "R" + (inKz ? " · ในKZ" : "") + (gw == "" ? " · พร้อม" : " · " + gw), gw == "" ? chart.fg_color : colTxt)
 
@@ -1583,7 +1623,7 @@ if showPlan and barstate.islast
         if str.startswith(s0, "✅")
             any := true
     string gw0 = f_gate(bias != 0 ? bias : 1, na)
-    string hd  = pastEnd ? "แผนตั้งไม้ · จบช่วงวิเคราะห์แล้ว (" + str.format_time(rngT1, "dd/MM HH:mm") + ") · ไม่หาไม้ใหม่ · ผลอยู่ใน Dashboard" : any ? "แผนตั้งไม้ · มีไม้ให้ตั้งตอนนี้ ✅" : bias == 0 and useBias ? "แผนตั้งไม้ · ยังไม่ตั้ง: Bias " + btfT + "/" + htfT + " ไม่ตรงกัน → รอ" : gw0 != "" ? "แผนตั้งไม้ · ยังไม่ตั้ง: " + gw0 : "แผนตั้งไม้ · ยังไม่มีไม้ให้ตั้ง → รอเงื่อนไขด้านล่าง"
+    string hd  = pastEnd ? "แผนตั้งไม้ · จบช่วงวิเคราะห์แล้ว (" + str.format_time(rngT1, "dd/MM HH:mm") + ") · ไม่หาไม้ใหม่ · ผลอยู่ใน Dashboard" : any ? "แผนตั้งไม้ · มีไม้ให้ตั้งตอนนี้ ✅" : bias == 0 and useBias ? "แผนตั้งไม้ · ยังไม่ตั้ง: Bias " + b4T + "/" + b1T + " ไม่ตรงกัน → รอ" : gw0 != "" ? "แผนตั้งไม้ · ยังไม่ตั้ง: " + gw0 : "แผนตั้งไม้ · ยังไม่มีไม้ให้ตั้ง → รอเงื่อนไขด้านล่าง"
     table.cell(ptab, 0, 0, hd, text_color=any ? colKey : chart.fg_color, text_size=size.small, text_halign=text.align_left)
     int nRow = math.min(plS.size(), 7)
     if nRow > 0
