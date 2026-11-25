@@ -1,5 +1,5 @@
 // ════════════════════════════════════════════════════════════════
-// KEY ALCHEMIST PRO v9.5 DEV (ไฟล์สำรองสำหรับแก้ · ทดลองก่อนย้ายเข้า MAIN) · HTF Liquidity Sweep (Turtle Soup) → CISD / MSS → OTE × Key Level × MSNR (Pine Script v6)
+// KEY ALCHEMIST PRO v9.6 DEV (ไฟล์สำรองสำหรับแก้ · ทดลองก่อนย้ายเข้า MAIN) · HTF Liquidity Sweep (Turtle Soup) → CISD / MSS → OTE × Key Level × MSNR (Pine Script v6)
 // อ้างอิง: Key Alchemist (amirxau77) · MSNR (SL 10 PIPS) · เลเวลจาก MSNR × SMC ตัวเดิม
 // v2 (2026-11-24):
 //   · Bias TF ใหญ่ (M5: H1 = TS · H4 = Bias) → เทรดเฉพาะทิศ Bias (ลดไม้สวนเทรนด์ที่โดน SL)
@@ -46,6 +46,10 @@
 // v9.5 DEV (2026-11-25):
 //   · ไม้เงา: Setup ที่ถูกข้ามจำลองเข้าไม้จริง (Entry/SL/TP เดิม) → Dashboard บอกว่าแต่ละ filter ตัดไม้ที่ได้/เสียกี่ R · กล่องจางบนกราฟ (เปิด/ปิดได้)
 //   · Reversal: TS / KR / RE สวน Bias ได้ ถ้า M15 + M5 กลับทิศ (CHoCH) ไปทางเดียวกับไม้แล้ว (ค่าเริ่มต้นปิด · ดูผลไม้เงา "สวน Bias" ก่อนเปิด)
+// v9.6 DEV (2026-11-25): แม่นขึ้น (อ้างอิง ICT Turtle Soup / CISD / SMT)
+//   · SMT ทอง × เงิน (XAGUSD): ทองกวาด High แต่เงินไม่ทำ High ใหม่ (หรือกลับกันที่ Low) = +1 คะแนน TS (บังคับได้)
+//   · แท่งกวาดต้องปฏิเสธชัด: ราคาปิดกลับ ≥ X% ของความยาวแท่ง (กวาดอ่อน = ไม่นับ TS)
+//   · Entry: เพิ่ม FVG ของขา displacement (CE ของ FVG แรกหลังจุด TS) เป็นเลเวลซ้อนใน OTE
 // ไม่ repaint: ข้อมูล HTF ใช้เฉพาะแท่งที่ปิดแล้ว · สัญญาณ TF ชาร์ตยืนยันตอนแท่งปิด
 // ════════════════════════════════════════════════════════════════
 //@version=6
@@ -92,6 +96,16 @@ int    mtfMin  = input.int(3, "ไม้ต้องตรงทิศโคร�
 bool   showMtfL = input.bool(true, "เส้น BOS / CHoCH ล่าสุดของแต่ละ TF", group=GM)
 bool   showMtfT = input.bool(true, "ตารางโครงสร้าง MTF", group=GM)
 string mtfPos  = input.string("บนขวา", "ตำแหน่งตาราง MTF", options=["บนขวา", "ล่างขวา", "บนซ้าย", "ล่างซ้าย"], group=GM, display=display.none)
+
+string GT = "ความแม่น: SMT · แท่งกวาด"
+string SMT_OFF = "ปิด"
+string SMT_SC  = "ให้คะแนน (+1)"
+string SMT_REQ = "บังคับ (ต้องมี SMT)"
+string smtMode = input.string(SMT_SC, "SMT Divergence", options=[SMT_OFF, SMT_SC, SMT_REQ], group=GT, tooltip="ทองกวาด High แต่คู่เทียบไม่ทำ High ใหม่ (Sell) · ทองกวาด Low แต่คู่เทียบไม่ทำ Low ใหม่ (Buy) = Smart money ไม่ยืนยันการเบรก → TS แข็งขึ้น\nใช้กับคู่ที่วิ่งไปทางเดียวกัน (ทอง–เงิน)")
+string smtSym  = input.symbol("OANDA:XAGUSD", "คู่เทียบ SMT", group=GT)
+bool   reqRej  = input.bool(true, "แท่งกวาดต้องปฏิเสธชัด", group=GT, tooltip="แท่งที่ปิดกลับต้องปิดห่างจากไส้ ≥ X% ของความยาวแท่ง · กวาดแล้วปิดชิดไส้ = แรงยังไม่หมด มักทะลุต่อ")
+float  rejMin  = input.float(0.35, "ปิดกลับอย่างน้อย (% ของแท่ง)", minval=0.1, maxval=0.9, step=0.05, group=GT, display=display.none)
+bool   useFvgE = input.bool(true, "Entry: FVG ของขา displacement เป็นเลเวลซ้อน", group=GT)
 
 string G1 = "ยืนยันบน TF ชาร์ต"
 string confMode = input.string("CISD (เร็ว)", "ยืนยันด้วย", options=["CISD (เร็ว)", "MSS (ชัวร์)", "CISD หรือ MSS (อันไหนก่อน)", "CISD + MSS (ครบทั้งคู่)"], group=G1)
@@ -328,6 +342,24 @@ int  bias1 = useMB ? nz(mT1) : nz(bias1r)
 int  bias  = biasMode == "TF Bias (H4)" ? bias4 : biasMode == "TF ของ TS (H1)" ? bias1 : bias4 == bias1 ? bias4 : 0
 string b4T = useMB ? "H4" : btfT
 string b1T = useMB ? "H1" : htfT
+
+// ───────── SMT: คู่เทียบ (เงิน) TF เดียวกับชาร์ต ─────────
+[svH, svL] = request.security(smtSym, timeframe.period, [high, low], ignore_invalid_symbol=true)
+// isS: ทองกวาด High → เงิน High ช่วงกวาด (W แท่งล่าสุด) ต่ำกว่า High ก่อนหน้า (W..LB) = SMT ▼ · Buy กลับกัน
+f_smt(bool isS, int W, int LB) =>
+    bool ok = false
+    if smtMode != SMT_OFF and LB > W + 2
+        float rec = na
+        float prv = na
+        for j = 0 to LB
+            float v = isS ? svH[j] : svL[j]
+            if not na(v)
+                if j < W
+                    rec := na(rec) ? v : isS ? math.max(rec, v) : math.min(rec, v)
+                else
+                    prv := na(prv) ? v : isS ? math.max(prv, v) : math.min(prv, v)
+        ok := not na(rec) and not na(prv) and (isS ? rec < prv : rec > prv)
+    ok
 
 // Reversal: M15 + M5 กลับทิศไปทาง d แล้ว (ทั้ง 2 TF trend = d)
 f_rev(int d) =>
@@ -708,6 +740,7 @@ var bool   aIrl  = false
 var bool   aPd   = false
 var bool   aCH   = false
 var bool   aMH   = false
+var bool   aSmt  = false
 var label  aTsLb = na
 var float  pSwH  = na     // BSL ที่เพิ่งโดนกวาด (Single liQ)
 var int    pSwHB = na
@@ -810,19 +843,19 @@ f_open(int typ, int dir, float e, float sl, float t1, float t2, bool liqT, strin
     alert("KA PRO · " + syminfo.ticker + " · " + nm + " LIMIT " + f_px(e) + " · SL " + f_px(sl) + " · TP1 " + f_px(t1) + " · TP2 " + f_px(t2) + " · " + info, alert.freq_once_per_bar_close)
 
 // นับเหตุผลที่ Setup ถูกข้าม (แสดงใน Dashboard)
-var array<string> skNm = array.from("สวน Bias", "MTF", "Score ต่ำ", "นอก KZ", "ไม่มี Disp", "ไม่อยู่ P/D", "ไม้เต็ม", "วิ่งเลย OTE", "ไม่ทับ MSNR", "คุมไม้/วัน", "TS ไม่เกิด CISD", "TS โดนทะลุ")
-var array<int>    skN  = array.new<int>(12, 0)
+var array<string> skNm = array.from("สวน Bias", "MTF", "Score ต่ำ", "นอก KZ", "ไม่มี Disp", "ไม่อยู่ P/D", "ไม้เต็ม", "วิ่งเลย OTE", "ไม่ทับ MSNR", "คุมไม้/วัน", "TS ไม่เกิด CISD", "TS โดนทะลุ", "กวาดอ่อน", "ไม่มี SMT")
+var array<int>    skN  = array.new<int>(14, 0)
 f_skK(string why) =>
-    str.startswith(why, "สวน Bias") ? 0 : str.startswith(why, "โครงสร้าง MTF") ? 1 : str.startswith(why, "Score") ? 2 : str.startswith(why, "นอก Killzone") ? 3 : str.startswith(why, "ไม่มี Displacement") ? 4 : str.startswith(why, "ไม่อยู่ Premium") ? 5 : str.startswith(why, "ไม้เต็ม") ? 6 : str.startswith(why, "ราคาวิ่งเลย") ? 7 : str.startswith(why, "ไม่มีเลเวล MSNR") ? 8 : str.startswith(why, "TS ไม่เกิด") ? 10 : str.startswith(why, "TS โดนทะลุ") ? 11 : 9
+    str.startswith(why, "สวน Bias") ? 0 : str.startswith(why, "โครงสร้าง MTF") ? 1 : str.startswith(why, "Score") ? 2 : str.startswith(why, "นอก Killzone") ? 3 : str.startswith(why, "ไม่มี Displacement") ? 4 : str.startswith(why, "ไม่อยู่ Premium") ? 5 : str.startswith(why, "ไม้เต็ม") ? 6 : str.startswith(why, "ราคาวิ่งเลย") ? 7 : str.startswith(why, "ไม่มีเลเวล MSNR") ? 8 : str.startswith(why, "TS ไม่เกิด") ? 10 : str.startswith(why, "TS โดนทะลุ") ? 11 : str.startswith(why, "กวาดอ่อน") ? 12 : str.startswith(why, "ไม่มี SMT") ? 13 : 9
 f_skCnt(string why) =>
     int k = f_skK(why)
     skN.set(k, skN.get(k) + 1)
 
 // ───────── ไม้เงา: จำลอง Setup ที่ถูกข้าม ─────────
 var array<Tr>    shd  = array.new<Tr>()
-var array<float> shR  = array.new<float>(12, 0.0)
-var array<int>   shN  = array.new<int>(12, 0)
-var array<int>   shWn = array.new<int>(12, 0)
+var array<float> shR  = array.new<float>(14, 0.0)
+var array<int>   shN  = array.new<int>(14, 0)
+var array<int>   shWn = array.new<int>(14, 0)
 var array<box>   gSX  = array.new<box>()
 var array<label> gSB  = array.new<label>()
 
@@ -929,6 +962,10 @@ if barstate.isconfirmed
     if sD == 0 and use3c and newH1 and h3D != 0 and canRun and tfOk and (h3D == -1 ? allowS : allowB)
         sD := h3D
         sK := KL.new(h3K, h3T, "3C " + htfT, h3C, bar_index - nHtf)
+    // แท่งกวาดต้องปฏิเสธชัด: ปิดห่างจากไส้ ≥ rejMin ของความยาวแท่ง
+    if sD != 0 and reqRej and high > low and (sD == -1 ? high - close : close - low) / (high - low) < rejMin
+        f_skCnt("กวาดอ่อน")
+        sD := 0
     if sD != 0
         bool sS = sD == -1
         // Single liQ: กวาดเลเวลที่ต่ำกว่า (Sell) / สูงกว่า (Buy) มาก่อนหรือพร้อมกัน แล้วค่อยแตะ KEY/CE
@@ -955,7 +992,12 @@ if barstate.isconfirmed
         aIrl  := isS ? not na(fbB) and aExt >= fbB : not na(fuT) and aExt <= fuT
         aPd   := isS ? aKey >= pdMid : aKey <= pdMid
         aMss  := isS ? f_swBefore(swLP, swLB, aExtB) : f_swBefore(swHP, swHB, aExtB)
-        aTsLb := label.new(aExtB, aExt, "TS", style=isS ? label.style_label_down : label.style_label_up, color=cNone, textcolor=colKey, size=txtSz, tooltip="Turtle Soup · กวาด " + aTag + " · KEY " + f_px(aKey) + " · Bias " + (aBias == 1 ? "▲" : aBias == -1 ? "▼" : "–"))
+        int smW = math.max(1, math.min(bar_index - nz(sK.hitB, bar_index) + 3, 60))
+        int smL = math.min(150, int((time - nz(sK.t, time)) / (chSec * 1000)))
+        aSmt  := f_smt(isS, smW, smL)
+        if aSmt
+            aTag := aTag + " +SMT"
+        aTsLb := label.new(aExtB, aExt, aSmt ? "TS·SMT" : "TS", style=isS ? label.style_label_down : label.style_label_up, color=cNone, textcolor=colKey, size=txtSz, tooltip="Turtle Soup · กวาด " + aTag + " · KEY " + f_px(aKey) + " · Bias " + (aBias == 1 ? "▲" : aBias == -1 ? "▼" : "–"))
         f_keepB(aTsLb)
         alert("KA PRO · " + syminfo.ticker + " · กวาด " + aTag + (isS ? " ▼ (รอ Sell)" : " ▲ (รอ Buy)") + " · KEY " + f_px(aKey) + " · Bias " + btfT + (aBias == 1 ? " ▲" : aBias == -1 ? " ▼" : " –"), alert.freq_once_per_bar_close)
     if not na(hiSw)
@@ -999,16 +1041,18 @@ if armed and barstate.isconfirmed
             float legX   = isS ? low : high
             float bodyMx = 0.0
             bool  fvg    = false
+            float fvgCE  = na      // CE ของ FVG แรกหลังจุด TS (ใกล้จุด TS ที่สุด)
             for j = 0 to n
                 legX   := isS ? math.min(legX, low[j]) : math.max(legX, high[j])
                 bodyMx := math.max(bodyMx, math.abs(close[j] - open[j]))
                 if j <= n - 2 and (isS ? high[j] < low[j + 2] : low[j] > high[j + 2])
-                    fvg := true
+                    fvg   := true
+                    fvgCE := isS ? (high[j] + low[j + 2]) / 2 : (low[j] + high[j + 2]) / 2
             bool  dispOk = bodyMx >= dispAtr * atr or fvg
             float tlV    = isS ? tlBear : tlBull
             // Model KR: จด KEY ไว้รอราคากลับมา (หลัง BOS / Accumulation / กวาด IDM)
             if useKR or useRe
-                zones.push(KZ.new(dir=aDir, key=aKey, ce=aCE, ext=aExt, leg=legX, base=(aStr ? 1 : 0) + (aIrl ? 1 : 0) + (aPd ? 1 : 0), born=bar_index, tag=aTag))
+                zones.push(KZ.new(dir=aDir, key=aKey, ce=aCE, ext=aExt, leg=legX, base=(aStr ? 1 : 0) + (aIrl ? 1 : 0) + (aPd ? 1 : 0) + (smtMode == SMT_SC and aSmt ? 1 : 0), born=bar_index, tag=aTag))
                 if zones.size() > 4
                     zones.shift()
             // Fib ของขา: 0 = ปลายขา · 1 = จุด TS
@@ -1042,6 +1086,9 @@ if armed and barstate.isconfirmed
             if f_ok(tlV, isS, near, lim)
                 cp.push(tlV)
                 ct.push("TL")
+            if useFvgE and f_ok(fvgCE, isS, near, lim)
+                cp.push(fvgCE)
+                ct.push("FVG")
             array<Lv> ms = isS ? resL : supL
             for l in ms
                 if f_ok(l.p, isS, near, lim)
@@ -1104,8 +1151,10 @@ if armed and barstate.isconfirmed
                 sc += nTag >= 2 ? 1 : 0
                 sc += inKz ? 1 : 0
                 sc += aBias == aDir ? 1 : 0
+                sc += smtMode == SMT_SC and aSmt ? 1 : 0
+                string den = smtMode == SMT_SC ? "/9" : "/8"
                 string gr = f_grade(sc)
-                why := useBias and aBias != aDir and not f_rev(aDir) ? "สวน Bias" : f_mtfWhy(aDir) != "" ? f_mtfWhy(aDir) : reqDisp and not dispOk ? "ไม่มี Displacement" : reqPD and not aPd ? "ไม่อยู่ Premium/Discount" : reqKz and not inKz ? "นอก Killzone" : sc < minScore ? "Score " + str.tostring(sc) + "/8" : act.size() >= maxAct ? "ไม้เต็ม" : f_gate(aDir, e)
+                why := useBias and aBias != aDir and not f_rev(aDir) ? "สวน Bias" : f_mtfWhy(aDir) != "" ? f_mtfWhy(aDir) : reqDisp and not dispOk ? "ไม่มี Displacement" : reqPD and not aPd ? "ไม่อยู่ Premium/Discount" : reqKz and not inKz ? "นอก Killzone" : smtMode == SMT_REQ and not aSmt ? "ไม่มี SMT" : sc < minScore ? "Score " + str.tostring(sc) + den : act.size() >= maxAct ? "ไม้เต็ม" : f_gate(aDir, e)
                 if why != ""
                     f_shd(0, aDir, e, sl, t1, t2, why)
                 if why == ""
@@ -1118,9 +1167,9 @@ if armed and barstate.isconfirmed
                             f_keepL(line.new(aExtB, aCisd, bar_index, aCisd, color=colCisd, width=lw))
                         if aMH and not na(aMss)
                             f_keepL(line.new(aExtB, aMss, bar_index, aMss, color=color.new(colCisd, 30), width=lw, style=line.style_dotted))
-                    f_open(0, aDir, e, sl, t1, t2, liqT, gr, str.tostring(sc) + "/8 · " + (aBias != aDir ? "REV · " : "") + aTag + " · " + (aCH and aMH ? "CISD+MSS" : aCH ? "CISD" : "MSS") + " · " + tg)
+                    f_open(0, aDir, e, sl, t1, t2, liqT, gr, str.tostring(sc) + den + " · " + (aBias != aDir ? "REV · " : "") + aTag + " · " + (aCH and aMH ? "CISD+MSS" : aCH ? "CISD" : "MSS") + " · " + tg)
                     label.set_text(aTsLb, label.get_text(aTsLb) + " ✓")
-                    lastTxt := "TS " + side + " " + gr + " (" + str.tostring(sc) + "/8) · " + (aCH and aMH ? "CISD+MSS" : aCH ? "CISD" : "MSS")
+                    lastTxt := "TS " + side + " " + gr + " (" + str.tostring(sc) + den + ") · " + (aCH and aMH ? "CISD+MSS" : aCH ? "CISD" : "MSS")
                     lastE   := f_px(e) + " · " + tg
                     lastSl  := f_px(sl) + " / " + f_px(t2)
                     lastC   := isS ? colSell : colBuy
