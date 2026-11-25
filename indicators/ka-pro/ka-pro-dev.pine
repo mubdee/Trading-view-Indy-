@@ -1,5 +1,5 @@
 // ════════════════════════════════════════════════════════════════
-// KEY ALCHEMIST PRO v9.4 DEV (ไฟล์สำรองสำหรับแก้ · ทดลองก่อนย้ายเข้า MAIN) · HTF Liquidity Sweep (Turtle Soup) → CISD / MSS → OTE × Key Level × MSNR (Pine Script v6)
+// KEY ALCHEMIST PRO v9.5 DEV (ไฟล์สำรองสำหรับแก้ · ทดลองก่อนย้ายเข้า MAIN) · HTF Liquidity Sweep (Turtle Soup) → CISD / MSS → OTE × Key Level × MSNR (Pine Script v6)
 // อ้างอิง: Key Alchemist (amirxau77) · MSNR (SL 10 PIPS) · เลเวลจาก MSNR × SMC ตัวเดิม
 // v2 (2026-11-24):
 //   · Bias TF ใหญ่ (M5: H1 = TS · H4 = Bias) → เทรดเฉพาะทิศ Bias (ลดไม้สวนเทรนด์ที่โดน SL)
@@ -43,6 +43,9 @@
 // v9.4 DEV (2026-11-25):
 //   · Bias ใช้โครงสร้างเดียวกับตาราง MTF (H4 + H1) เป็นค่าเริ่มต้น → ไม่ขัดกันอีก (เดิม Bias H4▲ แต่ตาราง H4▼)
 //   · Dashboard แถว "ข้ามเพราะ": นับว่า Setup ถูกข้าม/หมดเวลาเพราะอะไร (3 อันดับแรก) · เหตุผลทั้งหมดใน tooltip
+// v9.5 DEV (2026-11-25):
+//   · ไม้เงา: Setup ที่ถูกข้ามจำลองเข้าไม้จริง (Entry/SL/TP เดิม) → Dashboard บอกว่าแต่ละ filter ตัดไม้ที่ได้/เสียกี่ R · กล่องจางบนกราฟ (เปิด/ปิดได้)
+//   · Reversal: TS / KR / RE สวน Bias ได้ ถ้า M15 + M5 กลับทิศ (CHoCH) ไปทางเดียวกับไม้แล้ว (ค่าเริ่มต้นปิด · ดูผลไม้เงา "สวน Bias" ก่อนเปิด)
 // ไม่ repaint: ข้อมูล HTF ใช้เฉพาะแท่งที่ปิดแล้ว · สัญญาณ TF ชาร์ตยืนยันตอนแท่งปิด
 // ════════════════════════════════════════════════════════════════
 //@version=6
@@ -79,6 +82,7 @@ string dirMode = input.string("Buy + Sell", "ทิศที่เทรด", op
 bool   useBias = input.bool(true, "เทรดเฉพาะทิศ Bias", group=G0, tooltip="Bias = ทิศ BOS ล่าสุด (ปิดเนื้อเทียนทะลุ swing)")
 string B_M = "โครงสร้าง MTF: H4 + H1 ตรงกัน (ตรงกับตาราง)"
 string biasMode = input.string(B_M, "Bias จาก", options=[B_M, "H4 + H1 ตรงกัน", "TF Bias (H4)", "TF ของ TS (H1)"], group=G0, tooltip="โครงสร้าง MTF = ใช้ Trend H4 + H1 ตัวเดียวกับตาราง MTF (แนะนำ · ไม่ขัดกับตาราง)\nH4 + H1 ตรงกัน = BOS ของ TF ใหญ่ (HTF Swing length) ทั้ง 2 TF ต้องทิศเดียวกัน ถ้าไม่ตรง = – (ไม่เทรด) · M5 ใช้ H4/H1 · TF อื่นตาม TF Pairing")
+bool   revOk  = input.bool(false, "Reversal: TS / KR / RE สวน Bias ได้ ถ้า M15 + M5 กลับทิศแล้ว", group=G0, tooltip="Bias H4/H1 ยังสวน แต่ M15 และ M5 ทำ CHoCH กลับมาทางเดียวกับไม้แล้ว → ยอมให้เข้า (ป้าย REV)\nดูแถว 'ไม้เงา' ใน Dashboard: ถ้า 'สวน Bias' เป็น + R ค่อยเปิด")
 int    rngLen = input.int(40, "HTF Dealing range (แท่ง HTF)", minval=10, group=G0, display=display.none, tooltip="ใช้หา Premium/Discount และ ERL สำรอง")
 
 string GM = "โครงสร้าง MTF (H4 → M1)"
@@ -151,6 +155,8 @@ bool   showKey = input.bool(true, "เส้น KEY ของ TF ใหญ่ใ
 int    nKey    = input.int(2, "จำนวนเส้น KEY (ฝั่งละ)", minval=1, maxval=6, group=G4, display=display.none)
 bool   showTL  = input.bool(true, "แสดง Trendline", group=G4)
 bool   showSkip = input.bool(false, "แสดง Setup ที่ไม่ผ่าน filter (✕ + เหตุผลใน tooltip)", group=G4)
+bool   useShd   = input.bool(true, "ไม้เงา: จำลองไม้ที่ถูกข้าม (นับผลใน Dashboard)", group=G4, tooltip="Setup ที่ถูก filter ตัด → จำลองว่าถ้าตั้ง Limit จริงจะได้กี่ R · ไม่นับรวมสถิติจริง")
+bool   showShd  = input.bool(true, "ไม้เงา: วาดกล่องจางบนกราฟ", group=G4, display=display.none)
 bool   showNext = input.bool(true, "ไม้ต่อไป (แผนรอกวาด BSL / SSL)", group=G4)
 bool   showStr = input.bool(true, "เส้น KEY / CE / CISD / MSS ของแต่ละ Setup", group=G4)
 bool   showMs  = input.bool(true, "เลเวล MSNR ใกล้ราคา", group=G4)
@@ -322,6 +328,10 @@ int  bias1 = useMB ? nz(mT1) : nz(bias1r)
 int  bias  = biasMode == "TF Bias (H4)" ? bias4 : biasMode == "TF ของ TS (H1)" ? bias1 : bias4 == bias1 ? bias4 : 0
 string b4T = useMB ? "H4" : btfT
 string b1T = useMB ? "H1" : htfT
+
+// Reversal: M15 + M5 กลับทิศไปทาง d แล้ว (ทั้ง 2 TF trend = d)
+f_rev(int d) =>
+    revOk and mT2 == d and mT3 == d
 
 // จำนวน TF (จาก 5) ที่โครงสร้างตรงกับทิศ d
 f_al(int d) =>
@@ -651,6 +661,7 @@ type Tr
     int    typ         // 0 = TS · 1 = KR · 2 = RE · 3 = CT
     int    bF    = na
     bool   t1Hit = false
+    int    sk    = -1         // ไม้เงา: หมวดเหตุผลที่ถูกข้าม
     box    bxR
     box    bxW
     line   l1
@@ -801,9 +812,44 @@ f_open(int typ, int dir, float e, float sl, float t1, float t2, bool liqT, strin
 // นับเหตุผลที่ Setup ถูกข้าม (แสดงใน Dashboard)
 var array<string> skNm = array.from("สวน Bias", "MTF", "Score ต่ำ", "นอก KZ", "ไม่มี Disp", "ไม่อยู่ P/D", "ไม้เต็ม", "วิ่งเลย OTE", "ไม่ทับ MSNR", "คุมไม้/วัน", "TS ไม่เกิด CISD", "TS โดนทะลุ")
 var array<int>    skN  = array.new<int>(12, 0)
+f_skK(string why) =>
+    str.startswith(why, "สวน Bias") ? 0 : str.startswith(why, "โครงสร้าง MTF") ? 1 : str.startswith(why, "Score") ? 2 : str.startswith(why, "นอก Killzone") ? 3 : str.startswith(why, "ไม่มี Displacement") ? 4 : str.startswith(why, "ไม่อยู่ Premium") ? 5 : str.startswith(why, "ไม้เต็ม") ? 6 : str.startswith(why, "ราคาวิ่งเลย") ? 7 : str.startswith(why, "ไม่มีเลเวล MSNR") ? 8 : str.startswith(why, "TS ไม่เกิด") ? 10 : str.startswith(why, "TS โดนทะลุ") ? 11 : 9
 f_skCnt(string why) =>
-    int k = str.startswith(why, "สวน Bias") ? 0 : str.startswith(why, "โครงสร้าง MTF") ? 1 : str.startswith(why, "Score") ? 2 : str.startswith(why, "นอก Killzone") ? 3 : str.startswith(why, "ไม่มี Displacement") ? 4 : str.startswith(why, "ไม่อยู่ Premium") ? 5 : str.startswith(why, "ไม้เต็ม") ? 6 : str.startswith(why, "ราคาวิ่งเลย") ? 7 : str.startswith(why, "ไม่มีเลเวล MSNR") ? 8 : str.startswith(why, "TS ไม่เกิด") ? 10 : str.startswith(why, "TS โดนทะลุ") ? 11 : 9
+    int k = f_skK(why)
     skN.set(k, skN.get(k) + 1)
+
+// ───────── ไม้เงา: จำลอง Setup ที่ถูกข้าม ─────────
+var array<Tr>    shd  = array.new<Tr>()
+var array<float> shR  = array.new<float>(12, 0.0)
+var array<int>   shN  = array.new<int>(12, 0)
+var array<int>   shWn = array.new<int>(12, 0)
+var array<box>   gSX  = array.new<box>()
+var array<label> gSB  = array.new<label>()
+
+f_shd(int typ, int dir, float e, float sl, float t1, float t2, string why) =>
+    if useShd and not na(e) and not na(sl) and e != sl
+        bool  s    = dir == -1
+        float risk = math.abs(e - sl)
+        int   k    = f_skK(why)
+        string nm  = (typ == 0 ? "TS" : typ == 1 ? "KR" : typ == 2 ? "RE" : "CT") + (s ? " ▼" : " ▲")
+        box   bR   = na
+        box   bW   = na
+        label lb   = na
+        if showShd
+            bR := box.new(bar_index, e, bar_index + offs, sl, border_color=color.new(colTxt, 85), border_width=1, bgcolor=color.new(colSell, 96))
+            bW := box.new(bar_index, e, bar_index + offs, t2, border_color=color.new(colTxt, 85), border_width=1, bgcolor=color.new(colBuy, 96))
+            lb := label.new(bar_index, e, "เงา " + nm, style=label.style_label_right, color=cNone, textcolor=color.new(colTxt, 45), size=size.tiny, tooltip="ไม้เงา (ไม่ได้เข้าจริง) · ข้ามเพราะ " + why + "\nEntry " + f_px(e) + " · SL " + f_px(sl) + " · TP1 " + f_px(t1) + " · TP2 " + f_px(t2))
+            gSX.push(bR)
+            gSX.push(bW)
+            gSB.push(lb)
+            if gSX.size() > 60
+                box.delete(gSX.shift())
+                box.delete(gSX.shift())
+            if gSB.size() > 30
+                label.delete(gSB.shift())
+        shd.push(Tr.new(dir=dir, st=2, e=e, sl=sl, t1=t1, t2=t2, rr1=math.abs(t1 - e) / risk, rr2=math.abs(t2 - e) / risk, b0=bar_index, typ=typ, bxR=bR, bxW=bW, lb=lb, sk=k))
+        if shd.size() > 40
+            shd.shift()
 
 // ป้าย ✕ ของ Setup ที่ไม่ผ่าน filter (เหตุผลใน tooltip)
 f_skip(bool s, string nm, string why) =>
@@ -1059,7 +1105,9 @@ if armed and barstate.isconfirmed
                 sc += inKz ? 1 : 0
                 sc += aBias == aDir ? 1 : 0
                 string gr = f_grade(sc)
-                why := useBias and aBias != aDir ? "สวน Bias" : f_mtfWhy(aDir) != "" ? f_mtfWhy(aDir) : reqDisp and not dispOk ? "ไม่มี Displacement" : reqPD and not aPd ? "ไม่อยู่ Premium/Discount" : reqKz and not inKz ? "นอก Killzone" : sc < minScore ? "Score " + str.tostring(sc) + "/8" : act.size() >= maxAct ? "ไม้เต็ม" : f_gate(aDir, e)
+                why := useBias and aBias != aDir and not f_rev(aDir) ? "สวน Bias" : f_mtfWhy(aDir) != "" ? f_mtfWhy(aDir) : reqDisp and not dispOk ? "ไม่มี Displacement" : reqPD and not aPd ? "ไม่อยู่ Premium/Discount" : reqKz and not inKz ? "นอก Killzone" : sc < minScore ? "Score " + str.tostring(sc) + "/8" : act.size() >= maxAct ? "ไม้เต็ม" : f_gate(aDir, e)
+                if why != ""
+                    f_shd(0, aDir, e, sl, t1, t2, why)
                 if why == ""
                     if showStr
                         f_keepL(line.new(aKT, aKey, time, aKey, xloc=xloc.bar_time, color=color.new(colKey, 30), width=lw, style=line.style_dotted))
@@ -1070,7 +1118,7 @@ if armed and barstate.isconfirmed
                             f_keepL(line.new(aExtB, aCisd, bar_index, aCisd, color=colCisd, width=lw))
                         if aMH and not na(aMss)
                             f_keepL(line.new(aExtB, aMss, bar_index, aMss, color=color.new(colCisd, 30), width=lw, style=line.style_dotted))
-                    f_open(0, aDir, e, sl, t1, t2, liqT, gr, str.tostring(sc) + "/8 · " + aTag + " · " + (aCH and aMH ? "CISD+MSS" : aCH ? "CISD" : "MSS") + " · " + tg)
+                    f_open(0, aDir, e, sl, t1, t2, liqT, gr, str.tostring(sc) + "/8 · " + (aBias != aDir ? "REV · " : "") + aTag + " · " + (aCH and aMH ? "CISD+MSS" : aCH ? "CISD" : "MSS") + " · " + tg)
                     label.set_text(aTsLb, label.get_text(aTsLb) + " ✓")
                     lastTxt := "TS " + side + " " + gr + " (" + str.tostring(sc) + "/8) · " + (aCH and aMH ? "CISD+MSS" : aCH ? "CISD" : "MSS")
                     lastE   := f_px(e) + " · " + tg
@@ -1115,15 +1163,16 @@ if barstate.isconfirmed and zones.size() > 0
                         t1 := s ? e - risk : e + risk
                     [tg, nTag] = f_tags(e, s, cz, z.ce, z.key, s ? tlBear : tlBull)
                     int sc = z.base + 1 + (isAcc ? 1 : 0) + (inKz ? 1 : 0) + (bias == z.dir ? 1 : 0) + (nTag >= 2 ? 1 : 0)
-                    string why = useBias and bias != z.dir ? "สวน Bias" : f_mtfWhy(z.dir) != "" ? f_mtfWhy(z.dir) : reqKz and not inKz ? "นอก Killzone" : sc < minScore ? "Score " + str.tostring(sc) + "/8" : act.size() >= maxAct ? "ไม้เต็ม" : f_gate(z.dir, e)
+                    string why = useBias and bias != z.dir and not f_rev(z.dir) ? "สวน Bias" : f_mtfWhy(z.dir) != "" ? f_mtfWhy(z.dir) : reqKz and not inKz ? "นอก Killzone" : sc < minScore ? "Score " + str.tostring(sc) + "/8" : act.size() >= maxAct ? "ไม้เต็ม" : f_gate(z.dir, e)
                     if why == ""
-                        f_open(1, z.dir, e, sl, t1, t2, liqT, f_grade(sc), str.tostring(sc) + "/8 · " + z.tag + " · IDM✓" + (isAcc ? " ACC" : "") + (tg == "" ? "" : " · " + tg))
+                        f_open(1, z.dir, e, sl, t1, t2, liqT, f_grade(sc), str.tostring(sc) + "/8 · " + (useBias and bias != z.dir ? "REV · " : "") + z.tag + " · IDM✓" + (isAcc ? " ACC" : "") + (tg == "" ? "" : " · " + tg))
                         lastTxt := "KR " + sd + " " + f_grade(sc) + " (" + str.tostring(sc) + "/8) · IDM✓"
                         lastE   := f_px(e) + " · " + (tg == "" ? krEnt : tg)
                         lastSl  := f_px(sl) + " / " + f_px(t2)
                         lastC   := s ? colSell : colBuy
                     else
                         f_skip(s, "KR " + sd, why)
+                        f_shd(1, z.dir, e, sl, t1, t2, why)
             // ② RE: BOS ไปทางเดียวกัน → Limit ที่ key level ใหม่ (swing ที่เป็นต้นขา BOS)
             float pv2 = s ? spL : spH
             if not na(pv2) and bar_index - sLen > z.born
@@ -1146,15 +1195,16 @@ if barstate.isconfirmed and zones.size() > 0
                         t1 := s ? e - risk : e + risk
                     [tg, nTag] = f_tags(e, s, cz, na, na, s ? tlBear : tlBull)
                     int sc = z.base + 1 + (inKz ? 1 : 0) + (bias == z.dir ? 1 : 0) + (nTag >= 1 ? 1 : 0) + (nTag >= 2 ? 1 : 0)
-                    string why = useBias and bias != z.dir ? "สวน Bias" : f_mtfWhy(z.dir) != "" ? f_mtfWhy(z.dir) : reqKz and not inKz ? "นอก Killzone" : sc < minScore ? "Score " + str.tostring(sc) + "/8" : act.size() >= maxAct ? "ไม้เต็ม" : f_gate(z.dir, e)
+                    string why = useBias and bias != z.dir and not f_rev(z.dir) ? "สวน Bias" : f_mtfWhy(z.dir) != "" ? f_mtfWhy(z.dir) : reqKz and not inKz ? "นอก Killzone" : sc < minScore ? "Score " + str.tostring(sc) + "/8" : act.size() >= maxAct ? "ไม้เต็ม" : f_gate(z.dir, e)
                     if why == ""
-                        f_open(2, z.dir, e, sl, t1, t2, liqT, f_grade(sc), str.tostring(sc) + "/8 · BOS" + (tg == "" ? "" : " · " + tg))
+                        f_open(2, z.dir, e, sl, t1, t2, liqT, f_grade(sc), str.tostring(sc) + "/8 · " + (useBias and bias != z.dir ? "REV · " : "") + "BOS" + (tg == "" ? "" : " · " + tg))
                         lastTxt := "RE " + sd + " " + f_grade(sc) + " (" + str.tostring(sc) + "/8) · หลัง BOS"
                         lastE   := f_px(e) + (tg == "" ? "" : " · " + tg)
                         lastSl  := f_px(sl) + " / " + f_px(t2)
                         lastC   := s ? colSell : colBuy
                     else
                         f_skip(s, "RE " + sd, why)
+                        f_shd(2, z.dir, e, sl, t1, t2, why)
 
 // ═════ 3.5) CT: Continuation ตาม Bias · BOS บน TF ชาร์ต → Limit ที่ต้นขา BOS (ต้องทับเลเวล MSNR) ═════
 if useCT and useBias and canRun and tfOk and barstate.isconfirmed and bias != 0 and swLP.size() > 0 and swHP.size() > 0
@@ -1189,6 +1239,7 @@ if useCT and useBias and canRun and tfOk and barstate.isconfirmed and bias != 0 
                 lastC   := s ? colSell : colBuy
             else
                 f_skip(s, "CT " + sd, why)
+                f_shd(3, bias, e, sl, t1, t2, why)
 
 // ═════ 4) จัดการไม้ทั้งหมด ═════
 float pp = partPct / 100.0
@@ -1204,7 +1255,7 @@ if act.size() > 0
                     t.st := 3
                     t.bF := bar_index
                     alert("KA PRO · " + syminfo.ticker + " · " + (s ? "SELL" : "BUY") + " filled " + f_px(t.e), alert.freq_once_per_bar)
-                else if (s ? low <= t.t1 : high >= t.t1) or (fillHtf > 0 and bar_index - t.b0 > fillHtf * nHtf) or (cxlFlip and useBias and bias != 0 and bias != t.dir) or (cxlEnd and not canRun)
+                else if (s ? low <= t.t1 : high >= t.t1) or (fillHtf > 0 and bar_index - t.b0 > fillHtf * nHtf) or (cxlFlip and useBias and bias != 0 and bias != t.dir and not f_rev(t.dir)) or (cxlEnd and not canRun)
                     res := "ยกเลิก"
         else if t.st == 3 and bar_index > t.bF
             float curSL = t.t1Hit and beOn ? t.e : t.sl
@@ -1262,6 +1313,56 @@ if act.size() > 0
                 label.set_text(t.lb, label.get_text(t.lb) + " " + (res == "TP2" ? "✓" : res == "BE" ? "BE" : "✗") + str.tostring(r, "+#.#;-#.#"))
                 alert("KA PRO · " + syminfo.ticker + " · " + (s ? "SELL" : "BUY") + " ปิด " + res + " " + str.tostring(r, "+#.##;-#.##") + "R", alert.freq_once_per_bar)
             act.remove(i)
+
+// ═════ 4.5) ไม้เงา: จำลองผล (กติกาเดียวกับไม้จริง · ไม่นับในสถิติจริง) ═════
+if shd.size() > 0
+    for i = shd.size() - 1 to 0
+        Tr    t   = shd.get(i)
+        bool  s   = t.dir == -1
+        string res = ""
+        float r   = 0.0
+        if t.st == 2
+            if bar_index > t.b0
+                if s ? high >= t.e : low <= t.e
+                    t.st := 3
+                    t.bF := bar_index
+                else if (s ? low <= t.t1 : high >= t.t1) or (fillHtf > 0 and bar_index - t.b0 > fillHtf * nHtf)
+                    res := "ไม่โดน"
+        else if t.st == 3 and bar_index > t.bF
+            float curSL = t.t1Hit and beOn ? t.e : t.sl
+            bool  hitSL = s ? high >= curSL : low <= curSL
+            bool  hitT1 = s ? low <= t.t1 : high >= t.t1
+            bool  hitT2 = s ? low <= t.t2 : high >= t.t2
+            if hitSL
+                r   := t.t1Hit ? pp * t.rr1 - (beOn ? 0.0 : 1.0 - pp) : -1.0
+                res := "ปิด"
+            else
+                if hitT1 and not t.t1Hit
+                    t.t1Hit := true
+                if hitT2
+                    r   := pp * t.rr1 + (1.0 - pp) * t.rr2
+                    res := "ปิด"
+        if res == ""
+            if not na(t.bxR)
+                box.set_right(t.bxR, bar_index + offs)
+                box.set_right(t.bxW, bar_index + offs)
+        else
+            if res == "ไม่โดน"
+                if not na(t.bxR)
+                    box.delete(t.bxR)
+                    box.delete(t.bxW)
+                    label.delete(t.lb)
+            else
+                shR.set(t.sk, shR.get(t.sk) + r)
+                shN.set(t.sk, shN.get(t.sk) + 1)
+                if r > 0
+                    shWn.set(t.sk, shWn.get(t.sk) + 1)
+                if not na(t.bxR)
+                    box.set_right(t.bxR, bar_index)
+                    box.set_right(t.bxW, bar_index)
+                    label.set_text(t.lb, label.get_text(t.lb) + " " + str.tostring(r, "+#.#;-#.#") + "R")
+                    label.set_textcolor(t.lb, color.new(r > 0 ? colBuy : r < 0 ? colSell : colTxt, 40))
+            shd.remove(i)
 
 // ═════ ป้ายด้านขวา: รวมป้ายที่ราคาใกล้กันอัตโนมัติ (ไม่ทับกัน) ═════
 var array<float>  rlP = array.new<float>()
@@ -1414,7 +1515,7 @@ if barstate.islast
                 if math.abs(e - sl) < slMinA * atr
                     sl := s ? e + slMinA * atr : e - slMinA * atr
                 [t2, lq] = f_t2(s, e, math.abs(e - sl))
-                string w = useBias and bias != z.dir ? "สวน Bias" : f_mtfWhy(z.dir) != "" ? f_mtfWhy(z.dir) : f_gate(z.dir, e)
+                string w = useBias and bias != z.dir and not f_rev(z.dir) ? "สวน Bias" : f_mtfWhy(z.dir) != "" ? f_mtfWhy(z.dir) : f_gate(z.dir, e)
                 string cd = na(z.idm) ? "รอ pullback ทำ IDM ก่อน" : "ตั้งได้หลังราคากวาด IDM " + f_px(z.idm)
                 plS.push((w == "" ? "⏳ " : "✗ ") + "KR " + f_side(s) + " LIMIT " + f_px(e) + " · SL " + f_px(sl) + " · TP " + f_px(t2) + " · " + (w == "" ? cd : w))
                 plC.push(w == "" ? (s ? colSell : colBuy) : colTxt)
@@ -1437,18 +1538,18 @@ if barstate.islast
                 f_rl(org, "PLAN CT " + f_side(s) + " LIMIT", s ? colSell : colBuy, "ถ้าแท่งปิด" + (s ? "ใต้ " : "เหนือ ") + f_px(brk) + " → " + f_side(s) + " LIMIT " + f_px(org) + " · SL " + f_px(sl) + " · TP " + f_px(t2))
     // TS: กวาดแล้วรอ CISD
     if armed
-        string w = useBias and bias != aDir ? "สวน Bias" : f_mtfWhy(aDir)
+        string w = useBias and bias != aDir and not f_rev(aDir) ? "สวน Bias" : f_mtfWhy(aDir)
         plS.push((w == "" ? "⏳ " : "✗ ") + "TS " + f_side(isS) + " · กวาด " + aTag + " แล้ว · รอแท่งปิด" + (isS ? "ใต้" : "เหนือ") + " CISD " + f_px(aCisd) + " → อินดี้ตั้ง Limit ที่ OTE/KEY ให้" + (w == "" ? "" : " · " + w))
         plC.push(w == "" ? (isS ? colSell : colBuy) : colTxt)
     else if not pastEnd
         array<KL> nb1 = f_nearK(kHi, true, 1)
         array<KL> ns1 = f_nearK(kLo, false, 1)
         if nb1.size() > 0 and allowS
-            bool ok = not useBias or bias == -1
+            bool ok = not useBias or bias == -1 or f_rev(-1)
             plS.push((ok ? "⏳ " : "✗ ") + "TS SELL · รอไส้กวาด " + nb1.get(0).tag + " " + f_px(nb1.get(0).p) + " แล้วปิดกลับใต้ → CISD → อินดี้ตั้ง Limit" + (ok ? "" : " · สวน Bias (อย่าตั้งรอ)"))
             plC.push(ok ? colSell : colTxt)
         if ns1.size() > 0 and allowB
-            bool ok = not useBias or bias == 1
+            bool ok = not useBias or bias == 1 or f_rev(1)
             plS.push((ok ? "⏳ " : "✗ ") + "TS BUY · รอไส้กวาด " + ns1.get(0).tag + " " + f_px(ns1.get(0).p) + " แล้วปิดกลับเหนือ → CISD → อินดี้ตั้ง Limit" + (ok ? "" : " · สวน Bias (อย่าตั้งรอ)"))
             plC.push(ok ? colBuy : colTxt)
     // วาดป้าย: เรียงราคา แล้วรวมป้ายที่ใกล้กัน (< 0.35 ATR)
@@ -1550,7 +1651,7 @@ if useMtf and barstate.islast
 
 // ═════ Dashboard ═════
 string dPos = dashPos == "บนขวา" ? position.top_right : dashPos == "ล่างซ้าย" ? position.bottom_left : dashPos == "บนซ้าย" ? position.top_left : position.bottom_right
-var table dash = table.new(dPos, 2, 14, bgcolor=color.new(chart.bg_color, 0), frame_color=color.new(chart.fg_color, 85), frame_width=1, border_width=0)
+var table dash = table.new(dPos, 2, 15, bgcolor=color.new(chart.bg_color, 0), frame_color=color.new(chart.fg_color, 85), frame_width=1, border_width=0)
 f_row(int r, string a, string b, color cb) =>
     table.cell(dash, 0, r, a, text_color=colTxt, text_size=size.tiny, text_halign=text.align_left)
     table.cell(dash, 1, r, b, text_color=cb, text_size=size.tiny, text_halign=text.align_right)
@@ -1610,6 +1711,31 @@ if showDash and barstate.islast
             skAll := skAll + skNm.get(k) + " " + str.tostring(skN.get(k)) + "\n"
     table.cell(dash, 0, 13, "ข้ามเพราะ", text_color=colTxt, text_size=size.tiny, text_halign=text.align_left)
     table.cell(dash, 1, 13, skTop == "" ? "-" : skTop, text_color=skTop == "" ? colTxt : colKey, text_size=size.tiny, text_halign=text.align_right, tooltip=skAll == "" ? "ยังไม่มี Setup ถูกข้าม" : "Setup ที่ถูกข้ามในช่วงวิเคราะห์:\n" + skAll)
+    // ไม้เงา: ถ้าเข้าไม้ที่ถูกข้ามจะได้กี่ R (เรียงตามจำนวนไม้)
+    int   shTot = 0
+    float shSum = 0.0
+    for k = 0 to shN.size() - 1
+        shTot += shN.get(k)
+        shSum += shR.get(k)
+    array<int> cc1 = shN.copy()
+    string shTop = ""
+    for q = 1 to 2
+        int bi = -1
+        int bv = 0
+        for k = 0 to cc1.size() - 1
+            if cc1.get(k) > bv
+                bv := cc1.get(k)
+                bi := k
+        if bi >= 0
+            shTop := shTop + " · " + skNm.get(bi) + " " + str.tostring(shR.get(bi), "+#.#;-#.#") + "R/" + str.tostring(bv)
+            cc1.set(bi, 0)
+    string shAll = ""
+    for k = 0 to shN.size() - 1
+        if shN.get(k) > 0
+            shAll := shAll + skNm.get(k) + ": " + str.tostring(shN.get(k)) + " ไม้ · ชนะ " + str.tostring(shWn.get(k)) + " · " + str.tostring(shR.get(k), "+#.#;-#.#") + "R\n"
+    string shTx = not useShd ? "ปิดอยู่" : shTot == 0 ? "ยังไม่มีไม้เงาที่ปิดแล้ว" : "รวม " + str.tostring(shSum, "+#.#;-#.#") + "R/" + str.tostring(shTot) + shTop
+    table.cell(dash, 0, 14, "ไม้เงา (ถ้าเข้า)", text_color=colTxt, text_size=size.tiny, text_halign=text.align_left)
+    table.cell(dash, 1, 14, shTx, text_color=shTot == 0 ? colTxt : shSum > 0 ? colBuy : colSell, text_size=size.tiny, text_halign=text.align_right, tooltip=shAll == "" ? "ไม้ที่ถูกข้ามแล้วจำลองว่าเข้าจริง · ยังไม่มีผล" : "ไม้ที่ถูกข้าม ถ้าเข้าจริง (R บวก = filter นี้ตัดไม้ดีทิ้ง · R ลบ = filter นี้ช่วยกันขาดทุน):\n" + shAll)
     f_row(12, "ช่วงวิเคราะห์", rTx, rngN == 0 ? colSell : pastEnd ? colKey : chart.fg_color)
     f_row(11, "วันนี้ (NY)", str.tostring(dS.get(0), "#") + " ไม้ · " + str.tostring(dS.get(1), "+#.#;-#.#") + "R" + (inKz ? " · ในKZ" : "") + (gw == "" ? " · พร้อม" : " · " + gw), gw == "" ? chart.fg_color : colTxt)
 
