@@ -1,5 +1,5 @@
 // ════════════════════════════════════════════════════════════════
-// KEY ALCHEMIST PRO v9.12 DEV (ไฟล์สำรองสำหรับแก้ · ทดลองก่อนย้ายเข้า MAIN) · HTF Liquidity Sweep (Turtle Soup) → CISD / MSS → OTE × Key Level × MSNR (Pine Script v6)
+// KEY ALCHEMIST PRO v9.13 DEV (ไฟล์สำรองสำหรับแก้ · ทดลองก่อนย้ายเข้า MAIN) · HTF Liquidity Sweep (Turtle Soup) → CISD / MSS → OTE × Key Level × MSNR (Pine Script v6)
 // อ้างอิง: Key Alchemist (amirxau77) · MSNR (SL 10 PIPS) · เลเวลจาก MSNR × SMC ตัวเดิม
 // v2 (2026-11-24):
 //   · Bias TF ใหญ่ (M5: H1 = TS · H4 = Bias) → เทรดเฉพาะทิศ Bias (ลดไม้สวนเทรนด์ที่โดน SL)
@@ -73,6 +73,7 @@
 //   · filter MTF ไม่นับ M1 เป็นค่าเริ่มต้น (M1 สลับไปมาบ่อย + ข้อมูลย้อนหลังแค่ ~13 ชม.) → ตัดสินจาก H4 · H1 · M15 · M5
 //   · KR: ราคา Entry ล็อกตอนเกิด Model (ไม่กระโดดตามราคา)
 // v9.12 DEV (2026-11-25): แถบ Quarter ใต้กราฟแบบ Daye (แถวบน 90 นาที · แถวล่าง Quarter ของวัน · กรอบเข้ม = ช่วงปัจจุบัน)
+// v9.13 DEV (2026-11-25): BOS / CHoCH ต้องทะลุด้วยเนื้อเทียน: แท่งที่ปิดทะลุต้องเป็นแท่งทิศเดียวกัน + เนื้อเทียน ≥ 50% ของแท่ง (ไส้ทะลุ / แท่งไส้ยาวปิดเฉียด ไม่นับ) · เส้น BOS / CHoCH บางลง
 // ไม่ repaint: ข้อมูล HTF ใช้เฉพาะแท่งที่ปิดแล้ว · สัญญาณ TF ชาร์ตยืนยันตอนแท่งปิด
 // ════════════════════════════════════════════════════════════════
 //@version=6
@@ -128,7 +129,12 @@ bool   useMtf  = input.bool(true, "ไล่โครงสร้าง H4 · H1
 int    mLen    = input.int(3, "Swing length (ทุก TF)", minval=1, maxval=10, group=GM, display=display.none)
 int    mtfMin  = input.int(3, "ไม้ต้องตรงทิศโครงสร้างอย่างน้อย (จำนวน TF) · 0 = ปิด", minval=0, maxval=5, group=GM, display=display.none)
 bool   useM1F  = input.bool(false, "filter MTF นับ M1 ด้วย", group=GM, tooltip="ปิด (แนะนำ) = นับ H4 · H1 · M15 · M5 (4 TF) · M1 สลับทิศบ่อยและมีข้อมูลย้อนหลังแค่ ~13 ชม. ทำให้ผลย้อนหลังไม่นิ่ง")
+string BB_C = "ราคาปิดทะลุ (แบบเดิม)"
+string BB_B = "เนื้อเทียนทะลุ (แท่งทิศเดียวกัน · เนื้อ ≥ X% ของแท่ง)"
+string bosMode = input.string(BB_B, "BOS / CHoCH นับเมื่อ", options=[BB_B, BB_C], group=GM, tooltip="เนื้อเทียนทะลุ = แท่งที่ปิดเลย swing ต้องเป็นแท่งเขียว (ขึ้น) / แดง (ลง) และเนื้อเทียนยาวอย่างน้อย X% ของทั้งแท่ง\nไส้ทะลุแล้วปิดกลับ หรือแท่งไส้ยาวที่ปิดเฉียดเส้น = ไม่นับ\nใช้กับทุก TF · Bias · ตาราง MTF · Reversal")
+float  bosBody = input.float(0.5, "เนื้อเทียนอย่างน้อย (% ของแท่ง)", minval=0.1, maxval=0.9, step=0.05, group=GM, display=display.none)
 bool   showMtfL = input.bool(true, "เส้น BOS / CHoCH ล่าสุดของแต่ละ TF", group=GM)
+int    mlw     = input.int(1, "ความหนาเส้น BOS / CHoCH", minval=1, maxval=3, group=GM, display=display.none)
 bool   showMtfT = input.bool(true, "ตารางโครงสร้าง MTF", group=GM)
 string mtfPos  = input.string("บนขวา", "ตำแหน่งตาราง MTF", options=["บนขวา", "ล่างขวา", "บนซ้าย", "ล่างซ้าย"], group=GM, display=display.none)
 
@@ -332,6 +338,11 @@ f_ctx(int R) =>
     [mid[1], bT[1], bB[1], uT[1], uB[1]]
 
 // ───────── Bias: ทิศ BOS ล่าสุด (ปิดเนื้อเทียนทะลุ swing) ของ TF Bias ─────────
+// แท่งนี้ทะลุ p ด้วยเนื้อเทียน (up = ขึ้น)
+f_bk(bool up, float p, float o, float c, float h, float l) =>
+    bool cl = up ? c > p : c < p
+    bosMode == BB_C ? cl : cl and (up ? c > o : c < o) and math.abs(c - o) >= bosBody * (h - l)
+
 f_bias(int L) =>
     float ph = ta.pivothigh(high, L, L)
     float pl = ta.pivotlow(low, L, L)
@@ -342,10 +353,10 @@ f_bias(int L) =>
         lh := ph
     if not na(pl)
         lo := pl
-    if not na(lh) and close > lh
+    if not na(lh) and f_bk(true, lh, open, close, high, low)
         b  := 1
         lh := na
-    if not na(lo) and close < lo
+    if not na(lo) and f_bk(false, lo, open, close, high, low)
         b  := -1
         lo := na
     b[1]
@@ -383,14 +394,14 @@ f_struct(int L, int off) =>
     if not na(pl)
         sl  := pl
         slT := time[L]
-    if not na(sh) and close > sh
+    if not na(sh) and f_bk(true, sh, open, close, high, low)
         ev   := tr == -1 ? 2 : 1
         evP  := sh
         evT0 := shT
         evT1 := time
         tr   := 1
         sh   := na
-    if not na(sl) and close < sl
+    if not na(sl) and f_bk(false, sl, open, close, high, low)
         ev   := tr == 1 ? -2 : -1
         evP  := sl
         evT0 := slT
@@ -1935,7 +1946,7 @@ f_brT(float p, int t0, bool up) =>
     for j = 0 to 600
         if na(time[j]) or time[j] < t0
             break
-        if up ? close[j] > p : close[j] < p
+        if f_bk(up, p, open[j], close[j], high[j], low[j])
             r := time[j]
     r
 
@@ -1950,7 +1961,7 @@ f_mDraw(string nm, int tr, int ev, float p, int t0, int t1, int w) =>
         int   b  = na(b0) ? t1 : b0
         color c  = up ? colBuy : colSell
         string tx = nm + " " + (math.abs(ev) == 2 ? "CHoCH" : "BOS") + (up ? " ▲" : " ▼")
-        mL.push(line.new(a, p, b, p, xloc=xloc.bar_time, color=color.new(c, 15), width=w, style=math.abs(ev) == 2 ? line.style_dashed : line.style_solid))
+        mL.push(line.new(a, p, b, p, xloc=xloc.bar_time, color=color.new(c, 40), width=w, style=math.abs(ev) == 2 ? line.style_dashed : line.style_solid))
         mB.push(label.new(b, p, tx, xloc=xloc.bar_time, style=up ? label.style_label_lower_right : label.style_label_upper_right, color=cNone, textcolor=c, size=size.tiny, tooltip=tx + " · " + f_px(p) + " · เทรนด์ " + nm + (tr == 1 ? " ขึ้น" : tr == -1 ? " ลง" : " –")))
 
 f_tr(int tr) =>
@@ -1971,11 +1982,11 @@ if useMtf and barstate.islast
     while mB.size() > 0
         label.delete(mB.pop())
     if showMtfL
-        f_mDraw("H4", mT0, mE0, mP0, mA0, mB0, 2)
-        f_mDraw("H1", mT1, mE1, mP1, mA1, mB1, 2)
-        f_mDraw("M15", mT2, mE2, mP2, mA2, mB2, 1)
-        f_mDraw("M5", mT3, mE3, mP3, mA3, mB3, 1)
-        f_mDraw("M1", mT4, mE4, mP4, mA4, mB4, 1)
+        f_mDraw("H4", mT0, mE0, mP0, mA0, mB0, mlw)
+        f_mDraw("H1", mT1, mE1, mP1, mA1, mB1, mlw)
+        f_mDraw("M15", mT2, mE2, mP2, mA2, mB2, mlw)
+        f_mDraw("M5", mT3, mE3, mP3, mA3, mB3, mlw)
+        f_mDraw("M1", mT4, mE4, mP4, mA4, mB4, mlw)
     if showMtfT
         int    d    = mT0
         int    nAl  = f_al(d)
