@@ -160,7 +160,7 @@ bool   reqDisp  = input.bool(true, "บังคับขายืนยัน�
 string GK = "Key Alchemist Model (KR) · Re-entry (RE)"
 bool   useKR   = input.bool(true, "KR: รอราคากลับมาที่ KEY หลังกวาด liQ / IDM", group=GK, tooltip="หลัง TS → CISD/MSS: จด KEY ไว้ · รอ pullback ทำ IDM (swing ภายใน) · ราคากวาด IDM → ตั้ง Limit ที่ KEY [CE 0.5] · TP = SSL/BSL ใต้/เหนือ Accumulation")
 string K_QM    = "QM ถ้ามี / CE 0.5"
-string krEnt   = input.string(K_QM, "KR เข้าที่", options=[K_QM, "CE 0.5", "KEY", "จุดสุด (Hidden liQ)"], group=GK, display=display.none, tooltip="QM ถ้ามี = QM key (MSNR) ระหว่างราคากับจุดสุดที่ใกล้ KEY ที่สุด · ไม่มี QM → CE 0.5\n"จุดสุด = Hidden liQ model: รอราคากวาด IDM + Hidden liQ แล้วเข้าที่ swing เดิมของ TS")
+string krEnt   = input.string(K_QM, "KR เข้าที่", options=[K_QM, "CE 0.5", "KEY", "จุดสุด (Hidden liQ)"], group=GK, display=display.none, tooltip="QM ถ้ามี = QM key (MSNR) ระหว่างราคากับจุดสุดที่ใกล้ KEY ที่สุด · ไม่มี QM → CE 0.5\nจุดสุด = Hidden liQ model: รอราคากวาด IDM + Hidden liQ แล้วเข้าที่ swing เดิมของ TS")
 int    krLife  = input.int(24, "KR รอได้นาน (แท่ง TF ของ TS)", minval=2, maxval=120, group=GK, display=display.none)
 int    accLen  = input.int(20, "Accumulation: ช่วงแท่ง", minval=5, maxval=100, group=GK, display=display.none)
 float  accA    = input.float(4.0, "Accumulation: กรอบแคบกว่า (x ATR)", minval=1.0, step=0.5, group=GK, display=display.none)
