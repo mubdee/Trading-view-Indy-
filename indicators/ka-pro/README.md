@@ -31,6 +31,7 @@
 - ความเร็ว: calc_bars_count 2500 · หา Setup ย้อนหลัง 1200 แท่ง · ถ้าช้าให้ลดค่าหรือปิด MTF
 
 ## ประวัติ
+- **v9.8 DEV (2026-11-25)** — ตาม ICT guide: EQH/EQL · Opening Range London/NY · OB (ICT) + Breaker · NY AM 07-10 · London Close · Macro · NY 9:30 · SMT กับ DXY
 - **v9.7 DEV (2026-11-25)** — ไม่ตั้ง BE (ค่าเริ่มต้น) · โครงสร้าง MTF / Bias ใช้แท่ง TF ใหญ่ที่ปิดแล้ว (ไม่ repaint)
 - **v9.6 DEV (2026-11-25)** — SMT ทอง×เงิน (+1 คะแนน / บังคับได้) · แท่งกวาดต้องปฏิเสธชัด · Entry FVG ของขา displacement
 - **v9.5 DEV (2026-11-25)** — ไม้เงา (จำลองไม้ที่ถูกข้าม → filter ไหนตัดไม้ดี/เสียกี่ R) · Reversal: สวน Bias ได้ถ้า M15+M5 กลับทิศ (ค่าเริ่มต้นปิด)

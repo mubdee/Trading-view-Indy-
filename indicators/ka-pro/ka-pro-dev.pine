@@ -1,5 +1,5 @@
 // ════════════════════════════════════════════════════════════════
-// KEY ALCHEMIST PRO v9.7 DEV (ไฟล์สำรองสำหรับแก้ · ทดลองก่อนย้ายเข้า MAIN) · HTF Liquidity Sweep (Turtle Soup) → CISD / MSS → OTE × Key Level × MSNR (Pine Script v6)
+// KEY ALCHEMIST PRO v9.8 DEV (ไฟล์สำรองสำหรับแก้ · ทดลองก่อนย้ายเข้า MAIN) · HTF Liquidity Sweep (Turtle Soup) → CISD / MSS → OTE × Key Level × MSNR (Pine Script v6)
 // อ้างอิง: Key Alchemist (amirxau77) · MSNR (SL 10 PIPS) · เลเวลจาก MSNR × SMC ตัวเดิม
 // v2 (2026-11-24):
 //   · Bias TF ใหญ่ (M5: H1 = TS · H4 = Bias) → เทรดเฉพาะทิศ Bias (ลดไม้สวนเทรนด์ที่โดน SL)
@@ -53,6 +53,11 @@
 // v9.7 DEV (2026-11-25): เสถียร
 //   · ไม่เลื่อน SL กันทุน (BE) เป็นค่าเริ่มต้น → ถือถึง SL / TP2
 //   · โครงสร้าง MTF (ตาราง · Bias · filter · Reversal) ใช้เฉพาะแท่ง TF ใหญ่ที่ปิดแล้ว → ไม่เปลี่ยนกลางแท่ง ไม่ repaint ตอน realtime
+// v9.8 DEV (2026-11-25): ครบตาม ICT guide
+//   · KEY: Equal Highs / Lows (EQH / EQL) ที่ยังไม่ถูกกวาด · Opening Range London (02:00-02:30) + NY AM (09:30-10:00)
+//   · Entry: Order Block แบบ ICT (แท่งสวนทางสุดท้ายก่อน displacement) + Breaker (OB ฝั่งตรงข้ามที่ถูกทะลุหลังกวาด liQ)
+//   · เวลา: NY AM killzone 07:00-10:00 · London Close 11:00-12:00 · Macro 09:50-10:10 / 10:50-11:10 · เส้น NY Open 09:30
+//   · SMT เทียบ DXY ได้ (กลับทิศ): ทองกวาด High แต่ DXY ไม่ทำ Low ใหม่ = SMT ▼ · เลือก เงิน / DXY / อย่างใดอย่างหนึ่ง / ทั้งคู่
 // ไม่ repaint: ข้อมูล HTF ใช้เฉพาะแท่งที่ปิดแล้ว · สัญญาณ TF ชาร์ตยืนยันตอนแท่งปิด
 // ════════════════════════════════════════════════════════════════
 //@version=6
@@ -85,6 +90,9 @@ string asiaS  = input.session("0700-1200", "Asia session (เวลาไทย)
 string poMode = input.string("NY Midnight Open (PO3)", "Premium/Discount เทียบกับ", options=["NY Midnight Open (PO3)", "Range TF ของ TS"], group=G0, tooltip="PO3: Bias ลง → Sell เหนือ Open · Bias ขึ้น → Buy ใต้ Open")
 bool   useCE  = input.bool(true, "KEY: CE 0.5 ของไส้ swing TF ใหญ่ (Single liQ)", group=G0)
 bool   use3c  = input.bool(true, "KEY: โมเดล 3 แท่ง HTF (แท่ง 2 กวาดแท่ง 1 แล้วปิดกลับ)", group=G0)
+bool   useEq  = input.bool(true, "KEY: Equal Highs / Lows (EQH / EQL)", group=G0, tooltip="swing High/Low 2 จุดที่สูง/ต่ำเท่ากัน (ห่างไม่เกิน x ATR) และยังไม่ถูกกวาด = BSL / SSL ที่ชัด")
+float  eqA    = input.float(0.1, "EQH / EQL ห่างกันไม่เกิน (x ATR)", minval=0.02, step=0.02, group=G0, display=display.none)
+bool   useOR  = input.bool(true, "KEY: Opening Range London (02:00-02:30) · NY AM (09:30-10:00)", group=G0, tooltip="High / Low ของ 30 นาทีแรกของ London และ NY AM (เวลา New York) เป็น KEY ให้กวาด")
 string dirMode = input.string("Buy + Sell", "ทิศที่เทรด", options=["Buy + Sell", "Buy อย่างเดียว", "Sell อย่างเดียว"], group=G0)
 bool   useBias = input.bool(true, "เทรดเฉพาะทิศ Bias", group=G0, tooltip="Bias = ทิศ BOS ล่าสุด (ปิดเนื้อเทียนทะลุ swing)")
 string B_M = "โครงสร้าง MTF: H4 + H1 ตรงกัน (ตรงกับตาราง)"
@@ -105,10 +113,17 @@ string SMT_OFF = "ปิด"
 string SMT_SC  = "ให้คะแนน (+1)"
 string SMT_REQ = "บังคับ (ต้องมี SMT)"
 string smtMode = input.string(SMT_SC, "SMT Divergence", options=[SMT_OFF, SMT_SC, SMT_REQ], group=GT, tooltip="ทองกวาด High แต่คู่เทียบไม่ทำ High ใหม่ (Sell) · ทองกวาด Low แต่คู่เทียบไม่ทำ Low ใหม่ (Buy) = Smart money ไม่ยืนยันการเบรก → TS แข็งขึ้น\nใช้กับคู่ที่วิ่งไปทางเดียวกัน (ทอง–เงิน)")
-string smtSym  = input.symbol("OANDA:XAGUSD", "คู่เทียบ SMT", group=GT)
+string SP_AG  = "เงิน (XAGUSD)"
+string SP_DX  = "DXY (กลับทิศ)"
+string SP_ANY = "เงิน หรือ DXY"
+string SP_ALL = "เงิน และ DXY"
+string smtPair = input.string(SP_ANY, "SMT เทียบกับ", options=[SP_AG, SP_DX, SP_ANY, SP_ALL], group=GT, tooltip="เงิน: วิ่งทางเดียวกับทอง · DXY: วิ่งสวนทอง (ทองกวาด High แต่ DXY ไม่ทำ Low ใหม่ = SMT ▼)")
+string smtSym  = input.symbol("OANDA:XAGUSD", "คู่เทียบ: เงิน", group=GT)
+string smtSym2 = input.symbol("TVC:DXY", "คู่เทียบ: DXY", group=GT)
 bool   reqRej  = input.bool(true, "แท่งกวาดต้องปฏิเสธชัด", group=GT, tooltip="แท่งที่ปิดกลับต้องปิดห่างจากไส้ ≥ X% ของความยาวแท่ง · กวาดแล้วปิดชิดไส้ = แรงยังไม่หมด มักทะลุต่อ")
 float  rejMin  = input.float(0.35, "ปิดกลับอย่างน้อย (% ของแท่ง)", minval=0.1, maxval=0.9, step=0.05, group=GT, display=display.none)
 bool   useFvgE = input.bool(true, "Entry: FVG ของขา displacement เป็นเลเวลซ้อน", group=GT)
+bool   useObE  = input.bool(true, "Entry: Order Block (ICT) + Breaker เป็นเลเวลซ้อน", group=GT, tooltip="OB = แท่งสวนทางแท่งสุดท้ายก่อน displacement (Entry ที่ open)\nBreaker = OB ฝั่งตรงข้ามที่ต้นขาวิ่งเข้าไปกวาด liQ แล้วถูกราคาปิดทะลุ (Entry ที่ CE ของแท่ง)")
 
 string G1 = "ยืนยันบน TF ชาร์ต"
 string confMode = input.string("CISD (เร็ว)", "ยืนยันด้วย", options=["CISD (เร็ว)", "MSS (ชัวร์)", "CISD หรือ MSS (อันไหนก่อน)", "CISD + MSS (ครบทั้งคู่)"], group=G1)
@@ -153,7 +168,10 @@ int    minScore = input.int(5, "ตั้ง Limit เฉพาะ Score ≥", m
 bool   reqPD    = input.bool(false, "บังคับ Sell ใน Premium / Buy ใน Discount", group=G3)
 bool   reqKz    = input.bool(false, "บังคับยืนยันใน Killzone", group=G3)
 string kzLon    = input.session("0200-0500", "London killzone (เวลา New York)", group=G3, display=display.none)
-string kzNy     = input.session("0830-1100", "New York killzone (เวลา New York)", group=G3, display=display.none)
+string kzNy     = input.session("0700-1000", "New York AM killzone (เวลา New York)", group=G3, display=display.none)
+bool   useLc    = input.bool(true, "นับ London Close (เวลา New York) เป็น Killzone", group=G3)
+string kzLc     = input.session("1100-1200", "London Close (เวลา New York)", group=G3, display=display.none)
+bool   useMac   = input.bool(true, "นับ Macro 09:50-10:10 · 10:50-11:10 (NY) เป็น Killzone", group=G3)
 bool   useSB    = input.bool(true, "นับ Silver Bullet (03-04 · 10-11 · 14-15 NY) เป็น Killzone", group=G3)
 
 string GS = "Smooth: คุมไม้ทั้งวัน"
@@ -219,7 +237,9 @@ bool  pastEnd = rngSeen and not canRun        // จบช่วงแล้ว 
 var int firstT = time
 bool  msRun  = not pastEnd and (rngMode == R_T ? time >= rA - 300 * timeframe.in_seconds() * 1000 : rngMode == R_B ? bar_index >= last_bar_index - bHi - 300 : canRun)
 bool  inSB   = useSB and (not na(time(timeframe.period, "0300-0400", "America/New_York")) or not na(time(timeframe.period, "1000-1100", "America/New_York")) or not na(time(timeframe.period, "1400-1500", "America/New_York")))
-bool  inKz   = not na(time(timeframe.period, kzLon, "America/New_York")) or not na(time(timeframe.period, kzNy, "America/New_York")) or inSB
+bool  inMac  = useMac and (not na(time(timeframe.period, "0950-1010", "America/New_York")) or not na(time(timeframe.period, "1050-1110", "America/New_York")))
+bool  inLc   = useLc and not na(time(timeframe.period, kzLc, "America/New_York"))
+bool  inKz   = not na(time(timeframe.period, kzLon, "America/New_York")) or not na(time(timeframe.period, kzNy, "America/New_York")) or inSB or inMac or inLc
 
 int    chSec   = timeframe.in_seconds()
 string autoHtf = chSec <= 60 ? "15" : chSec <= 180 ? "30" : chSec <= 300 ? "60" : chSec <= 900 ? "240" : chSec <= 3600 ? "D" : chSec <= 14400 ? "W" : "M"
@@ -352,22 +372,24 @@ int  bias  = biasMode == "TF Bias (H4)" ? bias4 : biasMode == "TF ของ TS (
 string b4T = useMB ? "H4" : btfT
 string b1T = useMB ? "H1" : htfT
 
-// ───────── SMT: คู่เทียบ (เงิน) TF เดียวกับชาร์ต ─────────
+// ───────── SMT: คู่เทียบ (เงิน · DXY) TF เดียวกับชาร์ต ─────────
 [svH, svL] = request.security(smtSym, timeframe.period, [high, low], ignore_invalid_symbol=true)
-// isS: ทองกวาด High → เงิน High ช่วงกวาด (W แท่งล่าสุด) ต่ำกว่า High ก่อนหน้า (W..LB) = SMT ▼ · Buy กลับกัน
-f_smt(bool isS, int W, int LB) =>
+[dxH, dxL] = request.security(smtSym2, timeframe.period, [high, low], ignore_invalid_symbol=true)
+// hiSide = true: High ช่วงกวาด (W แท่งล่าสุด) ต่ำกว่า High ก่อนหน้า (W..LB) = ไม่ยืนยัน · false: Low ช่วงกวาดสูงกว่า Low ก่อนหน้า
+// เงิน: Sell → hiSide · DXY (กลับทิศ): Sell → Low side
+f_smtX(bool dxy, bool hiSide, int W, int LB) =>
     bool ok = false
-    if smtMode != SMT_OFF and LB > W + 2
+    if LB > W + 2
         float rec = na
         float prv = na
         for j = 0 to LB
-            float v = isS ? svH[j] : svL[j]
+            float v = dxy ? (hiSide ? dxH[j] : dxL[j]) : (hiSide ? svH[j] : svL[j])
             if not na(v)
                 if j < W
-                    rec := na(rec) ? v : isS ? math.max(rec, v) : math.min(rec, v)
+                    rec := na(rec) ? v : hiSide ? math.max(rec, v) : math.min(rec, v)
                 else
-                    prv := na(prv) ? v : isS ? math.max(prv, v) : math.min(prv, v)
-        ok := not na(rec) and not na(prv) and (isS ? rec < prv : rec > prv)
+                    prv := na(prv) ? v : hiSide ? math.max(prv, v) : math.min(prv, v)
+        ok := not na(rec) and not na(prv) and (hiSide ? rec < prv : rec > prv)
     ok
 
 // Reversal: M15 + M5 กลับทิศไปทาง d แล้ว (ทั้ง 2 TF trend = d)
@@ -668,6 +690,80 @@ else if inAs
 if useAs and not inAs and inAs[1]
     f_kAdd(kHi, asH, asHT, "ASH", na, mrg, true)
     f_kAdd(kLo, asL, asLT, "ASL", na, mrg, false)
+
+// Opening Range: 30 นาทีแรกของ London (02:00) และ NY AM (09:30) เวลา New York
+bool inLOR = not na(time(timeframe.period, "0200-0230", "America/New_York"))
+bool inNOR = not na(time(timeframe.period, "0930-1000", "America/New_York"))
+var float lorH = na
+var float lorL = na
+var int   lorHT = na
+var int   lorLT = na
+var float norH = na
+var float norL = na
+var int   norHT = na
+var int   norLT = na
+var float nyO  = na      // NY Open 09:30
+var int   nyOT = na
+if inLOR and not inLOR[1]
+    lorH  := high
+    lorL  := low
+    lorHT := time
+    lorLT := time
+else if inLOR
+    if high > lorH
+        lorH  := high
+        lorHT := time
+    if low < lorL
+        lorL  := low
+        lorLT := time
+if inNOR and not inNOR[1]
+    norH  := high
+    norL  := low
+    norHT := time
+    norLT := time
+    nyO   := open
+    nyOT  := time
+else if inNOR
+    if high > norH
+        norH  := high
+        norHT := time
+    if low < norL
+        norL  := low
+        norLT := time
+if useOR and not inLOR and inLOR[1]
+    f_kAdd(kHi, lorH, lorHT, "LOR", na, mrg, true)
+    f_kAdd(kLo, lorL, lorLT, "LOR", na, mrg, false)
+if useOR and not inNOR and inNOR[1]
+    f_kAdd(kHi, norH, norHT, "NYOR", na, mrg, true)
+    f_kAdd(kLo, norL, norLT, "NYOR", na, mrg, false)
+
+// Equal Highs / Lows: swing ใหม่สูง/ต่ำเท่ากับ swing เดิม (ห่าง ≤ eqA x ATR) และไม่มีแท่งไหนกวาดระหว่างนั้น
+if useEq and not na(spH) and swHP.size() > 1
+    int lastH = swHP.size() - 1
+    for i = lastH - 1 to math.max(0, lastH - 10)
+        float p0 = swHP.get(i)
+        int   bA = swHB.get(i)
+        if math.abs(p0 - spH) <= eqA * atr and bar_index - bA < 300
+            float pe = math.max(p0, spH)
+            float mx = high
+            for j = 0 to bar_index - bA - 1
+                mx := math.max(mx, high[j])
+            if mx <= pe
+                f_kAdd(kHi, pe, time[bar_index - bA], "EQH", na, mrg, true)
+            break
+if useEq and not na(spL) and swLP.size() > 1
+    int lastL = swLP.size() - 1
+    for i = lastL - 1 to math.max(0, lastL - 10)
+        float p0 = swLP.get(i)
+        int   bA = swLB.get(i)
+        if math.abs(p0 - spL) <= eqA * atr and bar_index - bA < 300
+            float pe = math.min(p0, spL)
+            float mn = low
+            for j = 0 to bar_index - bA - 1
+                mn := math.min(mn, low[j])
+            if mn >= pe
+                f_kAdd(kLo, pe, time[bar_index - bA], "EQL", na, mrg, false)
+            break
 
 // PO3: NY Midnight Open
 int nyDay = dayofmonth(time, "America/New_York")
@@ -988,7 +1084,7 @@ if barstate.isconfirmed
         aKey  := sK.p
         aKT   := sK.t
         aTag  := sK.tag + (sLiq ? " +sLiQ" : "")
-        aStr  := sLiq or str.contains(aTag, "·") or str.contains(aTag, btfT) or str.contains(aTag, "PD") or str.contains(aTag, "PW") or str.contains(aTag, "AS")
+        aStr  := sLiq or str.contains(aTag, "·") or str.contains(aTag, btfT) or str.contains(aTag, "PD") or str.contains(aTag, "PW") or str.contains(aTag, "AS") or str.contains(aTag, "EQ") or str.contains(aTag, "OR")
         aArm  := bar_index
         aBias := bias
         aCH   := false
@@ -1003,9 +1099,11 @@ if barstate.isconfirmed
         aMss  := isS ? f_swBefore(swLP, swLB, aExtB) : f_swBefore(swHP, swHB, aExtB)
         int smW = math.max(1, math.min(bar_index - nz(sK.hitB, bar_index) + 3, 60))
         int smL = math.min(150, int((time - nz(sK.t, time)) / (chSec * 1000)))
-        aSmt  := f_smt(isS, smW, smL)
+        bool smAg = smtMode != SMT_OFF and smtPair != SP_DX ? f_smtX(false, isS, smW, smL) : false
+        bool smDx = smtMode != SMT_OFF and smtPair != SP_AG ? f_smtX(true, not isS, smW, smL) : false
+        aSmt  := smtPair == SP_ALL ? smAg and smDx : smAg or smDx
         if aSmt
-            aTag := aTag + " +SMT"
+            aTag := aTag + " +SMT(" + (smAg and smDx ? "Ag·DXY" : smAg ? "Ag" : "DXY") + ")"
         aTsLb := label.new(aExtB, aExt, aSmt ? "TS·SMT" : "TS", style=isS ? label.style_label_down : label.style_label_up, color=cNone, textcolor=colKey, size=txtSz, tooltip="Turtle Soup · กวาด " + aTag + " · KEY " + f_px(aKey) + " · Bias " + (aBias == 1 ? "▲" : aBias == -1 ? "▼" : "–"))
         f_keepB(aTsLb)
         alert("KA PRO · " + syminfo.ticker + " · กวาด " + aTag + (isS ? " ▼ (รอ Sell)" : " ▲ (รอ Buy)") + " · KEY " + f_px(aKey) + " · Bias " + btfT + (aBias == 1 ? " ▲" : aBias == -1 ? " ▼" : " –"), alert.freq_once_per_bar_close)
@@ -1058,6 +1156,26 @@ if armed and barstate.isconfirmed
                     fvg   := true
                     fvgCE := isS ? (high[j] + low[j + 2]) / 2 : (low[j] + high[j + 2]) / 2
             bool  dispOk = bodyMx >= dispAtr * atr or fvg
+            // ICT Order Block: แท่งสวนทางแท่งสุดท้ายก่อน displacement (ที่/ก่อนจุด TS) → Entry ที่ open
+            // Breaker: OB ฝั่งตรงข้ามที่ต้นขาวิ่งเข้าไปกวาด liQ แล้วถูกปิดทะลุ → Entry ที่ CE ของแท่ง
+            float obE = na
+            float brE = na
+            if useObE
+                for k = n to n + 10
+                    if isS ? close[k] > open[k] : close[k] < open[k]
+                        obE := open[k]
+                        break
+                int   m    = n
+                float ext2 = isS ? low[n] : high[n]
+                for k = n to n + 40
+                    if isS ? low[k] < ext2 : high[k] > ext2
+                        ext2 := isS ? low[k] : high[k]
+                        m    := k
+                for k = m to m + 5
+                    if isS ? close[k] < open[k] : close[k] > open[k]
+                        if isS ? close < low[k] : close > high[k]
+                            brE := (high[k] + low[k]) / 2
+                        break
             float tlV    = isS ? tlBear : tlBull
             // Model KR: จด KEY ไว้รอราคากลับมา (หลัง BOS / Accumulation / กวาด IDM)
             if useKR or useRe
@@ -1098,6 +1216,12 @@ if armed and barstate.isconfirmed
             if useFvgE and f_ok(fvgCE, isS, near, lim)
                 cp.push(fvgCE)
                 ct.push("FVG")
+            if useObE and f_ok(obE, isS, near, lim)
+                cp.push(obE)
+                ct.push("OB")
+            if useObE and f_ok(brE, isS, near, lim)
+                cp.push(brE)
+                ct.push("BRK")
             array<Lv> ms = isS ? resL : supL
             for l in ms
                 if f_ok(l.p, isS, near, lim)
@@ -1552,6 +1676,9 @@ if barstate.islast
     if showDO and not na(dOpen)
         f_ln(dOpenT, dOpen, color.new(chart.fg_color, 60), line.style_dotted)
         f_rl(dOpen, "NY Open", color.new(chart.fg_color, 30), "NY Midnight Open · Bias ลง: Sell เหนือเส้นนี้ · Bias ขึ้น: Buy ใต้เส้นนี้")
+    if showDO and not na(nyO) and time - nyOT < 86400000
+        f_ln(nyOT, nyO, color.new(chart.fg_color, 70), line.style_dotted)
+        f_rl(nyO, "NY 9:30", color.new(chart.fg_color, 40), "NY Open 09:30 (เวลา New York) · ราคาอ้างอิงของ NY AM")
     // ═ แผนตั้งไม้: ✅ ตั้งเลย · 📍 ถืออยู่ · ⏳ รอเงื่อนไข · ✗ ห้ามเทรด ═
     plS.clear()
     plC.clear()
