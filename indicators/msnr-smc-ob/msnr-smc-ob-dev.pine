@@ -5,6 +5,7 @@
 //   · โซน OB 3 แท่ง (TF ชาร์ต + Timeframe 2) · ไม่มีขอบกล่อง · เส้น 50% · Fresh / Mitigated / ลบเมื่อทะลุ
 //   · กรอง: 2 แท่งก่อนหน้าห้ามทำไส้เกินแท่ง OB · แท่ง OB สีอะไรก็ได้ (ติ๊กได้)
 //   · คำนวณเฉพาะช่วง 'คำนวณย้อนหลัง' เหมือน Engine (FAST) · Settings หมวด 'OB · …' อยู่ท้ายสุด
+// 2026-11-26: + แถบ Quarter (QT) ใต้กราฟ แบบ KA PRO (Daye Quarterly Theory · บน 90 นาที · ล่าง Quarter ของวัน) · Settings หมวด 'QT · …'
 // ════════════════════════════════════════════════════════════════
 //@version=6
 indicator("MSNR × SMC + OB DEV", shorttitle="MSNR SMC OB DEV", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_bars_back=500, calc_bars_count=5000)
@@ -1717,3 +1718,47 @@ if obZones.size() > 0
 // ───────── สีแท่ง OB ─────────
 bool obBarOk = obOn and obBars and obUseC and inCalc and barstate.isconfirmed
 barcolor(obBarOk and obcS ? obBarSup : obBarOk and obcD ? obBarDem : na, offset=-2, title="OB candle")
+
+// ════════════════════════════════════════════════════════════════
+// ███ MODULE: แถบ Quarter (QT) ใต้กราฟ — Quarterly Theory (Daye · AMDX) จาก KA PRO DEV v9.12 ███
+// วัน (เวลา New York · เริ่ม 18:00): Q1 A Asia 18-00 · Q2 M London 00-06 · Q3 D NY AM 06-12 · Q4 X NY PM 12-18
+// แถวบน = 90 นาที × 4 ในแต่ละ Quarter · แถวล่าง = Quarter ของวัน · กรอบเข้ม = ช่วงปัจจุบัน · แสดงผลอย่างเดียว
+// ════════════════════════════════════════════════════════════════
+string QTG = "QT · แถบ Quarter ใต้กราฟ"
+bool   qtShow  = input.bool(true, "แถบ Quarter ใต้กราฟ (บน 90 นาที · ล่าง วัน)", group=QTG, tooltip="สี: Q1 เทา (A) · Q2 แดง (M) · Q3 เขียว (D) · Q4 ฟ้า (X) · กรอบเข้ม = ช่วงปัจจุบัน\nเวลา New York · วันเริ่ม 18:00 NY\nวางใต้ Low ของช่วงที่แสดง")
+int    qtDays  = input.int(2, "ย้อนหลัง (วัน)", minval=1, maxval=5, group=QTG, display=display.none)
+bool   qtBg    = input.bool(false, "แรเงา Quarter ของวันบนกราฟ", group=QTG, display=display.none)
+
+int qtMin = (hour(time, "America/New_York") * 60 + minute(time, "America/New_York") + 360) % 1440
+int qtDQ  = math.floor(qtMin / 360)              // 0..3 = Q1 Asia · Q2 London · Q3 NY AM · Q4 NY PM
+int qtMQ  = math.floor((qtMin % 360) / 90)       // 0..3 = 90 นาที ในเซสชัน
+
+bgcolor(qtBg ? (qtDQ == 0 ? color.new(color.gray, 94) : qtDQ == 1 ? color.new(colR, 95) : qtDQ == 2 ? color.new(colS, 95) : color.new(color.blue, 95)) : na, title="Quarter ของวัน")
+
+var array<box> qtB = array.new<box>()
+if qtShow and barstate.islast
+    while qtB.size() > 0
+        box.delete(qtB.pop())
+    // หา Low/High ของช่วงที่แสดง (ไม่เกิน max_bars_back)
+    int   nbq = math.min(bar_index, qtDays * int(86400 / math.max(chSec, 1)), 480)
+    float qlo = low
+    float qhi = high
+    for j = 0 to nbq
+        qlo := math.min(qlo, low[j])
+        qhi := math.max(qhi, high[j])
+    float qrg  = math.max(qhi - qlo, atr)
+    float qh   = qrg * 0.035
+    float qy0  = qlo - qrg * 0.03
+    int   tCyc = time - qtMin * 60000            // ต้นวัน Quarterly (18:00 NY)
+    color qTx  = color.new(chart.fg_color, 40)
+    array<color>  qc = array.from(color.new(color.gray, 70), color.new(colR, 75), color.new(colS, 75), color.new(color.blue, 75))
+    array<string> qn = array.from("Q1 A · Asia", "Q2 M · London", "Q3 D · NY AM", "Q4 X · NY PM")
+    for k = -(qtDays * 4) to 3
+        int  t0  = tCyc + k * 21600000
+        int  qi  = ((k % 4) + 4) % 4
+        bool cur = k == qtDQ
+        qtB.push(box.new(t0, qy0 - qh, t0 + 21600000, qy0 - 2 * qh, xloc=xloc.bar_time, border_color=cur ? chart.fg_color : color.new(chart.fg_color, 55), border_width=cur ? 2 : 1, bgcolor=qc.get(qi), text=qn.get(qi), text_size=size.tiny, text_color=qTx))
+        for m = 0 to 3
+            int  t1 = t0 + m * 5400000
+            bool c2 = cur and m == qtMQ
+            qtB.push(box.new(t1, qy0, t1 + 5400000, qy0 - qh, xloc=xloc.bar_time, border_color=c2 ? chart.fg_color : color.new(chart.fg_color, 55), border_width=c2 ? 2 : 1, bgcolor=qc.get(m)))

@@ -11,3 +11,4 @@
 - OB คำนวณเฉพาะช่วง "คำนวณย้อนหลัง" เหมือน Engine (ไม่ให้สคริปต์ช้า) · ค่าเริ่ม 6 โซนต่อฝั่งต่อ TF
 - Settings หมวด `OB · การวาด & ป้าย` · `OB · ตัวกรอง` · `OB · TF ชาร์ต / Timeframe 2` อยู่ท้ายสุด
 - Alert "Any alert() function call" รวม OB ใหม่ / OB ถูกแตะ (ขึ้นต้น `MSNR×SMC OB:`)
+- **แถบ Quarter (QT) ใต้กราฟ** (2026-11-26) แบบ KA PRO — Daye Quarterly Theory เวลา New York (วันเริ่ม 18:00): แถวล่าง Q1 A Asia · Q2 M London · Q3 D NY AM · Q4 X NY PM · แถวบน 90 นาที × 4 · กรอบเข้ม = ช่วงปัจจุบัน · Settings หมวด `QT · แถบ Quarter ใต้กราฟ` (ย้อนหลัง 2 วัน · แรเงา Quarter บนกราฟได้)
