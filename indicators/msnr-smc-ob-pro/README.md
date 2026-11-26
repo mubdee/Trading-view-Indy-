@@ -1,0 +1,24 @@
+# MSNR × SMC + OB PRO — ตัวทดลองข้อแนะนำทั้งหมด
+
+- ไฟล์หลัก: [`main/msnr-smc-ob-pro-main.pine`](./main/msnr-smc-ob-pro-main.pine)
+- ไฟล์สำรองสำหรับแก้: [`msnr-smc-ob-pro-dev.pine`](./msnr-smc-ob-pro-dev.pine) (ชื่อบนกราฟ `MSNR OB PRO DEV`)
+
+ต่อจาก [MSNR × SMC + OB](../msnr-smc-ob/README.md) (ตัวเดิมไม่แก้) · ทุกอย่างของ MSNR × SMC ยังอยู่ครบ
+
+1. **OB ใช้ใน Setup**
+   - Entry ทับโซน OB ทิศเดียวกัน (ยังไม่ถูกลบ) = **Score +1** · Score/Dashboard บอก TF ของ OB (`✓OB H4`)
+   - **OB เป็น POI** (ค่าเริ่ม: OB TF ใหญ่) — ราคาแตะโซน OB H1/H4 → เปิดโซนรอ Sweep → MSS → Limit เหมือนแตะเลเวล MSNR (ใช้ Storyline เหมือนกัน)
+2. **คัดคุณภาพ OB** — แท่ง OB กวาดไส้แท่งก่อนหน้า · แท่ง 2 ปิดกลืนแท่ง OB · 2 แท่งก่อนหน้าห้ามไส้เกิน · Displacement (ค่าเริ่มปิด) · ความสูงโซน ≤ 3 ATR
+3. **AMDX (Quarterly Theory จาก KA PRO)**
+   - ตรง AMDX = Q1 ของเซสชัน (90 นาทีแรก) หรือ Q1 ของวัน ถูกกวาดฝั่งตรงข้าม + Entry อยู่ฝั่งถูกของ True Open → **Score +1** (หรือบังคับ)
+   - ไม่ตั้ง Limit ช่วง Q1 Asia (18:00-00:00 NY)
+   - เส้น `TO 90m` · `TDO` (True Day Open) · `Q1 H` / `Q1 L` ของเซสชัน (✓กวาด)
+   - แถบ Quarter ใต้กราฟ (บน 90 นาที · ล่าง Quarter ของวัน)
+4. **เบาขึ้น** — เส้น 50% ของ OB ปิดเป็นค่าเริ่ม (ไม่ดันเส้น MSNR/SMT หลุดเพดาน 500 เส้น) · โซนต่อฝั่ง: TF ชาร์ต 5 · TF ใหญ่ 4 ต่อ TF
+5. **OB TF ใหญ่ 2 ตัว: H1 + H4** (ตรงกับเลเวล MSNR)
+
+**Score เต็ม** = 8 (เดิม) + OB + AMDX = สูงสุด 10 · เกรด A+ ≥ เต็ม−1 · A = เต็ม−2 · B = เต็ม−3 · Stats A/A+ ใช้เกณฑ์เดียวกัน
+
+Dashboard แถวใหม่ `OB · QT`: Demand/Supply OB ใกล้ราคา + Quarter ปัจจุบัน และสถานะกวาด Q1
+
+ถ้าขึ้น error สคริปต์ช้า (RE10110) → ลด "คำนวณย้อนหลัง" เหลือ 1000-1500
