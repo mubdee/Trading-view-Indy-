@@ -1,6 +1,7 @@
 // ════════════════════════════════════════════════════════════════
 // MSNR × SMC + OB PRO — DEV · MSNR × SMC + OB (2026-11-26) + ข้อแนะนำทั้งหมด (Pine Script v6)
 // ✏️ ไฟล์สำรองสำหรับแก้/ทดลอง · ไฟล์หลัก: indicators/msnr-smc-ob-pro/main/msnr-smc-ob-pro-main.pine
+// DEV (7) 2026-11-27: ติดตามผลจุดเข้า (✓TP / ✗SL / ✗ล้ม / ไม่ย่อมาถึง) + Flip (Breaker) · QT M ไม่ชัด → ข้ามรอบ · KZ/Asia เป็นเวลา NY (DST อัตโนมัติ) · Score ขั้นต่ำ 7 · OB TF ใหญ่สูงไม่เกิน 2 ATR (ตั้งแยก) · จุดเข้าล่าสุดย่อ + อายุ
 // DEV (6) 2026-11-27: QT แบบรอบอัตโนมัติ AMDX/XAMD/AAMD/MDAX/XXMD/DMDX (วัน · 90m · Micro 22.5m) · กฎ Q4 กับ Key Level TF ใหญ่ · SSMT + PSP · ✓AMDX ใช้ทิศแบบใหม่ · SMT TF ใหญ่เหลือ 2 (H1 + H4)
 // DEV (5) 2026-11-26: โหมดดูจุดเข้า — มาร์กจุดเข้า + SL/TP อ้างอิงจาง แล้วหาจุดต่อไปทันที · Score ต่ำ = จาง · ตัด Lot/Stats/บริหารไม้ · AMDX ใช้ทิศเดียวกับเรื่องเล่า QT · Dashboard 10 แถว
 // DEV (4) 2026-11-26: QT ไซด์เวย์เทียบค่าเฉลี่ยกรอบ A 10 รอบก่อน (ปรับตามตลาด · ATR เป็นค่าสำรอง) · f_qtStory คืน [ข้อความ, ทิศ] แทนการเดาสีจากข้อความ
@@ -61,13 +62,13 @@ bool  reqDisp = input.bool(false, "แท่ง MSS ต้องมี Displacem
 float dispAtr = input.float(0.8, "Displacement: body ≥ (x ATR)", minval=0.1, step=0.1, group=G2, display=display.none)
 bool  reqFvg  = input.bool(false, "แท่ง MSS ต้องสร้าง FVG", group=G2)
 
-string GQ = "คุณภาพ Setup (Score 0-8)"
+string GQ = "คุณภาพ Setup (Score เต็ม 8 + OB · AMDX · PSP)"
 bool   useKey   = input.bool(true, "นับ Key liquidity: PDH/PDL · Asia H/L · EQH/EQL", group=GQ)
 float  eqTol    = input.float(0.1, "EQH/EQL tolerance (x ATR)", minval=0.01, step=0.01, group=GQ, display=display.none)
-string asiaSess = input.session("0700-1400", "Asia session (เวลาไทย)", group=GQ, display=display.none)
-string kzLon    = input.session("1400-1700", "London killzone (เวลาไทย)", group=GQ, display=display.none)
-string kzNy     = input.session("1900-2200", "New York killzone (เวลาไทย)", group=GQ, display=display.none)
-int    minScore = input.int(4, "ตั้ง Limit เฉพาะ Score ≥", minval=0, maxval=10, group=GQ, display=display.none, tooltip="Score 1 แต้มต่อข้อ: Key liquidity · Displacement · FVG · Entry ทับเส้น HTF · Entry อยู่ Discount/Premium · Killzone · SMT · PO3\n≥7 = A+ · 6 = A · 5 = B · ≤4 = C")
+string asiaSess = input.session("1900-0200", "Asia session (เวลา NY · ปรับ DST เอง)", group=GQ, display=display.none, tooltip="ใช้หา Asia High/Low (Key liquidity) · 19:00-02:00 NY ≈ 07:00-14:00 ไทย (ฤดูหนาว US)")
+string kzLon    = input.session("0200-0500", "London killzone (เวลา NY)", group=GQ, display=display.none, tooltip="02:00-05:00 NY ≈ 14:00-17:00 ไทย (ฤดูหนาว US) · ปรับตาม DST อัตโนมัติ")
+string kzNy     = input.session("0700-1000", "New York killzone (เวลา NY)", group=GQ, display=display.none, tooltip="07:00-10:00 NY ≈ 19:00-22:00 ไทย (ฤดูหนาว US) · ปรับตาม DST อัตโนมัติ")
+int    minScore = input.int(7, "จุดเข้าเข้ม (ไม่จาง) เฉพาะ Score ≥", minval=0, maxval=11, group=GQ, display=display.none, tooltip="Score 1 แต้มต่อข้อ: Key liquidity · Displacement · FVG · Entry ทับเส้น HTF · Entry อยู่ Discount/Premium · Killzone · SMT · PO3\n≥7 = A+ · 6 = A · 5 = B · ≤4 = C")
 bool   useSMT   = input.bool(true, "SMT divergence (เทียบสินทรัพย์ที่วิ่งตามกัน)", group=GQ)
 string smtSym   = input.symbol("OANDA:XAGUSD", "สัญลักษณ์เทียบ SMT", group=GQ, display=display.none, tooltip="ทอง → เงิน (XAGUSD) · ทองกวาด Low แต่เงินไม่ทำ Low ใหม่ = Bullish SMT · ทองกวาด High แต่เงินไม่ทำ High ใหม่ = Bearish SMT")
 bool   showSMT  = input.bool(true, "วาดเส้น SMT บนกราฟ", group=GQ)
@@ -96,6 +97,8 @@ int    fillBars  = 0      // โหมดดูจุดเข้า: ไม่�
 int    maxHold   = 150      // โหมดดูจุดเข้า: ไม่ใช้ (เดิมเป็น input)
 bool   useSess   = input.bool(false, "หา Setup เฉพาะใน Session", group=G3)
 int    enKeep    = input.int(10, "จำนวนจุดเข้าที่แสดงย้อนหลัง", minval=1, maxval=40, group=G3, display=display.none, tooltip="โหมดดูจุดเข้า: มาร์กจุดเข้า + เส้น SL/TP อ้างอิงจาง แล้วหาจุดต่อไปทันที (ไม่รอผลไม้)")
+bool   trackEn   = input.bool(true, "ติดตามผลจุดเข้า (✓ ถึง TP · ✗ โดน SL · ✗ ล้ม)", group=G3, tooltip="จุดที่จบแล้วจะจางลง + ต่อท้ายผล · ✗ ล้ม = เกิด MSS ฝั่งตรงข้ามก่อนถึง TP/SL")
+bool   flipOn    = input.bool(true, "Flip: จุดเข้ากลับทิศเมื่อจุดเข้าเดิมโดน SL (Breaker)", group=G3, tooltip="Buy โดน SL → โซนเดิมกลายเป็นแนวต้าน → มาร์ก Sell ที่ราคาเข้าเดิม · SL เหนือ High ตั้งแต่จุดเข้าเดิม\nสวน Storyline = แสดงจาง")
 bool   showWeak  = input.bool(true, "แสดงจุดเข้าที่ Score ต่ำแบบจาง", group=G3)
 string sess      = input.session("1400-0200", "Session (เวลาไทย)", group=G3, display=display.none)
 
@@ -218,8 +221,8 @@ bool  bullOCL = close[1] > open[1] and close > open and gapSz >= math.max(gapA *
 
 // ───────── Key liquidity: PDH/PDL · Asia H/L ─────────
 [pdh, pdl] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead=barmerge.lookahead_on, calc_bars_count=htfN)
-bool inAsia = not na(time(timeframe.period, asiaSess, "Asia/Bangkok"))
-bool inKz   = not na(time(timeframe.period, kzLon, "Asia/Bangkok")) or not na(time(timeframe.period, kzNy, "Asia/Bangkok"))
+bool inAsia = not na(time(timeframe.period, asiaSess, "America/New_York"))
+bool inKz   = not na(time(timeframe.period, kzLon, "America/New_York")) or not na(time(timeframe.period, kzNy, "America/New_York"))
 var float aH   = na
 var float aL   = na
 var float curH = na
@@ -828,6 +831,7 @@ bool   obSweep    = input.bool(true, "แท่ง OB ต้องกวาด�
 bool   obEngulf   = input.bool(true, "แท่งถัดไปต้องปิดกลืนแท่ง OB", group=OBG0, tooltip="Demand: แท่ง 2 ปิดเหนือ High แท่ง OB · Supply: แท่ง 2 ปิดใต้ Low แท่ง OB")
 float  obDispA    = input.float(0.0, "Displacement: เนื้อแท่ง 2 ≥ (x ATR) · 0 = ปิด", minval=0.0, step=0.1, group=OBG0, display=display.none)
 float  obMaxHA    = input.float(3.0, "ความสูงโซนไม่เกิน (x ATR) · 0 = ปิด", minval=0.0, step=0.5, group=OBG0, display=display.none, tooltip="ตัดโซนที่สูงเกิน (SL จะกว้างเกินไป) · ATR ของ TF นั้น")
+float  obMaxHAH   = input.float(2.0, "TF ใหญ่: ความสูงโซนไม่เกิน (x ATR ของ TF นั้น) · 0 = ปิด", minval=0.0, step=0.5, group=OBG0, display=display.none, tooltip="โซน H1/H4 มักใหญ่ → ตั้งแยกให้แคบกว่า TF ชาร์ต")
 string obRemove   = input.string("Wick fully through", "ลบโซนเมื่อ", options=["Wick fully through", "Close beyond"], group=OBG0, display=display.none, tooltip="Wick = ไส้ทะลุทั้งโซน\nClose = แท่งปิดเลยขอบโซน")
 string obFilter   = input.string("All Active", "แสดงโซน", options=["All Active", "Fresh Only"], group=OBG0, display=display.none)
 
@@ -863,7 +867,7 @@ obMidSt = switch obMidStIn
     => line.style_dashed
 
 // แท่ง OB = [o+2], แท่ง 2 = [o+1], แท่ง 3 = [o] (แท่งยืนยัน) · แท่งก่อนหน้า OB = [o+3] … [o+2+obPrevN]
-ob_detect(int o) =>
+ob_detect(int o, float mh) =>
     float a    = ta.atr(14)
     bool  wickMode = obCreate == "Wick to Wick"
     float bTop = math.max(open[o + 2], close[o + 2])
@@ -882,20 +886,20 @@ ob_detect(int o) =>
     float c3T  = wickMode ? high[o] : math.max(open[o], close[o])
     float sTop = math.max(high[o + 2], high[o + 1])
     float sBot = obDraw == "Wick" ? low[o + 2] : bBot
-    bool  qS   = (not obSweep or high[o + 2] > high[o + 3]) and (not obEngulf or close[o + 1] < low[o + 2]) and (obMaxHA <= 0 or sTop - sBot <= obMaxHA * a[o + 1])
+    bool  qS   = (not obSweep or high[o + 2] > high[o + 3]) and (not obEngulf or close[o + 1] < low[o + 2]) and (mh <= 0 or sTop - sBot <= mh * a[o + 1])
     bool  sup  = c1S and close[o + 1] < open[o + 1] and c3T < low[o + 2] and pSup and dispOk and qS
     // ---- Demand
     bool  c1D  = obReqOpp ? close[o + 2] < open[o + 2] : true
     float c3B  = wickMode ? low[o] : math.min(open[o], close[o])
     float dBot = math.min(low[o + 2], low[o + 1])
     float dTop = obDraw == "Wick" ? high[o + 2] : bTop
-    bool  qD   = (not obSweep or low[o + 2] < low[o + 3]) and (not obEngulf or close[o + 1] > high[o + 2]) and (obMaxHA <= 0 or dTop - dBot <= obMaxHA * a[o + 1])
+    bool  qD   = (not obSweep or low[o + 2] < low[o + 3]) and (not obEngulf or close[o + 1] > high[o + 2]) and (mh <= 0 or dTop - dBot <= mh * a[o + 1])
     bool  dem  = c1D and close[o + 1] > open[o + 1] and c3B > high[o + 2] and pDem and dispOk and qD
     [sup, sTop, sBot, dem, dTop, dBot, time[o + 2]]
 
-[obcS, obcSTop, obcSBot, obcD, obcDTop, obcDBot, obcT1] = ob_detect(0)
-[obaS, obaSTop, obaSBot, obaD, obaDTop, obaDBot, obaT1] = request.security(syminfo.tickerid, obTfA, ob_detect(1), lookahead=barmerge.lookahead_on, calc_bars_count=htfN)
-[obbS, obbSTop, obbSBot, obbD, obbDTop, obbDBot, obbT1] = request.security(syminfo.tickerid, obTfB, ob_detect(1), lookahead=barmerge.lookahead_on, calc_bars_count=htfN)
+[obcS, obcSTop, obcSBot, obcD, obcDTop, obcDBot, obcT1] = ob_detect(0, obMaxHA)
+[obaS, obaSTop, obaSBot, obaD, obaDTop, obaDBot, obaT1] = request.security(syminfo.tickerid, obTfA, ob_detect(1, obMaxHAH), lookahead=barmerge.lookahead_on, calc_bars_count=htfN)
+[obbS, obbSTop, obbSBot, obbD, obbDTop, obbDBot, obbT1] = request.security(syminfo.tickerid, obTfB, ob_detect(1, obMaxHAH), lookahead=barmerge.lookahead_on, calc_bars_count=htfN)
 
 bool   obAOk  = obOn and obUseA and timeframe.in_seconds(obTfA) > timeframe.in_seconds(timeframe.period)
 bool   obBOk  = obOn and obUseB and timeframe.in_seconds(obTfB) > timeframe.in_seconds(timeframe.period) and obTfB != obTfA
@@ -1081,8 +1085,8 @@ bool   qtShow  = input.bool(true, "แถบ Quarter ใต้กราฟ (บ�
 int    qtDays  = input.int(2, "แถบ Quarter: ย้อนหลัง (วัน)", minval=1, maxval=5, group=QTG, display=display.none)
 bool   qtBg    = input.bool(false, "แรเงา Quarter ของวันบนกราฟ", group=QTG, display=display.none)
 float  qtSideM = input.float(1.2, "QT: กรอบแคบ (สะสม) ถ้า ≤ (x ค่าเฉลี่ยกรอบของ 16 ช่วงก่อน)", minval=0.1, step=0.1, group=QTG, display=display.none, tooltip="ใช้ตัดสินแบบรอบ (AMDX / XAMD / AAMD / MDAX / XXMD / DMDX) ทุกระดับ: วัน · 90m · Micro\nกว้างเกิน 1.25 เท่าของเกณฑ์นี้ + ปิดใกล้ปลาย = Q1 วิ่งแรง (D)\nประวัติยังไม่พอ → ใช้ ATR H1 ด้านล่าง")
-float  qtSideD = input.float(2.5, "สำรอง (ประวัติ < 3 รอบ): A วัน ≤ (x ATR H1)", minval=0.1, step=0.1, group=QTG, display=display.none)
-float  qtSideS = input.float(1.0, "สำรอง (ประวัติ < 3 รอบ): A 90m ≤ (x ATR H1)", minval=0.1, step=0.1, group=QTG, display=display.none)
+float  qtSideD = input.float(2.5, "สำรอง (ประวัติ < 4 ช่วง): กรอบแคบ วัน ≤ (x ATR H1)", minval=0.1, step=0.1, group=QTG, display=display.none)
+float  qtSideS = input.float(1.0, "สำรอง (ประวัติ < 4 ช่วง): กรอบแคบ 90m ≤ (x ATR H1)", minval=0.1, step=0.1, group=QTG, display=display.none)
 
 int qtMin = (hour(time, "America/New_York") * 60 + minute(time, "America/New_York") + 360) % 1440
 int qtDQ  = math.floor(qtMin / 360)              // 0..3 = Q1 Asia · Q2 London · Q3 NY AM · Q4 NY PM
@@ -1396,7 +1400,7 @@ f_qtText(QtC c, float sideLim, int bias, float rP, string rT, float sP, string s
         bool  done = dDir != 0 and not na(aH) and (dDir == 1 ? aH > rfH : aL < rfL)
         bool  go   = dDir != 0 and not na(tOp) and (dDir == 1 ? close > tOp : close < tOp)
         int   eff  = fail ? -dDir : dDir
-        string dTx = dDir == 0 ? "รอทิศ" : fail ? f_arw(dDir) + " ผิดคาด ✗ → Inversion " + f_arw(eff) : done ? f_arw(dDir) + " ตามคาด ✓" : go ? f_arw(dDir) + " กำลังไป" : f_arw(dDir) + " (ยังไม่ไป)"
+        string dTx = dDir == 0 ? (mQ >= 0 and c.q > mQ ? "ไม่ชัด → ข้ามรอบนี้" : "รอทิศ") : fail ? f_arw(dDir) + " ผิดคาด ✗ → Inversion " + f_arw(eff) : done ? f_arw(dDir) + " ตามคาด ✓" : go ? f_arw(dDir) + " กำลังไป" : f_arw(dDir) + " (ยังไม่ไป)"
         // กฎ Q4: แตะ Key Level TF ใหญ่ระหว่าง D ถึงต้น Q4 → กลับตัว · ยังไม่แตะ → วิ่งต่อไปหาเป้า
         string q4 = ""
         int    q4d = eff
@@ -1515,16 +1519,54 @@ f_markEntry(int d, float ep, float sl, float tp, float rr, string txt, string ti
     color dc = d == 1 ? colS : colR
     color ec = weak ? color.new(dc, 65) : dc
     int   x2 = bar_index + offs
-    enLs.push(line.new(bar_index, ep, x2, ep, color=ec, width=lw))
+    line  le = line.new(bar_index, ep, x2, ep, color=ec, width=lw)
+    enLs.push(le)
     enLs.push(line.new(bar_index, sl, x2, sl, color=color.new(colR, weak ? 80 : 55), width=1, style=line.style_dotted))
     enLs.push(line.new(bar_index, tp, x2, tp, color=color.new(colS, weak ? 80 : 55), width=1, style=line.style_dotted))
-    enLb.push(label.new(x2, ep, txt, style=label.style_label_lower_left, color=cNone, textcolor=ec, size=txtSz, tooltip=tip))
+    label lb = label.new(x2, ep, txt, style=label.style_label_lower_left, color=cNone, textcolor=ec, size=txtSz, tooltip=tip)
+    enLb.push(lb)
     enLb.push(label.new(x2, sl, "SL", style=label.style_label_lower_left, color=cNone, textcolor=color.new(colR, weak ? 75 : 45), size=txtSz))
     enLb.push(label.new(x2, tp, "TP 1:" + str.tostring(rr, "#.#"), style=label.style_label_lower_left, color=cNone, textcolor=color.new(colS, weak ? 75 : 45), size=txtSz))
     while enLs.size() > enKeep * 3
         line.delete(enLs.shift())
     while enLb.size() > enKeep * 3
         label.delete(enLb.shift())
+    [le, lb]
+
+// ติดตามผลจุดเข้า · st: 0 รอ/เปิด · 1 ถึง TP · -1 โดน SL · -2 ล้ม (MSS สวน) · -3 ไม่ย่อมาถึง · 2 หมดอายุ
+type EnT
+    int    d
+    float  ep
+    float  sl
+    float  tp
+    int    bar
+    bool   touched = false
+    int    st      = 0
+    bool   weak
+    bool   flip
+    string gr
+    line   le
+    label  lb
+    string txt
+
+var array<EnT> enA   = array.new<EnT>()
+var EnT        lastE = na
+
+f_enStat(EnT e) =>
+    e.st == 1 ? "✓ ถึง TP" : e.st == -1 ? "✗ โดน SL" : e.st == -2 ? "✗ ล้ม (MSS สวน)" : e.st == -3 ? "✗ ไม่ย่อมาถึง (ถึง TP ก่อน)" : e.st == 2 ? "หมดอายุ" : e.touched ? "ราคาถึงจุดเข้าแล้ว · รอผล" : "รอราคาย่อมาถึง"
+
+f_enClose(EnT e, int st) =>
+    e.st := st
+    color dc = e.d == 1 ? colS : colR
+    e.lb.set_text(e.txt + " · " + f_enStat(e))
+    e.lb.set_textcolor(st == 1 ? color.new(dc, e.weak ? 50 : 20) : color.new(dc, 70))
+    e.le.set_color(st == 1 ? color.new(dc, e.weak ? 60 : 30) : color.new(dc, 80))
+    e.le.set_style(st == 1 ? line.style_solid : line.style_dashed)
+
+f_enAdd(EnT e) =>
+    enA.push(e)
+    while enA.size() > enKeep
+        enA.shift()
 
 var int   nW   = 0
 var int   nL   = 0
@@ -1632,6 +1674,45 @@ if barstate.isconfirmed and inCalc
                     f_touch(l)
 
     int sty = story2 != 0 ? story2 : story1
+
+    // ── ติดตามผลจุดเข้า + Flip (Breaker) เมื่อโดน SL
+    if trackEn and enA.size() > 0
+        array<EnT> nf = array.new<EnT>()
+        for x in enA
+            if x.st == 0 and bar_index > x.bar
+                bool up = x.d == 1
+                if not x.touched and (up ? low <= x.ep : high >= x.ep)
+                    x.touched := true
+                bool slHit = up ? low <= x.sl : high >= x.sl
+                bool tpHit = up ? high >= x.tp : low <= x.tp
+                if slHit
+                    f_enClose(x, -1)
+                    if flipOn and not x.flip
+                        int   d2  = -x.d
+                        float ex2 = up ? high : low
+                        for j = 0 to math.min(bar_index - x.bar, 300)
+                            ex2 := up ? math.max(ex2, high[j]) : math.min(ex2, low[j])
+                        float sl2 = ex2 + d2 * -1 * slA * atr
+                        sl2 := up ? math.max(sl2, x.ep + slA * atr) : math.min(sl2, x.ep - slA * atr)
+                        float rk2 = math.max(math.abs(x.ep - sl2), syminfo.mintick)
+                        float tp2 = f_target(d2, rk2 * minRR, x.ep)
+                        if na(tp2)
+                            tp2 := x.ep + d2 * rk2 * fbR
+                        float rr2 = math.abs(tp2 - x.ep) / rk2
+                        bool  wk2 = needStory and sty != d2
+                        string t2 = (d2 == 1 ? "▲ จุดเข้า Flip " : "▼ จุดเข้า Flip ") + str.tostring(x.ep, format.mintick) + " · Breaker (" + (up ? "Buy" : "Sell") + " ล้ม)" + (wk2 ? " · สวน Storyline" : "")
+                        [le2, lb2] = f_markEntry(d2, x.ep, sl2, tp2, rr2, t2, "Flip: จุดเข้าเดิมโดน SL → โซนเดิมกลายเป็น Breaker (แนวต้าน/แนวรับฝั่งตรงข้าม)", wk2)
+                        EnT fe = EnT.new(d2, x.ep, sl2, tp2, bar_index, false, 0, wk2, true, "Flip", le2, lb2, t2)
+                        nf.push(fe)
+                        if not wk2
+                            alert("MSNR×SMC: เกิดจุดเข้า Flip " + (d2 == 1 ? "▲ " : "▼ ") + str.tostring(x.ep, format.mintick) + " · Breaker | SL อ้างอิง " + str.tostring(sl2, format.mintick) + " | TP อ้างอิง " + str.tostring(tp2, format.mintick) + " | RR 1:" + str.tostring(rr2, "#.#") + " | " + syminfo.ticker, alert.freq_once_per_bar_close)
+                else if tpHit
+                    f_enClose(x, x.touched ? 1 : -3)
+                else if bar_index - x.bar > maxHold
+                    f_enClose(x, 2)
+        for y in nf
+            f_enAdd(y)
+            lastE := y
 
     // ── จัดการไม้ / Limit
     if ss == 5 and bar_index > stBar
@@ -1784,7 +1865,15 @@ if barstate.isconfirmed and inCalc
         string gr  = f_grade(tSc, scMax) + " " + str.tostring(tSc) + "/" + str.tostring(scMax)
         string tag = enTxt + (zTxt != "" ? " · " + zTxt : "") + (enOb != "" ? " · OB " + enOb : "")
         string txt = (dir == 1 ? "▲ จุดเข้า " : "▼ จุดเข้า ") + str.tostring(ep, format.mintick) + " · " + gr + " · " + tag + (enWeak ? " · " + enWhy : "")
-        f_markEntry(dir, ep, sl, tp, rrV, txt, ckTxt, enWeak)
+        // MSS ฝั่งตรงข้ามเกิดแล้ว → จุดเข้าเดิมที่ยังเปิดอยู่ฝั่งตรงข้าม = ล้ม
+        if trackEn and enA.size() > 0
+            for x in enA
+                if x.st == 0 and x.d == -dir and x.bar < bar_index
+                    f_enClose(x, -2)
+        [le0, lb0] = f_markEntry(dir, ep, sl, tp, rrV, txt, ckTxt, enWeak)
+        EnT ne = EnT.new(dir, ep, sl, tp, bar_index, false, 0, enWeak, false, gr, le0, lb0, txt)
+        f_enAdd(ne)
+        lastE := ne
         lastTxt := txt + " · SL " + str.tostring(sl, format.mintick) + " · TP " + str.tostring(tp, format.mintick) + " (1:" + str.tostring(rrV, "#.#") + ") · " + str.format_time(time, "dd/MM HH:mm", "Asia/Bangkok")
         lastDir := enWeak ? 0 : dir
         if not enWeak
@@ -2191,7 +2280,15 @@ if barstate.islast
         table.cell(dash, 0, 2, "Next S", text_color=dim, text_size=size.tiny, text_halign=text.align_left)
         table.cell(dash, 1, 2, na(nS) ? "—" : str.tostring(nS, format.mintick) + "  " + tS, text_color=colS, text_size=size.tiny, text_halign=text.align_right)
         table.cell(dash, 0, 4, "จุดเข้าล่าสุด", text_color=dim, text_size=size.tiny, text_halign=text.align_left)
-        table.cell(dash, 1, 4, lastTxt == "" ? "—" : lastTxt, text_color=lastDir == 1 ? colS : lastDir == -1 ? colR : dim, text_size=size.tiny, text_halign=text.align_right)
+        string lt = "—"
+        color  lc = dim
+        if not na(lastE)
+            float ageH = (bar_index - lastE.bar) * chSec / 3600.0
+            string ag  = ageH >= 24 ? str.tostring(ageH / 24, "#.#") + " วันก่อน" : ageH >= 1 ? str.tostring(ageH, "#.#") + " ชม.ก่อน" : str.tostring(math.round(ageH * 60)) + " นาทีก่อน"
+            float  rk  = math.max(math.abs(lastE.ep - lastE.sl), syminfo.mintick)
+            lt := (lastE.d == 1 ? "▲ " : "▼ ") + str.tostring(lastE.ep, format.mintick) + " · " + lastE.gr + " · SL " + str.tostring(lastE.sl, format.mintick) + " · TP " + str.tostring(lastE.tp, format.mintick) + " (1:" + str.tostring(math.abs(lastE.tp - lastE.ep) / rk, "#.#") + ") · " + f_enStat(lastE) + " · " + ag
+            lc := lastE.st < 0 or lastE.st == 2 or lastE.weak ? dim : lastE.d == 1 ? colS : colR
+        table.cell(dash, 1, 4, lt, text_color=lc, text_size=size.tiny, text_halign=text.align_right)
         table.cell(dash, 0, 3, "Setup", text_color=dim, text_size=size.tiny, text_halign=text.align_left)
         table.cell(dash, 1, 3, stTxt, text_color=stCol, text_size=size.tiny, text_halign=text.align_right)
         table.cell(dash, 0, 5, "Score", text_color=dim, text_size=size.tiny, text_halign=text.align_left)
