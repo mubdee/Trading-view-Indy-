@@ -1,6 +1,9 @@
 // ════════════════════════════════════════════════════════════════
 // MSNR × SMC + OB PRO — MAIN · MSNR × SMC + OB (2026-11-26) + ข้อแนะนำทั้งหมด (Pine Script v6)
-// ⭐ ไฟล์หลัก (2026-11-26) · ไฟล์สำรองสำหรับแก้: indicators/msnr-smc-ob-pro/msnr-smc-ob-pro-dev.pine
+// ⭐ ไฟล์หลัก (2026-11-26 · รวม DEV (1)-(3) · ทดสอบบน TradingView แล้ว) · ไฟล์สำรองสำหรับแก้: indicators/msnr-smc-ob-pro/msnr-smc-ob-pro-dev.pine
+// DEV (3) 2026-11-26: QT ผิดคาด = Inversion → วิ่งต่อตามทิศ M · เทียบ H4 ด้วยทิศใหม่ · สวน H4 บอกแนวต้าน/แนวรับ TF ใหญ่ตัวถัดไป
+// DEV (2) 2026-11-26: Dashboard เรื่องเล่า QT — แถว 'QT วัน' + 'QT 90m': A ไซด์เวย์ → M หลอกขึ้น/ลง → D คาดทิศสวน M (กำลังไป / ตามคาด ✓ / ผิดคาด ✗) → X ระวังกลับตัว · เทียบ H4 · กราฟไม่เปลี่ยน
+// DEV (1) 2026-11-26: ตัวเลือกแสดงโซน OB บนกราฟ — ทุก TF / เฉพาะ TF ชาร์ต / เฉพาะ TF ใหญ่ · แสดงเฉพาะโซนใกล้ราคา N โซนต่อฝั่ง (ซ่อนอย่างเดียว Engine ยังใช้ครบ)
 // ต่อจาก indicators/msnr-smc-ob (ตัวเดิมไม่แก้) · เพิ่ม:
 //   1. OB ใช้ใน Setup: Entry ทับโซน OB = Score +1 · OB TF ใหญ่เป็น POI ได้ (แตะ OB → รอ Sweep → MSS)
 //   2. คัดคุณภาพ OB: กวาดไส้แท่งก่อนหน้า · แท่งถัดไปปิดกลืน · Displacement · ความสูงโซน ≤ x ATR
@@ -824,6 +827,8 @@ string obTfA      = input.timeframe("60", "", group=OBG2, inline="oba1", display
 bool   obUseB     = input.bool(true, "โซน TF ใหญ่ 2", group=OBG2, inline="obb1")
 string obTfB      = input.timeframe("240", "", group=OBG2, inline="obb1", display=display.none)
 int    obMaxH     = input.int(4, "TF ใหญ่: สูงสุด/ฝั่ง/TF", minval=1, maxval=30, group=OBG2, display=display.none)
+string obShowTf   = input.string("ทุก TF", "แสดงโซน OB บนกราฟ", options=["ทุก TF", "เฉพาะ TF ชาร์ต", "เฉพาะ TF ใหญ่"], group=OBG2, tooltip="ซ่อน/แสดงบนกราฟอย่างเดียว · Engine ยังใช้โซนที่ซ่อนอยู่ใน Score / POI ตามปกติ\nถ้าไม่ต้องการให้ใช้เลย → ติ๊กปิด 'โซน TF ใหญ่ 1 / 2' ด้านบน")
+int    obNearN    = input.int(0, "แสดงเฉพาะโซนใกล้ราคา (ฝั่งละ) · 0 = ทั้งหมด", minval=0, maxval=10, group=OBG2, tooltip="1 = เห็น Demand ใกล้ราคา 1 โซน + Supply ใกล้ราคา 1 โซน")
 bool   obScore    = input.bool(true, "Score +1 เมื่อ Entry ทับโซน OB", group=OBG2, tooltip="โซน OB ที่ยังไม่ถูกลบ (Fresh หรือ Mitigated) ทิศเดียวกับไม้ · Dashboard บอก TF ของ OB ที่ทับ")
 string obPoi      = input.string("OB TF ใหญ่", "OB เป็น POI (เปิดโซนรอ Sweep)", options=["ปิด", "OB TF ใหญ่", "ทุก OB"], group=OBG2, display=display.none, tooltip="ราคาแตะโซน OB → เปิดโซนรอ Sweep → MSS เหมือนแตะเลเวล MSNR HTF (ใช้ Storyline เหมือนกัน)")
 color  obCSupF    = input.color(color.new(color.red, 88),    "TF ชาร์ต Supply Fresh / Mitigated", group=OBG2, inline="obcs")
@@ -1015,6 +1020,34 @@ if obZones.size() > 0
             if not na(z.mid)
                 z.mid.set_x2(time + obExtMs)
 
+// ───────── ซ่อน/แสดงโซนบนกราฟ (TF · ใกล้ราคา N โซน) — แสดงผลอย่างเดียว ─────────
+ob_tfShow(ObZone z) =>
+    obShowTf == "ทุก TF" or (obShowTf == "เฉพาะ TF ชาร์ต" and z.src == 0) or (obShowTf == "เฉพาะ TF ใหญ่" and z.src > 0)
+
+if barstate.islast and obZones.size() > 0
+    // ระยะจากราคาถึงขอบโซน (อยู่ในโซน = 0) · เลือกใกล้สุด N โซนต่อฝั่ง
+    array<float> dS = array.new<float>()
+    array<float> dD = array.new<float>()
+    for z in obZones
+        if ob_tfShow(z) and not (obFilter == "Fresh Only" and z.mitigated)
+            float d = close > z.top ? close - z.top : close < z.bot ? z.bot - close : 0.0
+            if z.isSup
+                dS.push(d)
+            else
+                dD.push(d)
+    dS.sort()
+    dD.sort()
+    for z in obZones
+        bool  hidM = obFilter == "Fresh Only" and z.mitigated
+        float d    = close > z.top ? close - z.top : close < z.bot ? z.bot - close : 0.0
+        array<float> arr = z.isSup ? dS : dD
+        bool  near = obNearN == 0 or (arr.size() > 0 and d <= arr.get(math.min(obNearN, arr.size()) - 1))
+        bool  vis  = ob_tfShow(z) and not hidM and near
+        z.bx.set_bgcolor(vis ? ob_color(z) : color(na))
+        z.bx.set_text(vis ? ob_text(z) : "")
+        if not na(z.mid)
+            z.mid.set_color(vis ? obMidCol : color(na))
+
 // ───────── สีแท่ง OB ─────────
 bool obBarOk = obOn and obBars and obUseC and inCalc and barstate.isconfirmed
 barcolor(obBarOk and obcS ? obBarSup : obBarOk and obcD ? obBarDem : na, offset=-2, title="OB candle")
@@ -1035,6 +1068,8 @@ bool   qtLines = input.bool(true, "เส้น True Open 90m · True Day Open �
 bool   qtShow  = input.bool(true, "แถบ Quarter ใต้กราฟ (บน 90 นาที · ล่าง วัน)", group=QTG, tooltip="สี: Q1 เทา (A) · Q2 แดง (M) · Q3 เขียว (D) · Q4 ฟ้า (X) · กรอบเข้ม = ช่วงปัจจุบัน")
 int    qtDays  = input.int(2, "แถบ Quarter: ย้อนหลัง (วัน)", minval=1, maxval=5, group=QTG, display=display.none)
 bool   qtBg    = input.bool(false, "แรเงา Quarter ของวันบนกราฟ", group=QTG, display=display.none)
+float  qtSideD = input.float(2.5, "เรื่องเล่า QT: A วันไซด์เวย์ถ้ากรอบ ≤ (x ATR H1)", minval=0.1, step=0.1, group=QTG, display=display.none, tooltip="กรอบ High–Low ของ Q1 Asia (6 ชม.) เทียบ ATR(14) ของ H1")
+float  qtSideS = input.float(1.0, "เรื่องเล่า QT: A 90 นาทีไซด์เวย์ถ้ากรอบ ≤ (x ATR H1)", minval=0.1, step=0.1, group=QTG, display=display.none, tooltip="กรอบ High–Low ของ 90 นาทีแรกในเซสชัน เทียบ ATR(14) ของ H1")
 
 int qtMin = (hour(time, "America/New_York") * 60 + minute(time, "America/New_York") + 360) % 1440
 int qtDQ  = math.floor(qtMin / 360)              // 0..3 = Q1 Asia · Q2 London · Q3 NY AM · Q4 NY PM
@@ -1101,6 +1136,98 @@ f_qtOk(int d, float e) =>
 
 // ───────── Score เต็ม (Engine เดิม 8 + OB + AMDX) ─────────
 int scMax = 8 + (obOn and obScore ? 1 : 0) + (qtMode == QT_SC ? 1 : 0)
+
+// ───────── เรื่องเล่า QT (Dashboard เท่านั้น): A สะสม → M หลอก → D วิ่งจริง (สวน M) → X ปิดงาน ─────────
+float qtAtrH1 = request.security(syminfo.tickerid, "60", ta.atr(14)[1], lookahead=barmerge.lookahead_on, calc_bars_count=htfN)
+
+type QtCyc
+    bool  valid = false
+    float aH
+    float aL
+    float tOpen
+    float mHi
+    float mLo
+    bool  mUp = false
+    bool  mDn = false
+    float dHi
+    float dLo
+
+// newCyc = เริ่มรอบใหม่ (A) · seg = 0 A · 1 M · 2 D · 3 X
+method qtUpd(QtCyc c, bool newCyc, int seg, bool segNew) =>
+    if newCyc
+        c.valid := true
+        c.aH  := high
+        c.aL  := low
+        c.tOpen  := na
+        c.mHi := na
+        c.mLo := na
+        c.mUp := false
+        c.mDn := false
+        c.dHi := na
+        c.dLo := na
+    else if c.valid
+        if seg == 0
+            c.aH := math.max(c.aH, high)
+            c.aL := math.min(c.aL, low)
+        else if seg == 1
+            if segNew or na(c.tOpen)
+                c.tOpen := open
+            c.mHi := na(c.mHi) ? high : math.max(c.mHi, high)
+            c.mLo := na(c.mLo) ? low : math.min(c.mLo, low)
+            if high > c.aH
+                c.mUp := true
+            if low < c.aL
+                c.mDn := true
+        else
+            c.dHi := na(c.dHi) ? high : math.max(c.dHi, high)
+            c.dLo := na(c.dLo) ? low : math.min(c.dLo, low)
+    c
+
+f_qtStory(QtCyc c, int seg, float sideLim, int bias, float rP, string rT, float sP, string sT) =>
+    string r = ""
+    if not c.valid
+        r := "รอเริ่มรอบใหม่"
+    else
+        bool   side = na(sideLim) or (c.aH - c.aL) <= sideLim
+        string aTx  = side ? "A ↔ ไซด์เวย์" : "A วิ่งแรง (ผิดแบบ)"
+        if seg == 0
+            r := aTx + " กำลังสะสม " + str.tostring(c.aH - c.aL, "#.#") + " → รอ M"
+        else
+            int    mDir = c.mUp and not c.mDn ? 1 : c.mDn and not c.mUp ? -1 : 0
+            string mTx  = c.mUp and c.mDn ? "M กวาด 2 ฝั่ง (ไม่ชัด)" : c.mUp ? "M ↑ หลอกขึ้น" : c.mDn ? "M ↓ หลอกลง" : "M ยังไม่หลอก"
+            int    ex   = -mDir
+            r := aTx + " → " + mTx
+            if seg == 1
+                r := r + (ex == 0 ? " → รอ M กวาดกรอบ A" : " → คาด D " + (ex == -1 ? "↓ ลง" : "↑ ขึ้น"))
+            else if ex == 0
+                r := r + " → ไม่มีทิศคาด (ข้ามวันนี้/รอบนี้)"
+            else
+                bool fail = ex == -1 ? (not na(c.dHi) and c.dHi > c.mHi) : (not na(c.dLo) and c.dLo < c.mLo)
+                bool done = ex == -1 ? (not na(c.dLo) and c.dLo < c.aL) : (not na(c.dHi) and c.dHi > c.aH)
+                bool go   = not na(c.tOpen) and (ex == -1 ? close < c.tOpen : close > c.tOpen)
+                int    eff = fail ? -ex : ex      // ผิดคาด = Inversion → วิ่งต่อตามทิศ M
+                string dTx = fail ? "D ผิดคาด ✗ → Inversion: วิ่งต่อ " + (eff == 1 ? "↑" : "↓") + " ตาม M" : done ? "D " + (ex == -1 ? "↓ ลง" : "↑ ขึ้น") + "ตามคาด ✓" : go ? "D " + (ex == -1 ? "↓ กำลังลง" : "↑ กำลังขึ้น") : "D คาด" + (ex == -1 ? "ลง" : "ขึ้น") + " (ยังไม่ไป)"
+                r := r + " → " + dTx
+                if seg == 2 and not fail and not na(c.tOpen)
+                    r := r + " · หา " + (ex == -1 ? "SELL เหนือ" : "BUY ใต้") + " TO " + str.tostring(c.tOpen, format.mintick)
+                if seg == 3
+                    r := r + " · X ระวังกลับตัว"
+                if bias != 0
+                    r := r + (bias == eff ? " · ตรง H4 ✓" : " · สวน H4 ⚠")
+                    // Inversion สวน H4 → บอกแนวต้าน/แนวรับ TF ใหญ่ตัวถัดไปที่น่าจะชน
+                    if fail and bias != eff
+                        float  lp = eff == 1 ? rP : sP
+                        string lt = eff == 1 ? rT : sT
+                        if not na(lp)
+                            r := r + " (ระวัง" + (eff == 1 ? "แนวต้าน " : "แนวรับ ") + str.tostring(lp, format.mintick) + " " + lt + ")"
+    r
+
+var QtCyc qcD = QtCyc.new()      // ทั้งวัน: A Asia · M London · D NY AM · X NY PM
+var QtCyc qcS = QtCyc.new()      // 90 นาที ในเซสชันปัจจุบัน
+bool qtNewDay = qtDQ == 0 and qtDQ[1] != 0
+bool qtNewSes = qtDQ != qtDQ[1]
+qcD.qtUpd(qtNewDay, qtDQ, qtDQ != qtDQ[1])
+qcS.qtUpd(qtNewSes, qtMQ, qtMQ != qtMQ[1])
 
 bgcolor(qtBg ? (qtDQ == 0 ? color.new(color.gray, 94) : qtDQ == 1 ? color.new(colR, 95) : qtDQ == 2 ? color.new(colS, 95) : color.new(color.blue, 95)) : na, title="Quarter ของวัน")
 
@@ -1714,7 +1841,7 @@ plotshape(sigFill == -1, title="Sell filled", style=shape.triangledown, location
 f_smD(bool on, string tf, int a, bool lu, bool ld) =>
     on ? "  " + f_tfTxt(tf) + (a == 1 ? " ▲" : a == -1 ? " ▼" : lu ? " ▲?" : ld ? " ▼?" : " ·") : ""
 string dPos = dashPos == "บนขวา" ? position.top_right : dashPos == "ล่างซ้าย" ? position.bottom_left : dashPos == "บนซ้าย" ? position.top_left : position.bottom_right
-var table dash = table.new(dPos, 2, 11, bgcolor=color.new(chart.bg_color, 0), frame_color=color.new(chart.fg_color, 85), frame_width=1, border_width=0)
+var table dash = table.new(dPos, 2, 13, bgcolor=color.new(chart.bg_color, 0), frame_color=color.new(chart.fg_color, 85), frame_width=1, border_width=0)
 
 if barstate.islast
     array<float> vp = array.new<float>()
@@ -1871,11 +1998,19 @@ if barstate.islast
             if not z.isSup and z.top <= close and (na(obNd) or z.top > obNd)
                 obNd  := z.top
                 obNdT := z.tfTxt
-        array<string> qph = array.from("A", "M", "D", "X")
-        string qtTx = "Q" + str.tostring(qtDQ + 1) + " " + qph.get(qtDQ) + " · 90m Q" + str.tostring(qtMQ + 1) + (qtMQ == 0 ? " สะสม" : qsML and qsMH ? " · กวาด Q1 2 ฝั่ง" : qsML ? " · กวาด L → BUY" : qsMH ? " · กวาด H → SELL" : " · ยังไม่กวาด")
         string obTx = (na(obNd) ? "D —" : "D " + str.tostring(obNd, format.mintick) + " " + obNdT) + " · " + (na(obNs) ? "S —" : "S " + str.tostring(obNs, format.mintick) + " " + obNsT)
-        table.cell(dash, 0, 10, "OB · QT", text_color=dim, text_size=size.tiny, text_halign=text.align_left)
-        table.cell(dash, 1, 10, obTx + "  |  " + qtTx, text_color=qsML and not qsMH ? colS : qsMH and not qsML ? colR : fg, text_size=size.tiny, text_halign=text.align_right)
+        table.cell(dash, 0, 10, "OB ใกล้ราคา", text_color=dim, text_size=size.tiny, text_halign=text.align_left)
+        table.cell(dash, 1, 10, obTx, text_color=fg, text_size=size.tiny, text_halign=text.align_right)
+        // เรื่องเล่า QT: A → M → D → X (วัน + 90 นาที)
+        array<string> qnm = array.from("A Asia", "M London", "D NY AM", "X NY PM")
+        string qD = f_qtStory(qcD, qtDQ, qtSideD * qtAtrH1, sty, nR, tR, nS, tS)
+        string qS = f_qtStory(qcS, qtMQ, qtSideS * qtAtrH1, sty, nR, tR, nS, tS)
+        color  cD = str.contains(qD, "Inversion: วิ่งต่อ ↑") ? colS : str.contains(qD, "Inversion: วิ่งต่อ ↓") ? colR : str.contains(qD, "คาด D ↓") or str.contains(qD, "D ↓") or str.contains(qD, "D คาดลง") ? colR : str.contains(qD, "คาด D ↑") or str.contains(qD, "D ↑") or str.contains(qD, "D คาดขึ้น") ? colS : fg
+        color  cS2 = str.contains(qS, "Inversion: วิ่งต่อ ↑") ? colS : str.contains(qS, "Inversion: วิ่งต่อ ↓") ? colR : str.contains(qS, "คาด D ↓") or str.contains(qS, "D ↓") or str.contains(qS, "D คาดลง") ? colR : str.contains(qS, "คาด D ↑") or str.contains(qS, "D ↑") or str.contains(qS, "D คาดขึ้น") ? colS : fg
+        table.cell(dash, 0, 11, "QT วัน · " + qnm.get(qtDQ), text_color=dim, text_size=size.tiny, text_halign=text.align_left)
+        table.cell(dash, 1, 11, qD, text_color=cD, text_size=size.tiny, text_halign=text.align_right)
+        table.cell(dash, 0, 12, "QT 90m · Q" + str.tostring(qtMQ + 1) + " " + array.from("A", "M", "D", "X").get(qtMQ), text_color=dim, text_size=size.tiny, text_halign=text.align_left)
+        table.cell(dash, 1, 12, qS, text_color=cS2, text_size=size.tiny, text_halign=text.align_right)
         table.cell(dash, 0, 8, "Lot", text_color=dim, text_size=size.tiny, text_halign=text.align_left)
         table.cell(dash, 1, 8, ss >= 4 and not na(lotV) ? str.tostring(lotV, "#.##") + " lot · เสี่ยง $" + str.tostring(riskUsd, "#.##") + " · SL " + str.tostring(math.abs(enP - slP) / ptSize, "#") + " pts" : "—", text_color=fg, text_size=size.tiny, text_halign=text.align_right)
 
