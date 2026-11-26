@@ -1,6 +1,7 @@
 // ════════════════════════════════════════════════════════════════
 // MSNR × SMC + OB PRO — DEV · MSNR × SMC + OB (2026-11-26) + ข้อแนะนำทั้งหมด (Pine Script v6)
 // ✏️ ไฟล์สำรองสำหรับแก้/ทดลอง · ไฟล์หลัก: indicators/msnr-smc-ob-pro/main/msnr-smc-ob-pro-main.pine
+// DEV (1) 2026-11-26: ตัวเลือกแสดงโซน OB บนกราฟ — ทุก TF / เฉพาะ TF ชาร์ต / เฉพาะ TF ใหญ่ · แสดงเฉพาะโซนใกล้ราคา N โซนต่อฝั่ง (ซ่อนอย่างเดียว Engine ยังใช้ครบ)
 // ต่อจาก indicators/msnr-smc-ob (ตัวเดิมไม่แก้) · เพิ่ม:
 //   1. OB ใช้ใน Setup: Entry ทับโซน OB = Score +1 · OB TF ใหญ่เป็น POI ได้ (แตะ OB → รอ Sweep → MSS)
 //   2. คัดคุณภาพ OB: กวาดไส้แท่งก่อนหน้า · แท่งถัดไปปิดกลืน · Displacement · ความสูงโซน ≤ x ATR
@@ -824,6 +825,8 @@ string obTfA      = input.timeframe("60", "", group=OBG2, inline="oba1", display
 bool   obUseB     = input.bool(true, "โซน TF ใหญ่ 2", group=OBG2, inline="obb1")
 string obTfB      = input.timeframe("240", "", group=OBG2, inline="obb1", display=display.none)
 int    obMaxH     = input.int(4, "TF ใหญ่: สูงสุด/ฝั่ง/TF", minval=1, maxval=30, group=OBG2, display=display.none)
+string obShowTf   = input.string("ทุก TF", "แสดงโซน OB บนกราฟ", options=["ทุก TF", "เฉพาะ TF ชาร์ต", "เฉพาะ TF ใหญ่"], group=OBG2, tooltip="ซ่อน/แสดงบนกราฟอย่างเดียว · Engine ยังใช้โซนที่ซ่อนอยู่ใน Score / POI ตามปกติ\nถ้าไม่ต้องการให้ใช้เลย → ติ๊กปิด 'โซน TF ใหญ่ 1 / 2' ด้านบน")
+int    obNearN    = input.int(0, "แสดงเฉพาะโซนใกล้ราคา (ฝั่งละ) · 0 = ทั้งหมด", minval=0, maxval=10, group=OBG2, tooltip="1 = เห็น Demand ใกล้ราคา 1 โซน + Supply ใกล้ราคา 1 โซน")
 bool   obScore    = input.bool(true, "Score +1 เมื่อ Entry ทับโซน OB", group=OBG2, tooltip="โซน OB ที่ยังไม่ถูกลบ (Fresh หรือ Mitigated) ทิศเดียวกับไม้ · Dashboard บอก TF ของ OB ที่ทับ")
 string obPoi      = input.string("OB TF ใหญ่", "OB เป็น POI (เปิดโซนรอ Sweep)", options=["ปิด", "OB TF ใหญ่", "ทุก OB"], group=OBG2, display=display.none, tooltip="ราคาแตะโซน OB → เปิดโซนรอ Sweep → MSS เหมือนแตะเลเวล MSNR HTF (ใช้ Storyline เหมือนกัน)")
 color  obCSupF    = input.color(color.new(color.red, 88),    "TF ชาร์ต Supply Fresh / Mitigated", group=OBG2, inline="obcs")
@@ -1014,6 +1017,34 @@ if obZones.size() > 0
             z.bx.set_right(time + obExtMs)
             if not na(z.mid)
                 z.mid.set_x2(time + obExtMs)
+
+// ───────── ซ่อน/แสดงโซนบนกราฟ (TF · ใกล้ราคา N โซน) — แสดงผลอย่างเดียว ─────────
+ob_tfShow(ObZone z) =>
+    obShowTf == "ทุก TF" or (obShowTf == "เฉพาะ TF ชาร์ต" and z.src == 0) or (obShowTf == "เฉพาะ TF ใหญ่" and z.src > 0)
+
+if barstate.islast and obZones.size() > 0
+    // ระยะจากราคาถึงขอบโซน (อยู่ในโซน = 0) · เลือกใกล้สุด N โซนต่อฝั่ง
+    array<float> dS = array.new<float>()
+    array<float> dD = array.new<float>()
+    for z in obZones
+        if ob_tfShow(z) and not (obFilter == "Fresh Only" and z.mitigated)
+            float d = close > z.top ? close - z.top : close < z.bot ? z.bot - close : 0.0
+            if z.isSup
+                dS.push(d)
+            else
+                dD.push(d)
+    dS.sort()
+    dD.sort()
+    for z in obZones
+        bool  hidM = obFilter == "Fresh Only" and z.mitigated
+        float d    = close > z.top ? close - z.top : close < z.bot ? z.bot - close : 0.0
+        array<float> arr = z.isSup ? dS : dD
+        bool  near = obNearN == 0 or (arr.size() > 0 and d <= arr.get(math.min(obNearN, arr.size()) - 1))
+        bool  vis  = ob_tfShow(z) and not hidM and near
+        z.bx.set_bgcolor(vis ? ob_color(z) : color(na))
+        z.bx.set_text(vis ? ob_text(z) : "")
+        if not na(z.mid)
+            z.mid.set_color(vis ? obMidCol : color(na))
 
 // ───────── สีแท่ง OB ─────────
 bool obBarOk = obOn and obBars and obUseC and inCalc and barstate.isconfirmed
