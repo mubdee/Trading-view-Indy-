@@ -1143,7 +1143,7 @@ type QtCyc
     bool  valid = false
     float aH
     float aL
-    float to
+    float tOpen
     float mHi
     float mLo
     bool  mUp = false
@@ -1157,7 +1157,7 @@ method qtUpd(QtCyc c, bool newCyc, int seg, bool segNew) =>
         c.valid := true
         c.aH  := high
         c.aL  := low
-        c.to  := na
+        c.tOpen  := na
         c.mHi := na
         c.mLo := na
         c.mUp := false
@@ -1169,8 +1169,8 @@ method qtUpd(QtCyc c, bool newCyc, int seg, bool segNew) =>
             c.aH := math.max(c.aH, high)
             c.aL := math.min(c.aL, low)
         else if seg == 1
-            if segNew or na(c.to)
-                c.to := open
+            if segNew or na(c.tOpen)
+                c.tOpen := open
             c.mHi := na(c.mHi) ? high : math.max(c.mHi, high)
             c.mLo := na(c.mLo) ? low : math.min(c.mLo, low)
             if high > c.aH
@@ -1202,11 +1202,11 @@ f_qtStory(QtCyc c, int seg, float sideLim, int bias) =>
             else
                 bool fail = ex == -1 ? (not na(c.dHi) and c.dHi > c.mHi) : (not na(c.dLo) and c.dLo < c.mLo)
                 bool done = ex == -1 ? (not na(c.dLo) and c.dLo < c.aL) : (not na(c.dHi) and c.dHi > c.aH)
-                bool go   = not na(c.to) and (ex == -1 ? close < c.to : close > c.to)
+                bool go   = not na(c.tOpen) and (ex == -1 ? close < c.tOpen : close > c.tOpen)
                 string dTx = fail ? "D ผิดคาด ✗ (ทะลุจุดหลอกของ M)" : done ? "D " + (ex == -1 ? "↓ ลง" : "↑ ขึ้น") + "ตามคาด ✓" : go ? "D " + (ex == -1 ? "↓ กำลังลง" : "↑ กำลังขึ้น") : "D คาด" + (ex == -1 ? "ลง" : "ขึ้น") + " (ยังไม่ไป)"
                 r := r + " → " + dTx
-                if seg == 2 and not fail and not na(c.to)
-                    r := r + " · หา " + (ex == -1 ? "SELL เหนือ" : "BUY ใต้") + " TO " + str.tostring(c.to, format.mintick)
+                if seg == 2 and not fail and not na(c.tOpen)
+                    r := r + " · หา " + (ex == -1 ? "SELL เหนือ" : "BUY ใต้") + " TO " + str.tostring(c.tOpen, format.mintick)
                 if seg == 3
                     r := r + " · X ระวังกลับตัว"
                 if bias != 0
