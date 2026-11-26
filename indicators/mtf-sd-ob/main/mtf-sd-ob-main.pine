@@ -1,0 +1,251 @@
+// ════════════════════════════════════════════════════════════════
+// MTF Supply & Demand / Orderblocks — MAIN (Pine Script v6)
+// ⭐ ไฟล์หลัก (2026-11-26) · ไฟล์สำรองสำหรับแก้: indicators/mtf-sd-ob/mtf-sd-ob-dev.pine
+// สร้างใหม่ตามเงื่อนไขของ JP7FX "Supply & Demand / Orderblocks - Multi TimeFrame" (ต้นฉบับเป็น protected source)
+//   · OB 3 แท่ง: แท่ง OB → แท่งกลับตัว → แท่ง 3 ทิ้ง imbalance (Wick→Wick / Wick→Open)
+//   · วาดโซนจากไส้ หรือ ตัวเนื้อ ของแท่ง OB · เส้น 50% · Fresh / Mitigated / ลบเมื่อทะลุ
+//   · Chart TF + Timeframe 2 (HTF) · ไม่ repaint (ใช้แท่งที่ปิดแล้ว)
+//   · ไม่มีขอบกล่อง (เห็นไส้เทียน) · ไม่มี Dashboard
+//   · กรอง: 2 แท่งก่อนหน้าห้ามทำไส้เกินแท่ง OB · แท่ง OB เป็นสีอะไรก็ได้ (ติ๊ก "สีตรงข้าม" = แบบ JP7FX)
+// ════════════════════════════════════════════════════════════════
+//@version=6
+indicator("MTF Supply & Demand / Orderblocks", shorttitle="MTF S&D OB", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500)
+
+// ═════════════════════ INPUTS ═════════════════════
+G1 = "General Drawing & Labels"
+creationMode = input.string("Wick to Wick", "Imbalance (การเกิดโซน)", options=["Wick to Wick", "Wick to Open"], group=G1, tooltip="Wick to Wick = ไส้แท่ง 3 ต้องไม่แตะไส้แท่ง OB (FVG เต็ม)\nWick to Open = ใช้ตัวเนื้อแท่ง 3 เทียบกับไส้แท่ง OB (หลวมกว่า)")
+drawMode     = input.string("Wick", "วาดโซนจาก", options=["Wick", "Open"], group=G1, tooltip="Wick = ขอบโซนจากไส้แท่ง OB\nOpen = ขอบโซนจากตัวเนื้อแท่ง OB (โซนแคบกว่า)")
+showLabel    = input.bool(true, "แสดงป้ายในโซน (เช่น 1H Supply OB)", group=G1)
+showStatus   = input.bool(false, "แสดงสถานะ Fresh / Mitigated ในป้าย", group=G1)
+lblSizeIn    = input.string("Small", "ขนาดตัวอักษรป้าย", options=["Tiny", "Small", "Normal"], group=G1)
+extendBars   = input.int(15, "ยื่นโซนไปทางขวา (แท่ง)", minval=0, maxval=200, group=G1)
+showMid      = input.bool(true, "เส้น 50%", group=G1, inline="mid")
+midCol       = input.color(color.new(color.gray, 20), "", group=G1, inline="mid")
+midStyleIn   = input.string("Dashed", "สไตล์", options=["Solid", "Dashed", "Dotted"], group=G1, inline="mid")
+midDelete    = input.bool(true, "ลบเส้น 50% เมื่อราคาแตะ", group=G1)
+
+G0 = "OB Filter"
+requireOpp    = input.bool(false, "แท่ง OB ต้องเป็นสีตรงข้าม (แบบ JP7FX)", group=G0, tooltip="เปิด = Demand OB ต้องเป็นแท่งแดง / Supply OB ต้องเป็นแท่งเขียว\nปิด = แท่ง OB เป็นสีอะไรก็ได้")
+usePrevFilter = input.bool(true, "แท่งก่อนหน้าห้ามทำไส้เกินแท่ง OB", group=G0, tooltip="Demand: แท่งก่อนหน้าห้ามมีไส้ต่ำกว่า Low ของแท่ง OB\nSupply: แท่งก่อนหน้าห้ามมีไส้สูงกว่า High ของแท่ง OB")
+prevN         = input.int(2, "จำนวนแท่งก่อนหน้าที่เช็ค", minval=1, maxval=10, group=G0)
+
+G2 = "Mitigation & Zone Visibility"
+removeMode = input.string("Wick fully through", "ลบโซนเมื่อ", options=["Wick fully through", "Close beyond"], group=G2, tooltip="Wick = ไส้ทะลุทั้งโซน\nClose = แท่งปิดเลยขอบโซน")
+showFilter = input.string("All Active", "แสดงโซน", options=["All Active", "Fresh Only"], group=G2)
+
+G3 = "Chart Timeframe"
+useChart    = input.bool(true, "เปิดโซน TF ชาร์ต", group=G3)
+maxChart    = input.int(10, "จำนวนโซนสูงสุดต่อฝั่ง", minval=1, maxval=50, group=G3)
+cSupFresh   = input.color(color.new(color.red, 88),   "Supply  Fresh / Mitigated", group=G3, inline="cs")
+cSupMit     = input.color(color.new(color.gray, 88),  "", group=G3, inline="cs")
+cDemFresh   = input.color(color.new(color.green, 88), "Demand Fresh / Mitigated", group=G3, inline="cd")
+cDemMit     = input.color(color.new(color.gray, 88),  "", group=G3, inline="cd")
+colorBars   = input.bool(true, "ระบายสีแท่ง OB (หลังแท่ง 3 ปิดยืนยัน)", group=G3)
+cBarSup     = input.color(color.red,   "แท่ง Supply / Demand", group=G3, inline="cb")
+cBarDem     = input.color(color.green, "", group=G3, inline="cb")
+
+G4 = "Higher Timeframe (Timeframe 2)"
+useHtf      = input.bool(true, "เปิดโซน Timeframe 2", group=G4)
+htf         = input.timeframe("240", "Timeframe 2", group=G4, tooltip="ต้องสูงกว่า TF ชาร์ต")
+maxHtf      = input.int(10, "จำนวนโซนสูงสุดต่อฝั่ง", minval=1, maxval=50, group=G4)
+hSupFresh   = input.color(color.new(color.purple, 80), "Supply  Fresh / Mitigated", group=G4, inline="hs")
+hSupMit     = input.color(color.new(color.gray, 85),   "", group=G4, inline="hs")
+hDemFresh   = input.color(color.new(color.teal, 80),   "Demand Fresh / Mitigated", group=G4, inline="hd")
+hDemMit     = input.color(color.new(color.gray, 85),   "", group=G4, inline="hd")
+
+G6 = "Alerts"
+alNew    = input.bool(true, "แจ้งเตือนเมื่อเกิด OB ใหม่", group=G6)
+alMit    = input.bool(true, "แจ้งเตือนเมื่อ OB ถูกแตะ (Mitigated)", group=G6)
+alChart  = input.bool(true, "แจ้งเตือน TF ชาร์ต", group=G6)
+alHtf    = input.bool(true, "แจ้งเตือน Timeframe 2", group=G6)
+alPrefix = input.string("", "ข้อความนำหน้า (เช่น webhook tag)", group=G6)
+
+// ═════════════════════ HELPERS ═════════════════════
+toSize(string s) =>
+    switch s
+        "Tiny"   => size.tiny
+        "Normal" => size.normal
+        => size.small
+
+midStyle = switch midStyleIn
+    "Solid"  => line.style_solid
+    "Dotted" => line.style_dotted
+    => line.style_dashed
+
+tfText(string tf) =>
+    int s = timeframe.in_seconds(tf)
+    string r = tf
+    if str.endswith(tf, "M")
+        r := tf
+    else if s >= 604800 and s % 604800 == 0
+        r := str.tostring(int(s / 604800)) + "W"
+    else if s % 86400 == 0
+        r := str.tostring(int(s / 86400)) + "D"
+    else if s % 3600 == 0
+        r := str.tostring(int(s / 3600)) + "H"
+    else if s % 60 == 0
+        r := str.tostring(int(s / 60)) + "M"
+    else
+        r := str.tostring(s) + "S"
+    r
+
+// ═════════════════════ DETECTION ═════════════════════
+// แท่ง OB (แท่ง 1) = [o+2], แท่ง 2 = [o+1], แท่ง 3 = [o] (แท่งยืนยัน)
+// แท่งก่อนหน้า OB = [o+3] ... [o+2+prevN]
+detect(int o) =>
+    bool wickMode = creationMode == "Wick to Wick"
+    float obBodyTop = math.max(open[o + 2], close[o + 2])
+    float obBodyBot = math.min(open[o + 2], close[o + 2])
+    // ---- เช็คแท่งก่อนหน้า
+    bool prevOkSup = true
+    bool prevOkDem = true
+    if usePrevFilter
+        for k = 1 to prevN
+            if high[o + 2 + k] > high[o + 2]
+                prevOkSup := false
+            if low[o + 2 + k] < low[o + 2]
+                prevOkDem := false
+    // ---- Supply : (แท่ง OB) + แท่ง SELL + imbalance ด้านล่าง
+    bool  c1OkSup = requireOpp ? close[o + 2] > open[o + 2] : true
+    bool  c2Bear  = close[o + 1] < open[o + 1]
+    float c3Top   = wickMode ? high[o] : math.max(open[o], close[o])
+    bool  sup     = c1OkSup and c2Bear and c3Top < low[o + 2] and prevOkSup
+    float sTop    = math.max(high[o + 2], high[o + 1])
+    float sBot    = drawMode == "Wick" ? low[o + 2] : obBodyBot
+    // ---- Demand : (แท่ง OB) + แท่ง BUY + imbalance ด้านบน
+    bool  c1OkDem = requireOpp ? close[o + 2] < open[o + 2] : true
+    bool  c2Bull  = close[o + 1] > open[o + 1]
+    float c3Bot   = wickMode ? low[o] : math.min(open[o], close[o])
+    bool  dem     = c1OkDem and c2Bull and c3Bot > high[o + 2] and prevOkDem
+    float dBot    = math.min(low[o + 2], low[o + 1])
+    float dTop    = drawMode == "Wick" ? high[o + 2] : obBodyTop
+    [sup, sTop, sBot, dem, dTop, dBot, time[o + 2]]
+
+[cS, cSTop, cSBot, cD, cDTop, cDBot, cT1] = detect(0)
+[hS, hSTop, hSBot, hD, hDTop, hDBot, hT1] = request.security(syminfo.tickerid, htf, detect(1), lookahead=barmerge.lookahead_on)
+
+bool htfValid = useHtf and timeframe.in_seconds(htf) > timeframe.in_seconds(timeframe.period)
+bool htfNew   = timeframe.change(htf)
+int  extMs    = int(timeframe.in_seconds(timeframe.period) * 1000 * extendBars)
+string chartTxt = tfText(timeframe.period)
+string htfTxt   = tfText(htf)
+
+// ═════════════════════ ZONE OBJECT ═════════════════════
+type Zone
+    box    bx
+    line   mid
+    bool   isSup
+    bool   isHtf
+    bool   mitigated
+    float  top
+    float  bot
+    int    createdBar
+    string tfTxt
+
+var array<Zone> zones = array.new<Zone>()
+
+zoneColor(Zone z) =>
+    z.isSup ? (z.isHtf ? (z.mitigated ? hSupMit : hSupFresh) : (z.mitigated ? cSupMit : cSupFresh)) : (z.isHtf ? (z.mitigated ? hDemMit : hDemFresh) : (z.mitigated ? cDemMit : cDemFresh))
+
+zoneText(Zone z) =>
+    string t = showLabel ? z.tfTxt + (z.isSup ? " Supply OB" : " Demand OB") : ""
+    if showStatus
+        t := t + (z.mitigated ? " · Mitigated" : " · Fresh")
+    t
+
+method kill(Zone z) =>
+    z.bx.delete()
+    if not na(z.mid)
+        z.mid.delete()
+
+countSide(bool isSup, bool isHtf) =>
+    int n = 0
+    for z in zones
+        if z.isSup == isSup and z.isHtf == isHtf
+            n += 1
+    n
+
+trimSide(bool isSup, bool isHtf, int maxN) =>
+    if countSide(isSup, isHtf) > maxN
+        for i = 0 to zones.size() - 1
+            Zone z = zones.get(i)
+            if z.isSup == isSup and z.isHtf == isHtf
+                z.kill()
+                zones.remove(i)
+                break
+
+sendAlert(string msg) =>
+    alert((alPrefix != "" ? alPrefix + " " : "") + syminfo.ticker + " | " + msg, alert.freq_once_per_bar)
+
+createZone(bool isSup, bool isHtf, float top, float bot, int t1, string tfTxt) =>
+    Zone z = Zone.new(na, na, isSup, isHtf, false, top, bot, bar_index, tfTxt)
+    color c  = zoneColor(z)
+    color tc = color.new(isSup ? color.red : color.green, 0)
+    z.bx := box.new(left=t1, top=top, right=time + extMs, bottom=bot, xloc=xloc.bar_time, border_color=color(na), border_width=0, bgcolor=c, text=zoneText(z), text_color=tc, text_size=toSize(lblSizeIn), text_halign=text.align_right, text_valign=text.align_top)
+    if showMid
+        float m = (top + bot) / 2
+        z.mid := line.new(t1, m, time + extMs, m, xloc=xloc.bar_time, color=midCol, style=midStyle, width=1)
+    zones.push(z)
+    trimSide(isSup, isHtf, isHtf ? maxHtf : maxChart)
+    if alNew and (isHtf ? alHtf : alChart)
+        sendAlert("New " + tfTxt + (isSup ? " Supply OB " : " Demand OB ") + str.tostring(bot, format.mintick) + " - " + str.tostring(top, format.mintick))
+
+method onMitigate(Zone z) =>
+    if showFilter == "Fresh Only"
+        z.bx.set_bgcolor(color(na))
+        z.bx.set_text("")
+        if not na(z.mid)
+            z.mid.delete()
+            z.mid := na
+    else
+        z.bx.set_bgcolor(zoneColor(z))
+        z.bx.set_text(zoneText(z))
+    if alMit and (z.isHtf ? alHtf : alChart)
+        sendAlert(z.tfTxt + (z.isSup ? " Supply OB" : " Demand OB") + " mitigated @ " + str.tostring(close, format.mintick))
+
+// ═════════════════════ CREATE ZONES ═════════════════════
+if useChart and barstate.isconfirmed
+    if cS
+        createZone(true, false, cSTop, cSBot, cT1, chartTxt)
+    if cD
+        createZone(false, false, cDTop, cDBot, cT1, chartTxt)
+
+if htfValid and htfNew
+    if hS
+        createZone(true, true, hSTop, hSBot, hT1, htfTxt)
+    if hD
+        createZone(false, true, hDTop, hDBot, hT1, htfTxt)
+
+// ═════════════════════ UPDATE / MITIGATE / REMOVE ═════════════════════
+if zones.size() > 0
+    for i = zones.size() - 1 to 0
+        Zone z = zones.get(i)
+        bool removeIt = false
+        if bar_index > z.createdBar
+            float m = (z.top + z.bot) / 2
+            if z.isSup
+                removeIt := removeMode == "Wick fully through" ? high > z.top : close > z.top
+                if not removeIt and not z.mitigated and high >= z.bot
+                    z.mitigated := true
+                    z.onMitigate()
+                if midDelete and not na(z.mid) and high >= m
+                    z.mid.delete()
+                    z.mid := na
+            else
+                removeIt := removeMode == "Wick fully through" ? low < z.bot : close < z.bot
+                if not removeIt and not z.mitigated and low <= z.top
+                    z.mitigated := true
+                    z.onMitigate()
+                if midDelete and not na(z.mid) and low <= m
+                    z.mid.delete()
+                    z.mid := na
+        if removeIt
+            z.kill()
+            zones.remove(i)
+        else
+            z.bx.set_right(time + extMs)
+            if not na(z.mid)
+                z.mid.set_x2(time + extMs)
+
+// ═════════════════════ OB CANDLE COLOUR ═════════════════════
+barcolor(colorBars and useChart and barstate.isconfirmed and cS ? cBarSup : colorBars and useChart and barstate.isconfirmed and cD ? cBarDem : na, offset=-2)
