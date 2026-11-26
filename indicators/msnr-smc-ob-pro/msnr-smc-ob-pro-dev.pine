@@ -1180,6 +1180,7 @@ method qtUpd(QtCyc c, bool newCyc, int seg, bool segNew) =>
         else
             c.dHi := na(c.dHi) ? high : math.max(c.dHi, high)
             c.dLo := na(c.dLo) ? low : math.min(c.dLo, low)
+    c
 
 f_qtStory(QtCyc c, int seg, float sideLim, int bias) =>
     string r = ""
