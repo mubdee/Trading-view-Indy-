@@ -1,6 +1,7 @@
 // ════════════════════════════════════════════════════════════════
 // MSNR × SMC + OB PRO — DEV · MSNR × SMC + OB (2026-11-26) + ข้อแนะนำทั้งหมด (Pine Script v6)
 // ✏️ ไฟล์สำรองสำหรับแก้/ทดลอง · ไฟล์หลัก: indicators/msnr-smc-ob-pro/main/msnr-smc-ob-pro-main.pine
+// DEV (6) 2026-11-27: QT แบบรอบอัตโนมัติ AMDX/XAMD/AAMD/MDAX/XXMD/DMDX (วัน · 90m · Micro 22.5m) · กฎ Q4 กับ Key Level TF ใหญ่ · SSMT + PSP · ✓AMDX ใช้ทิศแบบใหม่ · SMT TF ใหญ่เหลือ 2 (H1 + H4)
 // DEV (5) 2026-11-26: โหมดดูจุดเข้า — มาร์กจุดเข้า + SL/TP อ้างอิงจาง แล้วหาจุดต่อไปทันที · Score ต่ำ = จาง · ตัด Lot/Stats/บริหารไม้ · AMDX ใช้ทิศเดียวกับเรื่องเล่า QT · Dashboard 10 แถว
 // DEV (4) 2026-11-26: QT ไซด์เวย์เทียบค่าเฉลี่ยกรอบ A 10 รอบก่อน (ปรับตามตลาด · ATR เป็นค่าสำรอง) · f_qtStory คืน [ข้อความ, ทิศ] แทนการเดาสีจากข้อความ
 // DEV (3) 2026-11-26: QT ผิดคาด = Inversion → วิ่งต่อตามทิศ M · เทียบ H4 ด้วยทิศใหม่ · สวน H4 บอกแนวต้าน/แนวรับ TF ใหญ่ตัวถัดไป
@@ -70,14 +71,15 @@ int    minScore = input.int(4, "ตั้ง Limit เฉพาะ Score ≥", m
 bool   useSMT   = input.bool(true, "SMT divergence (เทียบสินทรัพย์ที่วิ่งตามกัน)", group=GQ)
 string smtSym   = input.symbol("OANDA:XAGUSD", "สัญลักษณ์เทียบ SMT", group=GQ, display=display.none, tooltip="ทอง → เงิน (XAGUSD) · ทองกวาด Low แต่เงินไม่ทำ Low ใหม่ = Bullish SMT · ทองกวาด High แต่เงินไม่ทำ High ใหม่ = Bearish SMT")
 bool   showSMT  = input.bool(true, "วาดเส้น SMT บนกราฟ", group=GQ)
-bool   smtU1    = input.bool(true, "SMT TF 1", inline="s1", group=GQ)
-string smtTf1   = input.timeframe("15", "", inline="s1", group=GQ, display=display.none)
-bool   smtU2    = input.bool(true, "SMT TF 2", inline="s2", group=GQ)
-string smtTf2   = input.timeframe("30", "", inline="s2", group=GQ, display=display.none)
-bool   smtU3    = input.bool(true, "SMT TF 3", inline="s3", group=GQ)
-string smtTf3   = input.timeframe("60", "", inline="s3", group=GQ, display=display.none)
-bool   smtU4    = input.bool(true, "SMT TF 4", inline="s4", group=GQ)
-string smtTf4   = input.timeframe("240", "", inline="s4", group=GQ, display=display.none)
+bool   smtU1    = input.bool(true, "SMT TF ใหญ่ 1", inline="s1", group=GQ)
+string smtTf1   = input.timeframe("60", "", inline="s1", group=GQ, display=display.none)
+bool   smtU2    = input.bool(true, "SMT TF ใหญ่ 2", inline="s2", group=GQ)
+string smtTf2   = input.timeframe("240", "", inline="s2", group=GQ, display=display.none)
+bool   smtU3    = false      // ลด SMT TF ใหญ่เหลือ 2 TF (H1 + H4)
+string smtTf3   = "30"
+bool   smtU4    = false
+string smtTf4   = "120"
+bool   pspOn    = input.bool(true, "PSP: Score +1 เมื่อแท่ง Sweep ทองกับเงินปิดคนละสี (±1 แท่ง)", group=GQ, tooltip="Precision Swing Point (Daye) · ใช้สัญลักษณ์เทียบ SMT")
 bool   smtRT    = input.bool(true, "SMT เรียลไทม์ (ขึ้นทันที ไม่รอ swing ยืนยัน)", group=GQ, tooltip="ทองทะลุ swing ล่าสุดที่ยืนยันแล้ว แต่เงินยังไม่ทะลุ swing เดียวกัน → เส้นจาง + ป้าย \"SMT?\" ขยับตามราคาทุก tick\nเงินทะลุตาม = เส้นหายเอง · swing ยืนยันแล้ว = เปลี่ยนเป็นเส้น SMT จริง (ไม่หาย)")
 int    smtLenH  = input.int(2, "SMT TF ใหญ่: Swing length (แท่งของ TF นั้น)", minval=1, group=GQ, display=display.none)
 int    smtLive  = input.int(3, "SMT TF ใหญ่ยังนับ (แท่งของ TF นั้น)", minval=1, group=GQ, display=display.none, tooltip="SMT ของ TF ใหญ่ที่เกิดไม่เกินกี่แท่ง (ของ TF นั้น) ยังนับเป็นแต้ม SMT และขึ้น ▲/▼ ใน Dashboard")
@@ -232,7 +234,7 @@ var float usedPDH = na
 var float usedPDL = na
 
 // ───────── SMT: ทองกวาด แต่สินทรัพย์เทียบไม่ยืนยัน ─────────
-[xLo, xHi] = request.security(smtSym, timeframe.period, [low, high], ignore_invalid_symbol=true, calc_bars_count=calcN + 100)
+[xLo, xHi, xOp, xCl] = request.security(smtSym, timeframe.period, [low, high, open, close], ignore_invalid_symbol=true, calc_bars_count=calcN + 100)
 // จุดต่ำสุด/สูงสุดของสินทรัพย์เทียบรอบ swing (ดูก่อน-หลัง swing ของทอง sLen แท่ง)
 float xVal = ta.lowest(xLo, 2 * sLen + 1)
 float xPk  = ta.highest(xHi, 2 * sLen + 1)
@@ -309,12 +311,18 @@ f_hSw(int L, int age) =>
 [x1L, x1H]      = request.security(smtSym, smtTf1, f_xSw(smtLenH), lookahead=barmerge.lookahead_on, ignore_invalid_symbol=true, calc_bars_count=htfN)
 [g2L, g2H, g2T] = request.security(syminfo.tickerid, smtTf2, f_gSw(smtLenH), lookahead=barmerge.lookahead_on, calc_bars_count=htfN)
 [x2L, x2H]      = request.security(smtSym, smtTf2, f_xSw(smtLenH), lookahead=barmerge.lookahead_on, ignore_invalid_symbol=true, calc_bars_count=htfN)
-[g3L, g3H, g3T] = request.security(syminfo.tickerid, smtTf3, f_gSw(smtLenH), lookahead=barmerge.lookahead_on, calc_bars_count=htfN)
-[x3L, x3H]      = request.security(smtSym, smtTf3, f_xSw(smtLenH), lookahead=barmerge.lookahead_on, ignore_invalid_symbol=true, calc_bars_count=htfN)
+float g3L = na
+float g3H = na
+int   g3T = na
+float x3L = na
+float x3H = na
 bool sn1 = timeframe.change(smtTf1)
 bool sn2 = timeframe.change(smtTf2)
-[g4L, g4H, g4T] = request.security(syminfo.tickerid, smtTf4, f_gSw(smtLenH), lookahead=barmerge.lookahead_on, calc_bars_count=htfN)
-[x4L, x4H]      = request.security(smtSym, smtTf4, f_xSw(smtLenH), lookahead=barmerge.lookahead_on, ignore_invalid_symbol=true, calc_bars_count=htfN)
+float g4L = na
+float g4H = na
+int   g4T = na
+float x4L = na
+float x4H = na
 [w1H, w1HT, w1WH, w1L, w1LT, w1WL, w1T] = request.security(syminfo.tickerid, hsTf1, f_hSw(hswLen, hswAge), lookahead=barmerge.lookahead_on, calc_bars_count=htfN)
 [w2H, w2HT, w2WH, w2L, w2LT, w2WL, w2T] = request.security(syminfo.tickerid, hsTf2, f_hSw(hswLen, hswAge), lookahead=barmerge.lookahead_on, calc_bars_count=htfN)
 [w3H, w3HT, w3WH, w3L, w3LT, w3WL, w3T] = request.security(syminfo.tickerid, hsTf3, f_hSw(hswLen, hswAge), lookahead=barmerge.lookahead_on, calc_bars_count=htfN)
@@ -1066,13 +1074,13 @@ string QTG = "QT · Quarterly Theory (AMDX)"
 string QT_OFF = "ปิด"
 string QT_SC  = "ให้คะแนน (+1)"
 string QT_REQ = "บังคับ (ต้องตรง AMDX)"
-string qtMode  = input.string(QT_SC, "AMDX: ทิศจุดเข้าตรงทิศที่ QT คาด", options=[QT_OFF, QT_SC, QT_REQ], group=QTG, tooltip="ใช้ผลเดียวกับแถว QT ใน Dashboard: ทิศที่ D คาด (สวน M) หรือทิศ Inversion ถ้าผิดคาด\nดู QT 90m ก่อน ถ้ายังไม่มีทิศ → ใช้ QT วัน\nตรง = ✓AMDX (+1) · สวน / ไม่มีทิศ = ✗AMDX")
+string qtMode  = input.string(QT_SC, "AMDX: ทิศจุดเข้าตรงทิศที่แบบรอบ QT คาด", options=[QT_OFF, QT_SC, QT_REQ], group=QTG, tooltip="ใช้ผลเดียวกับแถว QT ใน Dashboard: ทิศที่ D คาด (สวน M) หรือทิศ Inversion ถ้าผิดคาด\nดู QT 90m ก่อน ถ้ายังไม่มีทิศ → ใช้ QT วัน\nตรง = ✓AMDX (+1) · สวน / ไม่มีทิศ = ✗AMDX")
 bool   qtNoA   = input.bool(true, "ไม่ตั้ง Limit ใหม่ช่วง Q1 ของวัน (Asia 18:00-00:00 NY = Accumulation)", group=QTG, tooltip="เวลาไทย ≈ 06:00-12:00 (ฤดูหนาว US) / 05:00-11:00 (ฤดูร้อน US)")
 bool   qtLines = input.bool(true, "เส้น True Open 90m · True Day Open · High/Low Q1 เซสชัน", group=QTG)
 bool   qtShow  = input.bool(true, "แถบ Quarter ใต้กราฟ (บน 90 นาที · ล่าง วัน)", group=QTG, tooltip="สี: Q1 เทา (A) · Q2 แดง (M) · Q3 เขียว (D) · Q4 ฟ้า (X) · กรอบเข้ม = ช่วงปัจจุบัน")
 int    qtDays  = input.int(2, "แถบ Quarter: ย้อนหลัง (วัน)", minval=1, maxval=5, group=QTG, display=display.none)
 bool   qtBg    = input.bool(false, "แรเงา Quarter ของวันบนกราฟ", group=QTG, display=display.none)
-float  qtSideM = input.float(1.2, "เรื่องเล่า QT: A ไซด์เวย์ถ้ากรอบ ≤ (x ค่าเฉลี่ยกรอบ A 10 รอบก่อน)", minval=0.1, step=0.1, group=QTG, display=display.none, tooltip="เทียบกับกรอบ A ของรอบก่อน ๆ (วันละ 1 รอบ / เซสชันละ 1 รอบ) แทน ATR → ปรับตามสภาพตลาดเอง\nกรอบ A ใหญ่กว่าปกติเกินค่านี้ = 'A วิ่งแรง (ผิดแบบ)'")
+float  qtSideM = input.float(1.2, "QT: กรอบแคบ (สะสม) ถ้า ≤ (x ค่าเฉลี่ยกรอบของ 16 ช่วงก่อน)", minval=0.1, step=0.1, group=QTG, display=display.none, tooltip="ใช้ตัดสินแบบรอบ (AMDX / XAMD / AAMD / MDAX / XXMD / DMDX) ทุกระดับ: วัน · 90m · Micro\nกว้างเกิน 1.25 เท่าของเกณฑ์นี้ + ปิดใกล้ปลาย = Q1 วิ่งแรง (D)\nประวัติยังไม่พอ → ใช้ ATR H1 ด้านล่าง")
 float  qtSideD = input.float(2.5, "สำรอง (ประวัติ < 3 รอบ): A วัน ≤ (x ATR H1)", minval=0.1, step=0.1, group=QTG, display=display.none)
 float  qtSideS = input.float(1.0, "สำรอง (ประวัติ < 3 รอบ): A 90m ≤ (x ATR H1)", minval=0.1, step=0.1, group=QTG, display=display.none)
 
@@ -1140,109 +1148,316 @@ f_qtOk(int d, float e) =>
     sOk or dOk
 
 // ───────── Score เต็ม (Engine เดิม 8 + OB + AMDX) ─────────
-int scMax = 8 + (obOn and obScore ? 1 : 0) + (qtMode == QT_SC ? 1 : 0)
+int scMax = 8 + (obOn and obScore ? 1 : 0) + (qtMode == QT_SC ? 1 : 0) + (pspOn and useSMT ? 1 : 0)
 
-// ───────── เรื่องเล่า QT (Dashboard เท่านั้น): A สะสม → M หลอก → D วิ่งจริง (สวน M) → X ปิดงาน ─────────
+// ───────── QT แบบรอบ (Dashboard + ทิศ AMDX ใน Score): AMDX · XAMD · AAMD · MDAX · XXMD · DMDX ─────────
+// ระดับ: วัน (6 ชม./ช่วง) · 90 นาที · Micro 22.5 นาที · ตัดสินแบบจาก Q1 (เทียบกรอบ Q4 รอบก่อน) + Q2
+// XXMD / DMDX = นิยามที่ตีความเอง (ไม่มีแหล่งอธิบายชัด) · True Open = Open ต้น Q2 ทุกแบบ
 float qtAtrH1 = request.security(syminfo.tickerid, "60", ta.atr(14)[1], lookahead=barmerge.lookahead_on, calc_bars_count=htfN)
 
-type QtCyc
+type QtC
     bool  valid = false
-    float aH
-    float aL
-    float tOpen
-    float mHi
-    float mLo
-    bool  mUp = false
-    bool  mDn = false
-    float dHi
-    float dLo
-    array<float> hist     // กรอบ A ของรอบก่อน ๆ (ล่าสุด 10 รอบ)
+    int   q     = -1
+    array<float> qh
+    array<float> ql
+    array<float> qo
+    array<float> qc
+    array<float> xh
+    array<float> xl
+    float pH
+    float pL
+    int   pDir  = 0
+    float pxH
+    float pxL
+    array<float> hist
+    float e4H
+    float e4L
 
-// newCyc = เริ่มรอบใหม่ (A) · seg = 0 A · 1 M · 2 D · 3 X
-method qtUpd(QtCyc c, bool newCyc, int seg, bool segNew) =>
+f_qtNew() =>
+    QtC.new(qh = array.new<float>(4, na), ql = array.new<float>(4, na), qo = array.new<float>(4, na), qc = array.new<float>(4, na), xh = array.new<float>(4, na), xl = array.new<float>(4, na), hist = array.new<float>())
+
+// newCyc = เริ่มรอบใหม่ · seg = ช่วงปัจจุบัน 0..3 · early = อยู่ช่วงแรก 25% ของช่วง
+method qcUpd(QtC c, bool newCyc, int seg, bool early) =>
     if newCyc
-        if c.valid and not na(c.aH)
-            c.hist.push(c.aH - c.aL)
-            if c.hist.size() > 10
+        if c.valid
+            for i = 0 to 3
+                if not na(c.qh.get(i))
+                    c.hist.push(c.qh.get(i) - c.ql.get(i))
+            while c.hist.size() > 16
                 c.hist.shift()
+            c.pH   := c.qh.get(3)
+            c.pL   := c.ql.get(3)
+            c.pDir := na(c.qc.get(3)) ? 0 : c.qc.get(3) >= c.qo.get(3) ? 1 : -1
+            c.pxH  := c.xh.get(3)
+            c.pxL  := c.xl.get(3)
+        for i = 0 to 3
+            c.qh.set(i, na)
+            c.ql.set(i, na)
+            c.qo.set(i, na)
+            c.qc.set(i, na)
+            c.xh.set(i, na)
+            c.xl.set(i, na)
         c.valid := true
-        c.aH  := high
-        c.aL  := low
-        c.tOpen  := na
-        c.mHi := na
-        c.mLo := na
-        c.mUp := false
-        c.mDn := false
-        c.dHi := na
-        c.dLo := na
-    else if c.valid
-        if seg == 0
-            c.aH := math.max(c.aH, high)
-            c.aL := math.min(c.aL, low)
-        else if seg == 1
-            if segNew or na(c.tOpen)
-                c.tOpen := open
-            c.mHi := na(c.mHi) ? high : math.max(c.mHi, high)
-            c.mLo := na(c.mLo) ? low : math.min(c.mLo, low)
-            if high > c.aH
-                c.mUp := true
-            if low < c.aL
-                c.mDn := true
+        c.q     := -1
+        c.e4H   := na
+        c.e4L   := na
+    if c.valid
+        if seg != c.q
+            c.q := seg
+            c.qo.set(seg, open)
+            c.qh.set(seg, high)
+            c.ql.set(seg, low)
+            c.xh.set(seg, xHi)
+            c.xl.set(seg, xLo)
         else
-            c.dHi := na(c.dHi) ? high : math.max(c.dHi, high)
-            c.dLo := na(c.dLo) ? low : math.min(c.dLo, low)
+            c.qh.set(seg, math.max(c.qh.get(seg), high))
+            c.ql.set(seg, math.min(c.ql.get(seg), low))
+            if not na(xHi)
+                c.xh.set(seg, na(c.xh.get(seg)) ? xHi : math.max(c.xh.get(seg), xHi))
+            if not na(xLo)
+                c.xl.set(seg, na(c.xl.get(seg)) ? xLo : math.min(c.xl.get(seg), xLo))
+        c.qc.set(seg, close)
+        if seg == 3 and early
+            c.e4H := na(c.e4H) ? high : math.max(c.e4H, high)
+            c.e4L := na(c.e4L) ? low : math.min(c.e4L, low)
     c
 
-// คืนค่า [ข้อความ, ทิศ] · ทิศ = ทิศที่คาด (หรือทิศ Inversion ถ้าผิดคาด) · 0 = ยังไม่มีทิศ / ผิดแบบ
-f_qtStory(QtCyc c, int seg, float atrLim, int bias, float rP, string rT, float sP, string sT) =>
+// เกณฑ์ "กรอบแคบ": ค่าเฉลี่ยกรอบของช่วงก่อน ๆ × qtSideM (ประวัติ < 4 ช่วง → ATR H1 สำรอง)
+f_qtSide(QtC c, float atrLim) =>
+    c.hist.size() >= 4 ? c.hist.avg() * qtSideM : atrLim
+
+// ตัดสินแบบรอบ → [แบบ, ตัวเลือก, ชนิด Q1, ทิศ Q1, ช่วง M, ทิศหลอก, ช่วง D, ทิศ D ที่คาด]
+f_qtEval(QtC c, float sideLim) =>
+    string prof = ""
+    string cand = ""
+    string q1t  = ""
+    int    xdir = 0
+    int    mQ   = -1
+    int    mDir = 0
+    int    dQ   = -1
+    int    dDir = 0
+    if c.valid and c.q >= 0 and not na(c.qh.get(0))
+        float h0   = c.qh.get(0)
+        float l0   = c.ql.get(0)
+        float c0   = c.qc.get(0)
+        float r1   = h0 - l0
+        float wide = na(sideLim) ? na : sideLim * 1.25
+        bool  brkU = not na(c.pH) and c0 > c.pH
+        bool  brkD = not na(c.pL) and c0 < c.pL
+        bool  swU  = not na(c.pH) and h0 > c.pH and c0 <= c.pH
+        bool  swD  = not na(c.pL) and l0 < c.pL and c0 >= c.pL
+        float pos  = r1 > 0 ? (c0 - l0) / r1 : 0.5
+        if brkU or brkD
+            q1t  := "X"
+            xdir := brkU ? 1 : -1
+        else if swU != swD
+            q1t  := "M"
+            xdir := swU ? 1 : -1
+        else if not na(wide) and r1 > wide and (pos >= 0.75 or pos <= 0.25)
+            q1t  := "D"
+            xdir := pos >= 0.75 ? 1 : -1
+        else
+            q1t := "A"
+        if c.q == 0
+            cand := q1t == "A" ? "AMDX / AAMD" : q1t == "M" ? "MDAX" : "XAMD / XXMD / DMDX"
+        else if not na(c.qh.get(1))
+            float h1    = c.qh.get(1)
+            float l1    = c.ql.get(1)
+            float c1    = c.qc.get(1)
+            bool  q2end = c.q >= 2
+            if q1t == "A"
+                bool sU = h1 > h0
+                bool sD = l1 < l0
+                if sU != sD
+                    prof := "AMDX"
+                    mQ   := 1
+                    mDir := sU ? 1 : -1
+                    dQ   := 2
+                    dDir := -mDir
+                else if sU and sD
+                    cand := "AMDX (Q2 กวาด 2 ฝั่ง · ไม่ชัด)"
+                else if q2end
+                    prof := "AAMD"
+                    mQ   := 2
+                    dQ   := 3
+                else
+                    cand := "AMDX / AAMD"
+            else if q1t == "X" or q1t == "D"
+                bool deep = xdir == 1 ? (l1 < l0 and c1 > l0) : (h1 > h0 and c1 < h0)
+                bool ext  = xdir == 1 ? (h1 > h0 and c1 > h0) : (l1 < l0 and c1 < l0)
+                if deep
+                    prof := "DMDX"
+                    mQ   := 1
+                    mDir := -xdir
+                    dQ   := 2
+                    dDir := xdir
+                else if ext and q2end
+                    prof := "XXMD"
+                    mQ   := 2
+                    mDir := -xdir
+                    dQ   := 3
+                    dDir := xdir
+                else if q2end
+                    prof := "XAMD"
+                    mQ   := 2
+                    dQ   := 3
+                else
+                    cand := ext ? "XXMD? (Q2 ยังไม่จบ)" : "XAMD / XXMD / DMDX"
+            else
+                bool opp = xdir == 1 ? c1 < l0 : c1 > h0
+                if opp
+                    prof := "MDAX"
+                    mQ   := 0
+                    mDir := xdir
+                    dQ   := 1
+                    dDir := -xdir
+                else
+                    cand := q2end ? "ไม่ชัด (Q1 หลอกแต่ Q2 ไม่วิ่ง)" : "MDAX?"
+            // AAMD / XAMD: ช่วงหลอก = Q3 → ทิศหลอกจากการกวาดกรอบสะสมก่อนหน้า
+            if (prof == "AAMD" or prof == "XAMD") and c.q >= 2 and not na(c.qh.get(2))
+                float rH = prof == "AAMD" ? math.max(h0, h1) : h1
+                float rL = prof == "AAMD" ? math.min(l0, l1) : l1
+                bool  u3 = c.qh.get(2) > rH
+                bool  d3 = c.ql.get(2) < rL
+                if u3 != d3
+                    mDir := u3 ? 1 : -1
+                    dDir := -mDir
+    [prof, cand, q1t, xdir, mQ, mDir, dQ, dDir]
+
+// Key Level ของ TF ใหญ่ (MSNR HTF + OB TF ใหญ่) ที่ราคาแตะแล้ว ระหว่าง fromP → ext ในทิศ d · "" = ยังไม่แตะ
+f_keyTouch(int d, float fromP, float ext) =>
+    string r = ""
+    float  bd = na
+    if d != 0 and not na(ext) and not na(fromP)
+        for l in lvH
+            if l.kind == -d
+                bool hit = d == 1 ? (l.price > fromP and l.price <= ext + tol) : (l.price < fromP and l.price >= ext - tol)
+                if hit and (na(bd) or math.abs(l.price - fromP) < bd)
+                    bd := math.abs(l.price - fromP)
+                    r  := str.tostring(l.price, format.mintick) + " " + l.tf + " " + l.tag
+        for z in obZones
+            if z.src > 0 and z.isSup == (d == 1)
+                float e   = d == 1 ? z.bot : z.top
+                bool  hit = d == 1 ? (e > fromP and e <= ext + tol) : (e < fromP and e >= ext - tol)
+                if hit and (na(bd) or math.abs(e - fromP) < bd)
+                    bd := math.abs(e - fromP)
+                    r  := str.tostring(e, format.mintick) + " " + z.tfTxt + " OB"
+    r
+
+// SSMT ช่วงปัจจุบัน: ทองทะลุ High/Low ช่วงก่อน แต่เงินไม่ทะลุของตัวเอง · 1 = ขาขึ้น · -1 = ขาลง
+f_ssmt(QtC c) =>
+    int r = 0
+    if useSMT and c.valid and c.q >= 0
+        float gH  = c.qh.get(c.q)
+        float gL  = c.ql.get(c.q)
+        float xH2 = c.xh.get(c.q)
+        float xL2 = c.xl.get(c.q)
+        float pgH = c.q > 0 ? c.qh.get(c.q - 1) : c.pH
+        float pgL = c.q > 0 ? c.ql.get(c.q - 1) : c.pL
+        float pxH = c.q > 0 ? c.xh.get(c.q - 1) : c.pxH
+        float pxL = c.q > 0 ? c.xl.get(c.q - 1) : c.pxL
+        bool bear = not na(gH) and not na(pgH) and not na(xH2) and not na(pxH) and gH > pgH and xH2 <= pxH
+        bool bull = not na(gL) and not na(pgL) and not na(xL2) and not na(pxL) and gL < pgL and xL2 >= pxL
+        r := bear and not bull ? -1 : bull and not bear ? 1 : 0
+    r
+
+f_arw(int d) =>
+    d == 1 ? "↑" : d == -1 ? "↓" : "·"
+
+// ข้อความ Dashboard + ทิศที่คาด (รวม Inversion และกฎ Q4) → [ข้อความ, ทิศ]
+f_qtText(QtC c, float sideLim, int bias, float rP, string rT, float sP, string sT) =>
+    [prof, cand, q1t, xdir, mQ, mDir, dQ, dDir] = f_qtEval(c, sideLim)
     string r   = ""
     int    out = 0
-    float  sideLim = c.hist.size() >= 3 ? c.hist.avg() * qtSideM : atrLim
-    if not c.valid
+    if not c.valid or c.q < 0
         r := "รอเริ่มรอบใหม่"
+    else if prof == ""
+        string q1s = q1t == "A" ? "Q1 ↔ สะสม" : q1t == "X" ? "Q1 " + f_arw(xdir) + " วิ่งต่อ" : q1t == "M" ? "Q1 " + f_arw(xdir) + " หลอก" : q1t == "D" ? "Q1 " + f_arw(xdir) + " วิ่งแรง" : "Q1 ข้อมูลไม่พอ"
+        r := (c.q == 0 ? "กำลัง " + q1s + "?" : q1s) + " · ลุ้น " + cand
     else
-        bool   side = na(sideLim) or (c.aH - c.aL) <= sideLim
-        string aTx  = side ? "A ↔ ไซด์เวย์" : "A วิ่งแรง (ผิดแบบ)"
-        if seg == 0
-            r := aTx + " กำลังสะสม " + str.tostring(c.aH - c.aL, "#.#") + " → รอ M"
-        else
-            int    mDir = c.mUp and not c.mDn ? 1 : c.mDn and not c.mUp ? -1 : 0
-            string mTx  = c.mUp and c.mDn ? "M กวาด 2 ฝั่ง (ไม่ชัด)" : c.mUp ? "M ↑ หลอกขึ้น" : c.mDn ? "M ↓ หลอกลง" : "M ยังไม่หลอก"
-            int    ex   = -mDir
-            r := aTx + " → " + mTx
-            out := ex
-            if seg == 1
-                r := r + (ex == 0 ? " → รอ M กวาดกรอบ A" : " → คาด D " + (ex == -1 ? "↓ ลง" : "↑ ขึ้น"))
-            else if ex == 0
-                r := r + " → ไม่มีทิศคาด (ข้ามวันนี้/รอบนี้)"
+        // สถานะช่วง D: ผิดคาด (ทะลุจุดหลอก) / ตามคาด (ทะลุอีกฝั่งของกรอบก่อนหลอก) / กำลังไป (ผ่าน True Open)
+        float aH = na
+        float aL = na
+        if mQ >= 0 and mQ < c.q
+            for i = mQ + 1 to c.q
+                aH := na(aH) ? c.qh.get(i) : math.max(aH, c.qh.get(i))
+                aL := na(aL) ? c.ql.get(i) : math.min(aL, c.ql.get(i))
+        float rfH = c.pH
+        float rfL = c.pL
+        if mQ > 0
+            rfH := c.qh.get(0)
+            rfL := c.ql.get(0)
+            for i = 0 to mQ - 1
+                rfH := math.max(rfH, c.qh.get(i))
+                rfL := math.min(rfL, c.ql.get(i))
+        float mx   = mQ >= 0 ? (mDir == 1 ? c.qh.get(mQ) : c.ql.get(mQ)) : na
+        float tOp  = c.qo.get(1)
+        bool  fail = dDir != 0 and mDir != 0 and not na(aH) and (mDir == 1 ? aH > mx : aL < mx)
+        bool  done = dDir != 0 and not na(aH) and (dDir == 1 ? aH > rfH : aL < rfL)
+        bool  go   = dDir != 0 and not na(tOp) and (dDir == 1 ? close > tOp : close < tOp)
+        int   eff  = fail ? -dDir : dDir
+        string dTx = dDir == 0 ? "รอทิศ" : fail ? f_arw(dDir) + " ผิดคาด ✗ → Inversion " + f_arw(eff) : done ? f_arw(dDir) + " ตามคาด ✓" : go ? f_arw(dDir) + " กำลังไป" : f_arw(dDir) + " (ยังไม่ไป)"
+        // กฎ Q4: แตะ Key Level TF ใหญ่ระหว่าง D ถึงต้น Q4 → กลับตัว · ยังไม่แตะ → วิ่งต่อไปหาเป้า
+        string q4 = ""
+        int    q4d = eff
+        if c.q == 3 and eff != 0
+            float ext = eff == 1 ? c.e4H : c.e4L
+            int ds = math.max(dQ, 0)
+            if ds <= 2
+                for i = ds to 2
+                    if not na(c.qh.get(i))
+                        ext := na(ext) ? (eff == 1 ? c.qh.get(i) : c.ql.get(i)) : eff == 1 ? math.max(ext, c.qh.get(i)) : math.min(ext, c.ql.get(i))
+            string kt = f_keyTouch(eff, c.qo.get(math.max(dQ, 0)), ext)
+            float  tp = eff == 1 ? rP : sP
+            string tt = eff == 1 ? rT : sT
+            bool   xQ4 = str.substring(prof, 3, 4) == "X"
+            if kt != ""
+                q4  := "Q4 คาดกลับตัว (แตะ " + kt + " แล้ว)"
+                q4d := xQ4 ? -eff : eff
             else
-                bool fail = ex == -1 ? (not na(c.dHi) and c.dHi > c.mHi) : (not na(c.dLo) and c.dLo < c.mLo)
-                bool done = ex == -1 ? (not na(c.dLo) and c.dLo < c.aL) : (not na(c.dHi) and c.dHi > c.aH)
-                bool go   = not na(c.tOpen) and (ex == -1 ? close < c.tOpen : close > c.tOpen)
-                int    eff = fail ? -ex : ex      // ผิดคาด = Inversion → วิ่งต่อตามทิศ M
-                out := eff
-                string dTx = fail ? "D ผิดคาด ✗ → Inversion: วิ่งต่อ " + (eff == 1 ? "↑" : "↓") + " ตาม M" : done ? "D " + (ex == -1 ? "↓ ลง" : "↑ ขึ้น") + "ตามคาด ✓" : go ? "D " + (ex == -1 ? "↓ กำลังลง" : "↑ กำลังขึ้น") : "D คาด" + (ex == -1 ? "ลง" : "ขึ้น") + " (ยังไม่ไป)"
-                r := r + " → " + dTx
-                if seg == 2 and not fail and not na(c.tOpen)
-                    r := r + " · หา " + (ex == -1 ? "SELL เหนือ" : "BUY ใต้") + " TO " + str.tostring(c.tOpen, format.mintick)
-                if seg == 3
-                    r := r + " · X ระวังกลับตัว"
-                if bias != 0
-                    r := r + (bias == eff ? " · ตรง H4 ✓" : " · สวน H4 ⚠")
-                    // Inversion สวน H4 → บอกแนวต้าน/แนวรับ TF ใหญ่ตัวถัดไปที่น่าจะชน
-                    if fail and bias != eff
-                        float  lp = eff == 1 ? rP : sP
-                        string lt = eff == 1 ? rT : sT
-                        if not na(lp)
-                            r := r + " (ระวัง" + (eff == 1 ? "แนวต้าน " : "แนวรับ ") + str.tostring(lp, format.mintick) + " " + lt + ")"
+                q4 := (xQ4 ? "Q4 คาดวิ่งต่อ" : "Q4 วิ่งจริง") + (na(tp) ? "" : " → เป้า " + str.tostring(tp, format.mintick) + " " + tt)
+        // ไล่ช่วงที่ผ่านมา
+        r := prof + " · "
+        for i = 0 to c.q
+            string ch = str.substring(prof, i, i + 1)
+            string t  = i == mQ ? "M " + (mDir == 0 ? (i < c.q ? "ไม่ชัด" : "รอหลอก") : f_arw(mDir) + "หลอก") : i == dQ ? "D " + dTx : ch == "A" ? "A ↔" : i == 3 and ch == "X" ? "X" : ch + " " + f_arw(xdir)
+            r := r + (i > 0 ? " → " : "") + t
+        if c.q < 3
+            int nq = c.q + 1
+            r := r + (nq == mQ ? " → คาด Q" + str.tostring(nq + 1) + " หลอก" : nq == dQ ? " → คาด D " + (dDir == 0 ? "รอทิศ" : f_arw(dDir)) : str.substring(prof, nq, nq + 1) == "X" ? " → Q4 ต่อ/กลับ" : " → คาด A ↔")
+        if q4 != ""
+            r := r + " · " + q4
+        else if eff != 0 and not fail and not na(tOp) and c.q <= dQ
+            r := r + " · หา " + (eff == -1 ? "SELL เหนือ" : "BUY ใต้") + " TO " + str.tostring(tOp, format.mintick)
+        out := c.q == 3 ? q4d : eff
+        if out != 0 and bias != 0
+            r := r + (bias == out ? " · ตรง H4 ✓" : " · สวน H4 ⚠")
+    int ss = f_ssmt(c)
+    if ss != 0
+        r := r + " · SSMT " + (ss == 1 ? "▲" : "▼")
     [r, out]
 
-var QtCyc qcD = QtCyc.new(hist = array.new<float>())      // ทั้งวัน: A Asia · M London · D NY AM · X NY PM
-var QtCyc qcS = QtCyc.new(hist = array.new<float>())      // 90 นาที ในเซสชันปัจจุบัน
-bool qtNewDay = qtDQ == 0 and qtDQ[1] != 0
-bool qtNewSes = qtDQ != qtDQ[1]
-qcD.qtUpd(qtNewDay, qtDQ, qtDQ != qtDQ[1])
-qcS.qtUpd(qtNewSes, qtMQ, qtMQ != qtMQ[1])
+var QtC qcD = f_qtNew()      // วัน: Q1 Asia · Q2 London · Q3 NY AM · Q4 NY PM
+var QtC qcS = f_qtNew()      // 90 นาที ในเซสชัน
+var QtC qcU = f_qtNew()      // Micro 22.5 นาที ใน 90 นาที
+int  qtB90 = math.floor(qtMin / 90)
+int  qtUQ  = math.floor((qtMin % 90) * 2 / 45)
+qcD.qcUpd(qtDQ == 0 and qtDQ[1] != 0, qtDQ, qtMin % 360 < 90)
+qcS.qcUpd(qtDQ != qtDQ[1], qtMQ, qtMin % 90 < 23)
+qcU.qcUpd(qtB90 != qtB90[1], qtUQ, ((qtMin % 90) * 2) % 45 < 12)
+float qtLimD = f_qtSide(qcD, qtSideD * qtAtrH1)
+float qtLimS = f_qtSide(qcS, qtSideS * qtAtrH1)
+float qtLimU = f_qtSide(qcU, qtSideS * 0.5 * qtAtrH1)
+
+// PSP: แท่งเดียวกัน (±1 แท่งรอบจุด Sweep) ทองกับเงินปิดคนละสี
+f_psp(int off) =>
+    bool r = false
+    int  o = math.min(math.max(off, 1), 400)
+    for k = o - 1 to o + 1
+        if not na(xOp[k]) and not na(xCl[k]) and close[k] != open[k] and xCl[k] != xOp[k]
+            if (close[k] > open[k]) != (xCl[k] > xOp[k])
+                r := true
+    r
 
 bgcolor(qtBg ? (qtDQ == 0 ? color.new(color.gray, 94) : qtDQ == 1 ? color.new(colR, 95) : qtDQ == 2 ? color.new(colS, 95) : color.new(color.blue, 95)) : na, title="Quarter ของวัน")
 
@@ -1529,13 +1744,16 @@ if barstate.isconfirmed and inCalc
         // PRO: OB ทับ Entry · AMDX
         string obTf  = obOn and obScore ? ob_hit(dir, ep) : ""
         bool   obOk  = obTf != ""
-        [qsT0, qsDir] = f_qtStory(qcS, qtMQ, qtSideS * qtAtrH1, 0, na, "", na, "")
-        [qdT0, qdDir] = f_qtStory(qcD, qtDQ, qtSideD * qtAtrH1, 0, na, "", na, "")
+        [qsT0, qsDir] = f_qtText(qcS, qtLimS, 0, na, "", na, "")
+        [qdT0, qdDir] = f_qtText(qcD, qtLimD, 0, na, "", na, "")
         int    qtDir = qsDir != 0 ? qsDir : qdDir
+        bool   ssOk  = f_ssmt(qcS) == dir or f_ssmt(qcU) == dir or f_ssmt(qcD) == dir
+        bool   smtOk = smtHit or ssOk
+        bool   psp   = pspOn and useSMT and f_psp(bar_index - swBar)
         bool   amdx  = qtMode != QT_OFF and not na(ep) and qtDir == dir
-        sc += (obOk ? 1 : 0) + (qtMode == QT_SC and amdx ? 1 : 0)
+        sc += (obOk ? 1 : 0) + (qtMode == QT_SC and amdx ? 1 : 0) + (smtOk and not smtHit ? 1 : 0) + (psp ? 1 : 0)
         string qtWhy = qtNoA and qtDQ == 0 ? "AMDX: Q1 Asia (สะสม)" : qtMode == QT_REQ and not amdx ? "AMDX: สวนทิศ QT" : ""
-        ckTxt := (swKey ? "✓" : "✗") + "Key " + (dOk ? "✓" : "✗") + "Disp " + (fOk ? "✓" : "✗") + "FVG " + (ov ? "✓" : "✗") + "HTF " + (inPD ? "✓" : "✗") + "PD " + (kzHit ? "✓" : "✗") + "KZ " + (smtHit ? "✓" : "✗") + "SMT " + (po3 ? "✓" : "✗") + "PO3" + (obOn and obScore ? " " + (obOk ? "✓OB " + obTf : "✗OB") : "") + (qtMode != QT_OFF ? " " + (amdx ? "✓" : "✗") + "AMDX" : "")
+        ckTxt := (swKey ? "✓" : "✗") + "Key " + (dOk ? "✓" : "✗") + "Disp " + (fOk ? "✓" : "✗") + "FVG " + (ov ? "✓" : "✗") + "HTF " + (inPD ? "✓" : "✗") + "PD " + (kzHit ? "✓" : "✗") + "KZ " + (smtHit ? "✓" : ssOk ? "✓S" : "✗") + "SMT " + (po3 ? "✓" : "✗") + "PO3" + (obOn and obScore ? " " + (obOk ? "✓OB " + obTf : "✗OB") : "") + (qtMode != QT_OFF ? " " + (amdx ? "✓" : "✗") + "AMDX" : "") + (pspOn and useSMT ? " " + (psp ? "✓" : "✗") + "PSP" : "")
         tSc := sc
         if na(ep)
             skip := (dir == 1 ? "▲ " : "▼ ") + "ข้าม · ไม่มีเลเวลใน Discount/Premium"
@@ -1850,7 +2068,7 @@ alertcondition(sigMss == -1, "จุดเข้า ▼", "MSNR×SMC: เกิ�
 f_smD(bool on, string tf, int a, bool lu, bool ld) =>
     on ? "  " + f_tfTxt(tf) + (a == 1 ? " ▲" : a == -1 ? " ▼" : lu ? " ▲?" : ld ? " ▼?" : " ·") : ""
 string dPos = dashPos == "บนขวา" ? position.top_right : dashPos == "ล่างซ้าย" ? position.bottom_left : dashPos == "บนซ้าย" ? position.top_left : position.bottom_right
-var table dash = table.new(dPos, 2, 10, bgcolor=color.new(chart.bg_color, 0), frame_color=color.new(chart.fg_color, 85), frame_width=1, border_width=0)
+var table dash = table.new(dPos, 2, 11, bgcolor=color.new(chart.bg_color, 0), frame_color=color.new(chart.fg_color, 85), frame_width=1, border_width=0)
 
 if barstate.islast
     array<float> vp = array.new<float>()
@@ -2002,16 +2220,18 @@ if barstate.islast
         string obTx = (na(obNd) ? "D —" : "D " + str.tostring(obNd, format.mintick) + " " + obNdT) + " · " + (na(obNs) ? "S —" : "S " + str.tostring(obNs, format.mintick) + " " + obNsT)
         table.cell(dash, 0, 7, "OB ใกล้ราคา", text_color=dim, text_size=size.tiny, text_halign=text.align_left)
         table.cell(dash, 1, 7, obTx, text_color=fg, text_size=size.tiny, text_halign=text.align_right)
-        // เรื่องเล่า QT: A → M → D → X (วัน + 90 นาที)
-        array<string> qnm = array.from("A Asia", "M London", "D NY AM", "X NY PM")
-        [qD, qDd] = f_qtStory(qcD, qtDQ, qtSideD * qtAtrH1, sty, nR, tR, nS, tS)
-        [qS, qSd] = f_qtStory(qcS, qtMQ, qtSideS * qtAtrH1, sty, nR, tR, nS, tS)
-        color  cD  = qDd == 1 ? colS : qDd == -1 ? colR : fg
-        color  cS2 = qSd == 1 ? colS : qSd == -1 ? colR : fg
+        // QT แบบรอบ: วัน · 90 นาที · Micro 22.5 นาที
+        array<string> qnm = array.from("Q1 Asia", "Q2 London", "Q3 NY AM", "Q4 NY PM")
+        [qD, qDd] = f_qtText(qcD, qtLimD, sty, nR, tR, nS, tS)
+        [qS, qSd] = f_qtText(qcS, qtLimS, sty, nR, tR, nS, tS)
+        [qU, qUd] = f_qtText(qcU, qtLimU, sty, nR, tR, nS, tS)
+        bool   uOk = chSec <= 300
         table.cell(dash, 0, 8, "QT วัน · " + qnm.get(qtDQ), text_color=dim, text_size=size.tiny, text_halign=text.align_left)
-        table.cell(dash, 1, 8, qD, text_color=cD, text_size=size.tiny, text_halign=text.align_right)
-        table.cell(dash, 0, 9, "QT 90m · Q" + str.tostring(qtMQ + 1) + " " + array.from("A", "M", "D", "X").get(qtMQ), text_color=dim, text_size=size.tiny, text_halign=text.align_left)
-        table.cell(dash, 1, 9, qS, text_color=cS2, text_size=size.tiny, text_halign=text.align_right)
+        table.cell(dash, 1, 8, qD, text_color=qDd == 1 ? colS : qDd == -1 ? colR : fg, text_size=size.tiny, text_halign=text.align_right)
+        table.cell(dash, 0, 9, "QT 90m · Q" + str.tostring(qtMQ + 1), text_color=dim, text_size=size.tiny, text_halign=text.align_left)
+        table.cell(dash, 1, 9, qS, text_color=qSd == 1 ? colS : qSd == -1 ? colR : fg, text_size=size.tiny, text_halign=text.align_right)
+        table.cell(dash, 0, 10, "QT Micro · Q" + str.tostring(qtUQ + 1), text_color=dim, text_size=size.tiny, text_halign=text.align_left)
+        table.cell(dash, 1, 10, uOk ? qU : "ใช้ TF ≤ M5", text_color=uOk and qUd == 1 ? colS : uOk and qUd == -1 ? colR : dim, text_size=size.tiny, text_halign=text.align_right)
 
 // ════════════════════════════════════════════════════════════════
 // ███ QT: เส้น True Open / Q1 + แถบ Quarter ใต้กราฟ (วาดตอนแท่งสุดท้าย) ███
