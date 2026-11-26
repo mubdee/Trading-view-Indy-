@@ -1,6 +1,7 @@
 // ════════════════════════════════════════════════════════════════
 // MSNR × SMC + OB PRO — DEV · MSNR × SMC + OB (2026-11-26) + ข้อแนะนำทั้งหมด (Pine Script v6)
 // ✏️ ไฟล์สำรองสำหรับแก้/ทดลอง · ไฟล์หลัก: indicators/msnr-smc-ob-pro/main/msnr-smc-ob-pro-main.pine
+// DEV (4) 2026-11-26: QT ไซด์เวย์เทียบค่าเฉลี่ยกรอบ A 10 รอบก่อน (ปรับตามตลาด · ATR เป็นค่าสำรอง) · f_qtStory คืน [ข้อความ, ทิศ] แทนการเดาสีจากข้อความ
 // DEV (3) 2026-11-26: QT ผิดคาด = Inversion → วิ่งต่อตามทิศ M · เทียบ H4 ด้วยทิศใหม่ · สวน H4 บอกแนวต้าน/แนวรับ TF ใหญ่ตัวถัดไป
 // DEV (2) 2026-11-26: Dashboard เรื่องเล่า QT — แถว 'QT วัน' + 'QT 90m': A ไซด์เวย์ → M หลอกขึ้น/ลง → D คาดทิศสวน M (กำลังไป / ตามคาด ✓ / ผิดคาด ✗) → X ระวังกลับตัว · เทียบ H4 · กราฟไม่เปลี่ยน
 // DEV (1) 2026-11-26: ตัวเลือกแสดงโซน OB บนกราฟ — ทุก TF / เฉพาะ TF ชาร์ต / เฉพาะ TF ใหญ่ · แสดงเฉพาะโซนใกล้ราคา N โซนต่อฝั่ง (ซ่อนอย่างเดียว Engine ยังใช้ครบ)
@@ -1068,8 +1069,9 @@ bool   qtLines = input.bool(true, "เส้น True Open 90m · True Day Open �
 bool   qtShow  = input.bool(true, "แถบ Quarter ใต้กราฟ (บน 90 นาที · ล่าง วัน)", group=QTG, tooltip="สี: Q1 เทา (A) · Q2 แดง (M) · Q3 เขียว (D) · Q4 ฟ้า (X) · กรอบเข้ม = ช่วงปัจจุบัน")
 int    qtDays  = input.int(2, "แถบ Quarter: ย้อนหลัง (วัน)", minval=1, maxval=5, group=QTG, display=display.none)
 bool   qtBg    = input.bool(false, "แรเงา Quarter ของวันบนกราฟ", group=QTG, display=display.none)
-float  qtSideD = input.float(2.5, "เรื่องเล่า QT: A วันไซด์เวย์ถ้ากรอบ ≤ (x ATR H1)", minval=0.1, step=0.1, group=QTG, display=display.none, tooltip="กรอบ High–Low ของ Q1 Asia (6 ชม.) เทียบ ATR(14) ของ H1")
-float  qtSideS = input.float(1.0, "เรื่องเล่า QT: A 90 นาทีไซด์เวย์ถ้ากรอบ ≤ (x ATR H1)", minval=0.1, step=0.1, group=QTG, display=display.none, tooltip="กรอบ High–Low ของ 90 นาทีแรกในเซสชัน เทียบ ATR(14) ของ H1")
+float  qtSideM = input.float(1.2, "เรื่องเล่า QT: A ไซด์เวย์ถ้ากรอบ ≤ (x ค่าเฉลี่ยกรอบ A 10 รอบก่อน)", minval=0.1, step=0.1, group=QTG, display=display.none, tooltip="เทียบกับกรอบ A ของรอบก่อน ๆ (วันละ 1 รอบ / เซสชันละ 1 รอบ) แทน ATR → ปรับตามสภาพตลาดเอง\nกรอบ A ใหญ่กว่าปกติเกินค่านี้ = 'A วิ่งแรง (ผิดแบบ)'")
+float  qtSideD = input.float(2.5, "สำรอง (ประวัติ < 3 รอบ): A วัน ≤ (x ATR H1)", minval=0.1, step=0.1, group=QTG, display=display.none)
+float  qtSideS = input.float(1.0, "สำรอง (ประวัติ < 3 รอบ): A 90m ≤ (x ATR H1)", minval=0.1, step=0.1, group=QTG, display=display.none)
 
 int qtMin = (hour(time, "America/New_York") * 60 + minute(time, "America/New_York") + 360) % 1440
 int qtDQ  = math.floor(qtMin / 360)              // 0..3 = Q1 Asia · Q2 London · Q3 NY AM · Q4 NY PM
@@ -1151,10 +1153,15 @@ type QtCyc
     bool  mDn = false
     float dHi
     float dLo
+    array<float> hist     // กรอบ A ของรอบก่อน ๆ (ล่าสุด 10 รอบ)
 
 // newCyc = เริ่มรอบใหม่ (A) · seg = 0 A · 1 M · 2 D · 3 X
 method qtUpd(QtCyc c, bool newCyc, int seg, bool segNew) =>
     if newCyc
+        if c.valid and not na(c.aH)
+            c.hist.push(c.aH - c.aL)
+            if c.hist.size() > 10
+                c.hist.shift()
         c.valid := true
         c.aH  := high
         c.aL  := low
@@ -1183,8 +1190,11 @@ method qtUpd(QtCyc c, bool newCyc, int seg, bool segNew) =>
             c.dLo := na(c.dLo) ? low : math.min(c.dLo, low)
     c
 
-f_qtStory(QtCyc c, int seg, float sideLim, int bias, float rP, string rT, float sP, string sT) =>
-    string r = ""
+// คืนค่า [ข้อความ, ทิศ] · ทิศ = ทิศที่คาด (หรือทิศ Inversion ถ้าผิดคาด) · 0 = ยังไม่มีทิศ / ผิดแบบ
+f_qtStory(QtCyc c, int seg, float atrLim, int bias, float rP, string rT, float sP, string sT) =>
+    string r   = ""
+    int    out = 0
+    float  sideLim = c.hist.size() >= 3 ? c.hist.avg() * qtSideM : atrLim
     if not c.valid
         r := "รอเริ่มรอบใหม่"
     else
@@ -1197,6 +1207,7 @@ f_qtStory(QtCyc c, int seg, float sideLim, int bias, float rP, string rT, float 
             string mTx  = c.mUp and c.mDn ? "M กวาด 2 ฝั่ง (ไม่ชัด)" : c.mUp ? "M ↑ หลอกขึ้น" : c.mDn ? "M ↓ หลอกลง" : "M ยังไม่หลอก"
             int    ex   = -mDir
             r := aTx + " → " + mTx
+            out := ex
             if seg == 1
                 r := r + (ex == 0 ? " → รอ M กวาดกรอบ A" : " → คาด D " + (ex == -1 ? "↓ ลง" : "↑ ขึ้น"))
             else if ex == 0
@@ -1206,6 +1217,7 @@ f_qtStory(QtCyc c, int seg, float sideLim, int bias, float rP, string rT, float 
                 bool done = ex == -1 ? (not na(c.dLo) and c.dLo < c.aL) : (not na(c.dHi) and c.dHi > c.aH)
                 bool go   = not na(c.tOpen) and (ex == -1 ? close < c.tOpen : close > c.tOpen)
                 int    eff = fail ? -ex : ex      // ผิดคาด = Inversion → วิ่งต่อตามทิศ M
+                out := eff
                 string dTx = fail ? "D ผิดคาด ✗ → Inversion: วิ่งต่อ " + (eff == 1 ? "↑" : "↓") + " ตาม M" : done ? "D " + (ex == -1 ? "↓ ลง" : "↑ ขึ้น") + "ตามคาด ✓" : go ? "D " + (ex == -1 ? "↓ กำลังลง" : "↑ กำลังขึ้น") : "D คาด" + (ex == -1 ? "ลง" : "ขึ้น") + " (ยังไม่ไป)"
                 r := r + " → " + dTx
                 if seg == 2 and not fail and not na(c.tOpen)
@@ -1220,10 +1232,10 @@ f_qtStory(QtCyc c, int seg, float sideLim, int bias, float rP, string rT, float 
                         string lt = eff == 1 ? rT : sT
                         if not na(lp)
                             r := r + " (ระวัง" + (eff == 1 ? "แนวต้าน " : "แนวรับ ") + str.tostring(lp, format.mintick) + " " + lt + ")"
-    r
+    [r, out]
 
-var QtCyc qcD = QtCyc.new()      // ทั้งวัน: A Asia · M London · D NY AM · X NY PM
-var QtCyc qcS = QtCyc.new()      // 90 นาที ในเซสชันปัจจุบัน
+var QtCyc qcD = QtCyc.new(hist = array.new<float>())      // ทั้งวัน: A Asia · M London · D NY AM · X NY PM
+var QtCyc qcS = QtCyc.new(hist = array.new<float>())      // 90 นาที ในเซสชันปัจจุบัน
 bool qtNewDay = qtDQ == 0 and qtDQ[1] != 0
 bool qtNewSes = qtDQ != qtDQ[1]
 qcD.qtUpd(qtNewDay, qtDQ, qtDQ != qtDQ[1])
@@ -2003,10 +2015,10 @@ if barstate.islast
         table.cell(dash, 1, 10, obTx, text_color=fg, text_size=size.tiny, text_halign=text.align_right)
         // เรื่องเล่า QT: A → M → D → X (วัน + 90 นาที)
         array<string> qnm = array.from("A Asia", "M London", "D NY AM", "X NY PM")
-        string qD = f_qtStory(qcD, qtDQ, qtSideD * qtAtrH1, sty, nR, tR, nS, tS)
-        string qS = f_qtStory(qcS, qtMQ, qtSideS * qtAtrH1, sty, nR, tR, nS, tS)
-        color  cD = str.contains(qD, "Inversion: วิ่งต่อ ↑") ? colS : str.contains(qD, "Inversion: วิ่งต่อ ↓") ? colR : str.contains(qD, "คาด D ↓") or str.contains(qD, "D ↓") or str.contains(qD, "D คาดลง") ? colR : str.contains(qD, "คาด D ↑") or str.contains(qD, "D ↑") or str.contains(qD, "D คาดขึ้น") ? colS : fg
-        color  cS2 = str.contains(qS, "Inversion: วิ่งต่อ ↑") ? colS : str.contains(qS, "Inversion: วิ่งต่อ ↓") ? colR : str.contains(qS, "คาด D ↓") or str.contains(qS, "D ↓") or str.contains(qS, "D คาดลง") ? colR : str.contains(qS, "คาด D ↑") or str.contains(qS, "D ↑") or str.contains(qS, "D คาดขึ้น") ? colS : fg
+        [qD, qDd] = f_qtStory(qcD, qtDQ, qtSideD * qtAtrH1, sty, nR, tR, nS, tS)
+        [qS, qSd] = f_qtStory(qcS, qtMQ, qtSideS * qtAtrH1, sty, nR, tR, nS, tS)
+        color  cD  = qDd == 1 ? colS : qDd == -1 ? colR : fg
+        color  cS2 = qSd == 1 ? colS : qSd == -1 ? colR : fg
         table.cell(dash, 0, 11, "QT วัน · " + qnm.get(qtDQ), text_color=dim, text_size=size.tiny, text_halign=text.align_left)
         table.cell(dash, 1, 11, qD, text_color=cD, text_size=size.tiny, text_halign=text.align_right)
         table.cell(dash, 0, 12, "QT 90m · Q" + str.tostring(qtMQ + 1) + " " + array.from("A", "M", "D", "X").get(qtMQ), text_color=dim, text_size=size.tiny, text_halign=text.align_left)
