@@ -1,6 +1,7 @@
 // ════════════════════════════════════════════════════════════════
 // MSNR × SMC + OB PRO — DEV · MSNR × SMC + OB (2026-11-26) + ข้อแนะนำทั้งหมด (Pine Script v6)
 // ✏️ ไฟล์สำรองสำหรับแก้/ทดลอง · ไฟล์หลัก: indicators/msnr-smc-ob-pro/main/msnr-smc-ob-pro-main.pine
+// DEV (5) 2026-11-26: โหมดดูจุดเข้า — มาร์กจุดเข้า + SL/TP อ้างอิงจาง แล้วหาจุดต่อไปทันที · Score ต่ำ = จาง · ตัด Lot/Stats/บริหารไม้ · AMDX ใช้ทิศเดียวกับเรื่องเล่า QT · Dashboard 10 แถว
 // DEV (4) 2026-11-26: QT ไซด์เวย์เทียบค่าเฉลี่ยกรอบ A 10 รอบก่อน (ปรับตามตลาด · ATR เป็นค่าสำรอง) · f_qtStory คืน [ข้อความ, ทิศ] แทนการเดาสีจากข้อความ
 // DEV (3) 2026-11-26: QT ผิดคาด = Inversion → วิ่งต่อตามทิศ M · เทียบ H4 ด้วยทิศใหม่ · สวน H4 บอกแนวต้าน/แนวรับ TF ใหญ่ตัวถัดไป
 // DEV (2) 2026-11-26: Dashboard เรื่องเล่า QT — แถว 'QT วัน' + 'QT 90m': A ไซด์เวย์ → M หลอกขึ้น/ลง → D คาดทิศสวน M (กำลังไป / ตามคาด ✓ / ผิดคาด ✗) → X ระวังกลับตัว · เทียบ H4 · กราฟไม่เปลี่ยน
@@ -89,20 +90,22 @@ float  confA     = input.float(0.5, "ระยะที่นับว่าท�
 float  slA       = input.float(0.1, "SL เลยปลายไส้ sweep (x ATR)", minval=0.0, step=0.05, group=G3, display=display.none)
 float  minRR     = input.float(1.5, "TP ต้องห่างอย่างน้อย (R)", minval=0.5, step=0.1, group=G3, display=display.none)
 float  fbR       = input.float(2.0, "TP สำรองถ้าไม่มีเลเวล (R)", minval=0.5, step=0.1, group=G3, display=display.none)
-int    fillBars  = input.int(0, "Limit ต้องโดนภายใน (แท่ง) · 0 = ไม่จำกัด", minval=0, group=G3, display=display.none)
-int    maxHold   = input.int(150, "ปิดไม้อัตโนมัติถ้าเกิน (แท่ง)", minval=10, group=G3, display=display.none)
+int    fillBars  = 0      // โหมดดูจุดเข้า: ไม่ใช้ (เดิมเป็น input)
+int    maxHold   = 150      // โหมดดูจุดเข้า: ไม่ใช้ (เดิมเป็น input)
 bool   useSess   = input.bool(false, "หา Setup เฉพาะใน Session", group=G3)
+int    enKeep    = input.int(10, "จำนวนจุดเข้าที่แสดงย้อนหลัง", minval=1, maxval=40, group=G3, display=display.none, tooltip="โหมดดูจุดเข้า: มาร์กจุดเข้า + เส้น SL/TP อ้างอิงจาง แล้วหาจุดต่อไปทันที (ไม่รอผลไม้)")
+bool   showWeak  = input.bool(true, "แสดงจุดเข้าที่ Score ต่ำแบบจาง", group=G3)
 string sess      = input.session("1400-0200", "Session (เวลาไทย)", group=G3, display=display.none)
 
-string GM = "บริหารไม้ / ความเสี่ยง"
-string mgMode  = input.string("TP1 แบ่งปิด + กันทุน", "การบริหารไม้", options=["TP1 แบ่งปิด + กันทุน", "SL / TP ตายตัว"], group=GM, display=display.none, tooltip="TP1 แบ่งปิด + กันทุน = ถึง TP1 ปิดบางส่วน แล้วเลื่อน SL ไปที่ Entry (+buffer) ปล่อยที่เหลือไป TP2 · Stats คำนวณตามโหมดที่เลือก")
-string tp1Mode = input.string("Roadblock", "TP1", options=["Roadblock", "1R"], group=GM, display=display.none, tooltip="Roadblock = เลเวล MSNR ฝั่งตรงข้ามตัวแรกที่ขวางทางไป TP2 (ไม่มี = 1R)")
-float  partPct = input.float(50, "ปิดที่ TP1 (%)", minval=0, maxval=100, step=5, group=GM, display=display.none)
-float  bePts   = input.float(30, "SL กันทุน = Entry + (points)", minval=0, step=10, group=GM, display=display.none, tooltip="เผื่อ spread / ค่าคอม · XAUUSD 1 point = 0.01")
-float  riskUsd = input.float(10, "ความเสี่ยงต่อไม้ (USD)", minval=0.01, step=1, group=GM, display=display.none)
-float  ptSize  = input.float(0.01, "1 point = ราคาเท่าไร", minval=0.00001, step=0.001, group=GM, display=display.none)
-float  ctSz    = input.float(100, "Contract size ต่อ 1 lot", minval=0.0001, group=GM, display=display.none, tooltip="XAUUSD = 100 oz ต่อ 1 lot")
-float  slCap   = input.float(0, "SL ไกลสุด (points) · 0 = ปิด", minval=0, step=50, group=GM, display=display.none, tooltip="ถ้าไส้ sweep ไกลเกินค่านี้ → ตั้ง SL ที่ระยะนี้แทน (แบบ SFP SBR/RBS เช่น 1000 points)")
+string GM = "(ไม่ใช้ · โหมดดูจุดเข้า)"
+string mgMode  = "SL / TP ตายตัว"      // โหมดดูจุดเข้า: ไม่ใช้ (เดิมเป็น input)
+string tp1Mode = "1R"      // โหมดดูจุดเข้า: ไม่ใช้ (เดิมเป็น input)
+float  partPct = 0.0      // โหมดดูจุดเข้า: ไม่ใช้ (เดิมเป็น input)
+float  bePts   = 0.0      // โหมดดูจุดเข้า: ไม่ใช้ (เดิมเป็น input)
+float  riskUsd = 10.0      // โหมดดูจุดเข้า: ไม่ใช้ (เดิมเป็น input)
+float  ptSize  = 0.01      // โหมดดูจุดเข้า: ไม่ใช้ (เดิมเป็น input)
+float  ctSz    = 100.0      // โหมดดูจุดเข้า: ไม่ใช้ (เดิมเป็น input)
+float  slCap   = 0.0      // โหมดดูจุดเข้า: ไม่ใช้ (เดิมเป็น input)
 
 string G4 = "ทั่วไป"
 float  tolA      = input.float(0.05, "Tolerance แตะ/ทะลุ (x ATR)", minval=0.0, step=0.01, group=G4, display=display.none)
@@ -1063,7 +1066,7 @@ string QTG = "QT · Quarterly Theory (AMDX)"
 string QT_OFF = "ปิด"
 string QT_SC  = "ให้คะแนน (+1)"
 string QT_REQ = "บังคับ (ต้องตรง AMDX)"
-string qtMode  = input.string(QT_SC, "AMDX: Manipulation + True Open", options=[QT_OFF, QT_SC, QT_REQ], group=QTG, tooltip="Buy: กวาด Low Q1 + Entry ใต้ True Open · Sell: กวาด High Q1 + Entry เหนือ True Open\n(เซสชัน 90 นาที หรือ Q1 ของวัน + True Day Open)")
+string qtMode  = input.string(QT_SC, "AMDX: ทิศจุดเข้าตรงทิศที่ QT คาด", options=[QT_OFF, QT_SC, QT_REQ], group=QTG, tooltip="ใช้ผลเดียวกับแถว QT ใน Dashboard: ทิศที่ D คาด (สวน M) หรือทิศ Inversion ถ้าผิดคาด\nดู QT 90m ก่อน ถ้ายังไม่มีทิศ → ใช้ QT วัน\nตรง = ✓AMDX (+1) · สวน / ไม่มีทิศ = ✗AMDX")
 bool   qtNoA   = input.bool(true, "ไม่ตั้ง Limit ใหม่ช่วง Q1 ของวัน (Asia 18:00-00:00 NY = Accumulation)", group=QTG, tooltip="เวลาไทย ≈ 06:00-12:00 (ฤดูหนาว US) / 05:00-11:00 (ฤดูร้อน US)")
 bool   qtLines = input.bool(true, "เส้น True Open 90m · True Day Open · High/Low Q1 เซสชัน", group=QTG)
 bool   qtShow  = input.bool(true, "แถบ Quarter ใต้กราฟ (บน 90 นาที · ล่าง วัน)", group=QTG, tooltip="สี: Q1 เทา (A) · Q2 แดง (M) · Q3 เขียว (D) · Q4 ฟ้า (X) · กรอบเข้ม = ช่วงปัจจุบัน")
@@ -1284,6 +1287,29 @@ var float  mDisp = na
 var int    tSc   = 0
 var string ckTxt = ""
 var string skip  = ""
+var string enOb   = ""
+var bool   enWeak = false
+var string enWhy  = ""
+var string lastTxt = ""
+var int    lastDir = 0
+var array<line>  enLs = array.new<line>()
+var array<label> enLb = array.new<label>()
+
+// มาร์กจุดเข้า: เส้น Entry + SL/TP อ้างอิงจาง · เก็บย้อนหลัง enKeep จุด · Score ต่ำ = จางทั้งหมด
+f_markEntry(int d, float ep, float sl, float tp, float rr, string txt, string tip, bool weak) =>
+    color dc = d == 1 ? colS : colR
+    color ec = weak ? color.new(dc, 65) : dc
+    int   x2 = bar_index + offs
+    enLs.push(line.new(bar_index, ep, x2, ep, color=ec, width=lw))
+    enLs.push(line.new(bar_index, sl, x2, sl, color=color.new(colR, weak ? 80 : 55), width=1, style=line.style_dotted))
+    enLs.push(line.new(bar_index, tp, x2, tp, color=color.new(colS, weak ? 80 : 55), width=1, style=line.style_dotted))
+    enLb.push(label.new(x2, ep, txt, style=label.style_label_lower_left, color=cNone, textcolor=ec, size=txtSz, tooltip=tip))
+    enLb.push(label.new(x2, sl, "SL", style=label.style_label_lower_left, color=cNone, textcolor=color.new(colR, weak ? 75 : 45), size=txtSz))
+    enLb.push(label.new(x2, tp, "TP 1:" + str.tostring(rr, "#.#"), style=label.style_label_lower_left, color=cNone, textcolor=color.new(colS, weak ? 75 : 45), size=txtSz))
+    while enLs.size() > enKeep * 3
+        line.delete(enLs.shift())
+    while enLb.size() > enKeep * 3
+        label.delete(enLb.shift())
 
 var int   nW   = 0
 var int   nL   = 0
@@ -1503,75 +1529,49 @@ if barstate.isconfirmed and inCalc
         // PRO: OB ทับ Entry · AMDX
         string obTf  = obOn and obScore ? ob_hit(dir, ep) : ""
         bool   obOk  = obTf != ""
-        bool   amdx  = qtMode != QT_OFF and not na(ep) and f_qtOk(dir, ep)
+        [qsT0, qsDir] = f_qtStory(qcS, qtMQ, qtSideS * qtAtrH1, 0, na, "", na, "")
+        [qdT0, qdDir] = f_qtStory(qcD, qtDQ, qtSideD * qtAtrH1, 0, na, "", na, "")
+        int    qtDir = qsDir != 0 ? qsDir : qdDir
+        bool   amdx  = qtMode != QT_OFF and not na(ep) and qtDir == dir
         sc += (obOk ? 1 : 0) + (qtMode == QT_SC and amdx ? 1 : 0)
-        string qtWhy = qtNoA and qtDQ == 0 ? "AMDX: Q1 Asia (สะสม)" : qtMode == QT_REQ and not amdx ? "AMDX: ยังไม่กวาด Q1 / ผิดฝั่ง True Open" : ""
+        string qtWhy = qtNoA and qtDQ == 0 ? "AMDX: Q1 Asia (สะสม)" : qtMode == QT_REQ and not amdx ? "AMDX: สวนทิศ QT" : ""
         ckTxt := (swKey ? "✓" : "✗") + "Key " + (dOk ? "✓" : "✗") + "Disp " + (fOk ? "✓" : "✗") + "FVG " + (ov ? "✓" : "✗") + "HTF " + (inPD ? "✓" : "✗") + "PD " + (kzHit ? "✓" : "✗") + "KZ " + (smtHit ? "✓" : "✗") + "SMT " + (po3 ? "✓" : "✗") + "PO3" + (obOn and obScore ? " " + (obOk ? "✓OB " + obTf : "✗OB") : "") + (qtMode != QT_OFF ? " " + (amdx ? "✓" : "✗") + "AMDX" : "")
         tSc := sc
-        if na(ep) or sc < minScore or qtWhy != ""
-            skip := (dir == 1 ? "▲ " : "▼ ") + "ข้าม · Score " + str.tostring(sc) + "/" + str.tostring(scMax) + (na(ep) ? " · ไม่มีเลเวลใน Discount/Premium" : "") + (qtWhy != "" ? " · " + qtWhy : "")
+        if na(ep)
+            skip := (dir == 1 ? "▲ " : "▼ ") + "ข้าม · ไม่มีเลเวลใน Discount/Premium"
             ss   := 0
         else
-            skip  := ""
-            enP   := ep
-            enTxt := et
-            ss    := 41
+            skip   := ""
+            enP    := ep
+            enTxt  := et
+            enOb   := obTf
+            enWeak := sc < minScore or qtWhy != ""
+            enWhy  := sc < minScore ? "Score ต่ำ" : qtWhy
+            ss     := (enWeak and not showWeak) ? 0 : 41
+            if enWeak and not showWeak
+                skip := (dir == 1 ? "▲ " : "▼ ") + "ข้าม · " + enWhy + " · " + f_grade(sc, scMax) + " " + str.tostring(sc) + "/" + str.tostring(scMax)
+    // ── โหมดดูจุดเข้า: มาร์กจุดเข้า + SL/TP อ้างอิงจาง แล้วหาจุดต่อไปทันที (ไม่รอผลไม้)
     if ss == 41
         float ep   = enP
-        string et  = enTxt
-        sigMss := dir
+        sigMss := enWeak ? 0 : dir
         float sl   = dir == 1 ? swWk - slA * atr : swWk + slA * atr
-        if slCap > 0 and math.abs(ep - sl) > slCap * ptSize
-            sl := ep - dir * slCap * ptSize
         float risk = math.max(math.abs(ep - sl), syminfo.mintick)
         float tp   = f_target(dir, risk * minRR, ep)
         if na(tp)
             tp := ep + dir * risk * fbR
-        // TP1: Roadblock = เลเวล MSNR ฝั่งตรงข้ามตัวแรกระหว่าง Entry กับ TP2 · ไม่มี = 1R
-        float t1 = na
-        if tp1Mode == "Roadblock"
-            for m in lvL
-                if m.fresh and m.kind == -dir and math.abs(m.price - ep) >= 0.5 * risk
-                    if dir == 1 and m.price > ep and m.price < tp and (na(t1) or m.price < t1)
-                        t1 := m.price
-                    if dir == -1 and m.price < ep and m.price > tp and (na(t1) or m.price > t1)
-                        t1 := m.price
-        if na(t1)
-            t1 := ep + dir * risk
-        if (dir == 1 and t1 >= tp) or (dir == -1 and t1 <= tp)
-            t1 := na
-        enP   := ep
-        slP   := sl
-        tpP   := tp
-        tp1P  := t1
-        tp1H  := false
-        slNow := sl
-        rlz   := 0.0
-        lotV  := math.floor(riskUsd / (risk * ctSz) * 100) / 100
-        rrV   := math.abs(tp - ep) / risk
-        enTxt := et + " · " + f_grade(tSc, scMax)
-        ss    := 4
-        stBar := bar_index
-        line.delete(eL)
-        line.delete(sL)
-        line.delete(tL)
-        label.delete(eB)
-        label.delete(sB)
-        label.delete(tB)
-        line.delete(t1L)
-        label.delete(t1B)
-        int x2 = bar_index + offs
-        color dc = dir == 1 ? colS : colR
-        eL := line.new(bar_index, ep, x2, ep, color=dc, width=lw)
-        sL := line.new(bar_index, sl, x2, sl, color=colR, width=lw, style=line.style_dotted)
-        tL := line.new(bar_index, tp, x2, tp, color=colS, width=lw, style=line.style_dotted)
-        eB := label.new(x2, ep, (dir == 1 ? "Buy Limit · " : "Sell Limit · ") + enTxt, style=label.style_label_lower_left, color=cNone, textcolor=dc, size=txtSz)
-        sB := label.new(x2, sl, "SL", style=label.style_label_lower_left, color=cNone, textcolor=colR, size=txtSz)
-        tB := label.new(x2, tp, (na(t1) or mgMode == "SL / TP ตายตัว" ? "TP 1:" : "TP2 1:") + str.tostring(rrV, "#.#"), style=label.style_label_lower_left, color=cNone, textcolor=colS, size=txtSz)
-        if not na(t1) and mgMode != "SL / TP ตายตัว"
-            t1L := line.new(bar_index, t1, x2, t1, color=color.new(colS, 50), width=lw, style=line.style_dotted)
-            t1B := label.new(x2, t1, "TP1 " + str.tostring(partPct, "#") + "% · BE", style=label.style_label_lower_left, color=cNone, textcolor=color.new(colS, 30), size=txtSz)
-        alert("MSNR×SMC " + (dir == 1 ? "▲ MSS → Buy Limit " : "▼ MSS → Sell Limit ") + str.tostring(ep, format.mintick) + " [" + enTxt + " · POI " + zTxt + " · " + ckTxt + "] | SL " + str.tostring(sl, format.mintick) + (na(t1) ? "" : " | TP1 " + str.tostring(t1, format.mintick)) + " | TP " + str.tostring(tp, format.mintick) + " | RR 1:" + str.tostring(rrV, "#.#") + " | Lot " + str.tostring(lotV, "#.##") + " (risk $" + str.tostring(riskUsd, "#.##") + ") | " + syminfo.ticker, alert.freq_once_per_bar_close)
+        enP  := ep
+        slP  := sl
+        tpP  := tp
+        rrV  := math.abs(tp - ep) / risk
+        string gr  = f_grade(tSc, scMax) + " " + str.tostring(tSc) + "/" + str.tostring(scMax)
+        string tag = enTxt + (zTxt != "" ? " · " + zTxt : "") + (enOb != "" ? " · OB " + enOb : "")
+        string txt = (dir == 1 ? "▲ จุดเข้า " : "▼ จุดเข้า ") + str.tostring(ep, format.mintick) + " · " + gr + " · " + tag + (enWeak ? " · " + enWhy : "")
+        f_markEntry(dir, ep, sl, tp, rrV, txt, ckTxt, enWeak)
+        lastTxt := txt + " · SL " + str.tostring(sl, format.mintick) + " · TP " + str.tostring(tp, format.mintick) + " (1:" + str.tostring(rrV, "#.#") + ") · " + str.format_time(time, "dd/MM HH:mm", "Asia/Bangkok")
+        lastDir := enWeak ? 0 : dir
+        if not enWeak
+            alert("MSNR×SMC: เกิดจุดเข้า " + (dir == 1 ? "▲ " : "▼ ") + str.tostring(ep, format.mintick) + " · " + gr + " · " + tag + " [" + ckTxt + "] | SL อ้างอิง " + str.tostring(sl, format.mintick) + " | TP อ้างอิง " + str.tostring(tp, format.mintick) + " | RR 1:" + str.tostring(rrV, "#.#") + " | " + syminfo.ticker, alert.freq_once_per_bar_close)
+        ss := 0
 
     // ── โซนหมดอายุ / ราคาวิ่งทะลุโซน
     if ss == 1
@@ -1842,18 +1842,15 @@ bool smtLiveNew = barstate.isrealtime and smtRT and ((lvUt != "" and lvUt != lvU
 if smtLiveNew
     alert("MSNR×SMC: SMT เรียลไทม์" + (lvUt != "" ? " ▲ Bullish" + lvUt : "") + (lvDt != "" ? " ▼ Bearish" + lvDt : "") + " · " + syminfo.ticker + " " + str.tostring(close, format.mintick), alert.freq_once_per_bar)
 
-alertcondition(sigMss == 1, "MSS → Buy Limit", "MSNR×SMC: Sweep + MSS ขึ้น → ตั้ง Buy Limit")
-alertcondition(sigMss == -1, "MSS → Sell Limit", "MSNR×SMC: Sweep + MSS ลง → ตั้ง Sell Limit")
-alertcondition(sigFill != 0, "Limit Filled", "MSNR×SMC: Limit โดนแล้ว")
-plotshape(sigFill == 1, title="Buy filled", style=shape.triangleup, location=location.belowbar, color=colS, size=size.tiny, display=display.pane)
-plotshape(sigFill == -1, title="Sell filled", style=shape.triangledown, location=location.abovebar, color=colR, size=size.tiny, display=display.pane)
+alertcondition(sigMss == 1, "จุดเข้า ▲", "MSNR×SMC: เกิดจุดเข้า ▲ (Sweep + MSS ขึ้น)")
+alertcondition(sigMss == -1, "จุดเข้า ▼", "MSNR×SMC: เกิดจุดเข้า ▼ (Sweep + MSS ลง)")
 
 // ───────── Render ─────────
 // Dashboard SMT: ▲/▼ = ยืนยันแล้ว · ▲?/▼? = เรียลไทม์ (ยังไม่ยืนยัน)
 f_smD(bool on, string tf, int a, bool lu, bool ld) =>
     on ? "  " + f_tfTxt(tf) + (a == 1 ? " ▲" : a == -1 ? " ▼" : lu ? " ▲?" : ld ? " ▼?" : " ·") : ""
 string dPos = dashPos == "บนขวา" ? position.top_right : dashPos == "ล่างซ้าย" ? position.bottom_left : dashPos == "บนซ้าย" ? position.top_left : position.bottom_right
-var table dash = table.new(dPos, 2, 13, bgcolor=color.new(chart.bg_color, 0), frame_color=color.new(chart.fg_color, 85), frame_width=1, border_width=0)
+var table dash = table.new(dPos, 2, 10, bgcolor=color.new(chart.bg_color, 0), frame_color=color.new(chart.fg_color, 85), frame_width=1, border_width=0)
 
 if barstate.islast
     array<float> vp = array.new<float>()
@@ -1967,28 +1964,20 @@ if barstate.islast
         string sTxt = sty == 1 ? "▲ Bullish (" + sSrc + ")" : sty == -1 ? "▼ Bearish (" + sSrc + ")" : "— No trend"
         color  sCol = sty == 1 ? colS : sty == -1 ? colR : dim
         string arw  = dir == 1 ? "▲ " : "▼ "
-        string stTxt = ss == 0 ? (skip != "" ? skip : inSess ? "รอราคาแตะเลเวล HTF" : "นอก Session") : ss == 1 ? arw + "ในโซน " + zTxt + " · รอ Sweep" : ss == 2 or ss == 3 ? arw + "Sweep ✓ · รอ MSS " + (dir == 1 ? "> " : "< ") + str.tostring(mLvl, format.mintick) : ss == 4 ? arw + (dir == 1 ? "Buy" : "Sell") + " Limit " + str.tostring(enP, format.mintick) + " · " + enTxt : arw + "In trade " + str.tostring(enP, format.mintick) + (tp1H ? " · TP1 ✓ กันทุนแล้ว" : "")
+        string stTxt = ss == 0 ? (skip != "" ? skip : inSess ? (obOn and obPoi != "ปิด" ? "รอราคาแตะเลเวล HTF / OB" : "รอราคาแตะเลเวล HTF") : "นอก Session") : ss == 1 ? arw + "ในโซน " + zTxt + " · รอ Sweep" : ss == 2 or ss == 3 ? arw + "Sweep ✓ · รอ MSS " + (dir == 1 ? "> " : "< ") + str.tostring(mLvl, format.mintick) : ss == 4 ? arw + (dir == 1 ? "Buy" : "Sell") + " Limit " + str.tostring(enP, format.mintick) + " · " + enTxt : arw + "In trade " + str.tostring(enP, format.mintick) + (tp1H ? " · TP1 ✓ กันทุนแล้ว" : "")
         color  stCol = ss == 0 ? dim : dir == 1 ? colS : colR
-        int    nWL   = nW + nL
-        string stat  = nWL + nT == 0 ? "—" : "W " + str.tostring(nW) + " · L " + str.tostring(nL) + (nT > 0 ? " · T " + str.tostring(nT) : "") + " · " + (nWL > 0 ? str.tostring(100.0 * nW / nWL, "#") + "%" : "-") + " · " + (sumR >= 0 ? "+" : "") + str.tostring(sumR, "#.#") + "R"
         table.cell(dash, 0, 0, "Storyline", text_color=dim, text_size=size.tiny, text_halign=text.align_left)
         table.cell(dash, 1, 0, sTxt, text_color=sCol, text_size=size.tiny, text_halign=text.align_right)
         table.cell(dash, 0, 1, "Next R", text_color=dim, text_size=size.tiny, text_halign=text.align_left)
         table.cell(dash, 1, 1, na(nR) ? "—" : str.tostring(nR, format.mintick) + "  " + tR, text_color=colR, text_size=size.tiny, text_halign=text.align_right)
         table.cell(dash, 0, 2, "Next S", text_color=dim, text_size=size.tiny, text_halign=text.align_left)
         table.cell(dash, 1, 2, na(nS) ? "—" : str.tostring(nS, format.mintick) + "  " + tS, text_color=colS, text_size=size.tiny, text_halign=text.align_right)
+        table.cell(dash, 0, 4, "จุดเข้าล่าสุด", text_color=dim, text_size=size.tiny, text_halign=text.align_left)
+        table.cell(dash, 1, 4, lastTxt == "" ? "—" : lastTxt, text_color=lastDir == 1 ? colS : lastDir == -1 ? colR : dim, text_size=size.tiny, text_halign=text.align_right)
         table.cell(dash, 0, 3, "Setup", text_color=dim, text_size=size.tiny, text_halign=text.align_left)
         table.cell(dash, 1, 3, stTxt, text_color=stCol, text_size=size.tiny, text_halign=text.align_right)
-        table.cell(dash, 0, 4, "SL / TP", text_color=dim, text_size=size.tiny, text_halign=text.align_left)
-        table.cell(dash, 1, 4, ss >= 4 ? str.tostring(slNow, format.mintick) + (tp1H ? " (BE)" : "") + " / " + (na(tp1P) ? "" : str.tostring(tp1P, format.mintick) + " · ") + str.tostring(tpP, format.mintick) + "  1:" + str.tostring(rrV, "#.#") : "—", text_color=fg, text_size=size.tiny, text_halign=text.align_right)
         table.cell(dash, 0, 5, "Score", text_color=dim, text_size=size.tiny, text_halign=text.align_left)
         table.cell(dash, 1, 5, ckTxt == "" ? "—" : f_grade(tSc, scMax) + " " + str.tostring(tSc) + "/" + str.tostring(scMax) + "  " + ckTxt, text_color=tSc >= scMax - 2 ? (dir == 1 ? colS : colR) : fg, text_size=size.tiny, text_halign=text.align_right)
-        table.cell(dash, 0, 6, "Stats", text_color=dim, text_size=size.tiny, text_halign=text.align_left)
-        table.cell(dash, 1, 6, stat, text_color=fg, text_size=size.tiny, text_halign=text.align_right)
-        int    nA    = aW + aL2
-        string statA = nA == 0 ? "—" : "W " + str.tostring(aW) + " · L " + str.tostring(aL2) + " · " + str.tostring(100.0 * aW / nA, "#") + "% · " + (aR >= 0 ? "+" : "") + str.tostring(aR, "#.#") + "R"
-        table.cell(dash, 0, 7, "Stats A/A+", text_color=dim, text_size=size.tiny, text_halign=text.align_left)
-        table.cell(dash, 1, 7, statA, text_color=fg, text_size=size.tiny, text_halign=text.align_right)
         int    cS   = bar_index - smtUBar <= liqAge and smtUBar >= smtDBar ? 1 : bar_index - smtDBar <= liqAge ? -1 : bar_index - smtUBar <= liqAge ? 1 : 0
         string sm0  = useSMT ? f_tfTxt(timeframe.period) + (cS == 1 ? " ▲" : cS == -1 ? " ▼" : lu0 ? " ▲?" : ld0 ? " ▼?" : " ·") : "ปิด"
         int    a1   = f_smtAct(st1, smtU1, smtTf1)
@@ -1996,8 +1985,8 @@ if barstate.islast
         int    a3   = f_smtAct(st3, smtU3, smtTf3)
         int    a4   = f_smtAct(st4, smtU4, smtTf4)
         string smR  = sm0 + f_smD(smtU1, smtTf1, a1, lu1, ld1) + f_smD(smtU2, smtTf2, a2, lu2, ld2) + f_smD(smtU3, smtTf3, a3, lu3, ld3) + f_smD(smtU4, smtTf4, a4, lu4, ld4)
-        table.cell(dash, 0, 9, "SMT", text_color=dim, text_size=size.tiny, text_halign=text.align_left)
-        table.cell(dash, 1, 9, smR, text_color=colSMT, text_size=size.tiny, text_halign=text.align_right)
+        table.cell(dash, 0, 6, "SMT", text_color=dim, text_size=size.tiny, text_halign=text.align_left)
+        table.cell(dash, 1, 6, smR, text_color=colSMT, text_size=size.tiny, text_halign=text.align_right)
         // PRO: OB ใกล้ราคา + Quarter
         float  obNs = na
         float  obNd = na
@@ -2011,20 +2000,18 @@ if barstate.islast
                 obNd  := z.top
                 obNdT := z.tfTxt
         string obTx = (na(obNd) ? "D —" : "D " + str.tostring(obNd, format.mintick) + " " + obNdT) + " · " + (na(obNs) ? "S —" : "S " + str.tostring(obNs, format.mintick) + " " + obNsT)
-        table.cell(dash, 0, 10, "OB ใกล้ราคา", text_color=dim, text_size=size.tiny, text_halign=text.align_left)
-        table.cell(dash, 1, 10, obTx, text_color=fg, text_size=size.tiny, text_halign=text.align_right)
+        table.cell(dash, 0, 7, "OB ใกล้ราคา", text_color=dim, text_size=size.tiny, text_halign=text.align_left)
+        table.cell(dash, 1, 7, obTx, text_color=fg, text_size=size.tiny, text_halign=text.align_right)
         // เรื่องเล่า QT: A → M → D → X (วัน + 90 นาที)
         array<string> qnm = array.from("A Asia", "M London", "D NY AM", "X NY PM")
         [qD, qDd] = f_qtStory(qcD, qtDQ, qtSideD * qtAtrH1, sty, nR, tR, nS, tS)
         [qS, qSd] = f_qtStory(qcS, qtMQ, qtSideS * qtAtrH1, sty, nR, tR, nS, tS)
         color  cD  = qDd == 1 ? colS : qDd == -1 ? colR : fg
         color  cS2 = qSd == 1 ? colS : qSd == -1 ? colR : fg
-        table.cell(dash, 0, 11, "QT วัน · " + qnm.get(qtDQ), text_color=dim, text_size=size.tiny, text_halign=text.align_left)
-        table.cell(dash, 1, 11, qD, text_color=cD, text_size=size.tiny, text_halign=text.align_right)
-        table.cell(dash, 0, 12, "QT 90m · Q" + str.tostring(qtMQ + 1) + " " + array.from("A", "M", "D", "X").get(qtMQ), text_color=dim, text_size=size.tiny, text_halign=text.align_left)
-        table.cell(dash, 1, 12, qS, text_color=cS2, text_size=size.tiny, text_halign=text.align_right)
-        table.cell(dash, 0, 8, "Lot", text_color=dim, text_size=size.tiny, text_halign=text.align_left)
-        table.cell(dash, 1, 8, ss >= 4 and not na(lotV) ? str.tostring(lotV, "#.##") + " lot · เสี่ยง $" + str.tostring(riskUsd, "#.##") + " · SL " + str.tostring(math.abs(enP - slP) / ptSize, "#") + " pts" : "—", text_color=fg, text_size=size.tiny, text_halign=text.align_right)
+        table.cell(dash, 0, 8, "QT วัน · " + qnm.get(qtDQ), text_color=dim, text_size=size.tiny, text_halign=text.align_left)
+        table.cell(dash, 1, 8, qD, text_color=cD, text_size=size.tiny, text_halign=text.align_right)
+        table.cell(dash, 0, 9, "QT 90m · Q" + str.tostring(qtMQ + 1) + " " + array.from("A", "M", "D", "X").get(qtMQ), text_color=dim, text_size=size.tiny, text_halign=text.align_left)
+        table.cell(dash, 1, 9, qS, text_color=cS2, text_size=size.tiny, text_halign=text.align_right)
 
 // ════════════════════════════════════════════════════════════════
 // ███ QT: เส้น True Open / Q1 + แถบ Quarter ใต้กราฟ (วาดตอนแท่งสุดท้าย) ███
