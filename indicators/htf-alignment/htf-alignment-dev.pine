@@ -1,0 +1,428 @@
+// ════════════════════════════════════════════════════════════════
+// HTF Alignment PRO — DEV (Pine Script v6)
+// ✏️ ไฟล์สำรองสำหรับแก้/ทดลอง · ไฟล์หลัก: indicators/htf-alignment/main/htf-alignment-main.pine
+// สร้างใหม่ตาม "HTF Alignment [CHAFFEY]" (ต้นฉบับเป็น protected source)
+// แท่ง HTF ทางขวา · Daily Reset · Quarterly 6H / 90m (Q1-Q4) · SMT 2 สินทรัพย์ · FVG · CISD · H/L TF ใหญ่
+// ════════════════════════════════════════════════════════════════
+//@version=6
+indicator("HTF Alignment PRO DEV", shorttitle="HTF ALIGN DEV", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
+
+// ═══════════════════════ INPUTS ═══════════════════════
+const string G1 = "HTF"
+e1  = input.bool(true,  "HTF 1", inline="h1", group=G1)
+tf1 = input.timeframe("15",  "", inline="h1", group=G1)
+n1  = input.int(6, "", minval=1, maxval=30, inline="h1", group=G1)
+e2  = input.bool(false, "HTF 2", inline="h2", group=G1)
+tf2 = input.timeframe("30",  "", inline="h2", group=G1)
+n2  = input.int(6, "", minval=1, maxval=30, inline="h2", group=G1)
+e3  = input.bool(false, "HTF 3", inline="h3", group=G1)
+tf3 = input.timeframe("60",  "", inline="h3", group=G1)
+n3  = input.int(6, "", minval=1, maxval=30, inline="h3", group=G1)
+e4  = input.bool(true,  "HTF 4", inline="h4", group=G1)
+tf4 = input.timeframe("240", "", inline="h4", group=G1)
+n4  = input.int(10, "", minval=1, maxval=30, inline="h4", group=G1)
+e5  = input.bool(true,  "HTF 5", inline="h5", group=G1)
+tf5 = input.timeframe("D",   "", inline="h5", group=G1)
+n5  = input.int(5, "", minval=1, maxval=30, inline="h5", group=G1)
+e6  = input.bool(true,  "HTF 6", inline="h6", group=G1)
+tf6 = input.timeframe("W",   "", inline="h6", group=G1)
+n6  = input.int(1, "", minval=1, maxval=30, inline="h6", group=G1)
+dailyReset = input.bool(true, "Daily Reset Alignment", group=G1, tooltip="แท่ง HTF ระหว่างวัน (เช่น 4H) จะนับเริ่มจากเวลาเปิดวันเทรด (18:00 NY สำหรับ Futures) แทน 00:00")
+
+const string G2 = "HTF QUARTERLY ALIGNMENT"
+eQD   = input.bool(true, "HTF Daily Cycles (6H)", inline="q1", group=G2)
+nQD   = input.int(5, "", minval=1, maxval=20, inline="q1", group=G2)
+eQ90  = input.bool(true, "HTF 90mins Cycles", inline="q2", group=G2)
+nQ90  = input.int(5, "", minval=1, maxval=20, inline="q2", group=G2)
+qAlign = input.bool(true, "Quarterly Alignment", group=G2, tooltip="ให้กลุ่ม 6H / 90m เริ่มแสดงที่แท่ง Q1 เสมอ")
+showQ  = input.bool(true, "Interval Value (Q1-Q4)", inline="iv", group=G2)
+qCol   = input.color(color.black, "", inline="iv", group=G2)
+qSizeS = input.string("tiny", "", options=["tiny", "small", "normal"], inline="iv", group=G2)
+qPos   = input.string("Above", "Interval Position", options=["Above", "Below"], group=G2)
+qLabN  = input.int(4, "Label Candles", minval=1, maxval=20, group=G2, tooltip="จำนวนแท่งล่าสุดที่จะแสดงป้าย Q")
+
+const string G3 = "SMT"
+comp1     = input.symbol("CBOT_MINI:YM1!", "Compare Asset 1", group=G3)
+comp2     = input.symbol("CME_MINI:ES1!",  "Compare Asset 2", group=G3)
+useC2     = input.bool(true, "Use Asset 2", group=G3)
+smtGrp    = input.bool(true, "SMT on HTF candles", inline="s1", group=G3)
+smtGrpCol = input.color(color.orange, "", inline="s1", group=G3)
+smtChart  = input.bool(true, "SMT on chart", inline="s2", group=G3)
+smtChCol  = input.color(color.black, "", inline="s2", group=G3)
+smtMinTf  = input.timeframe("90", "Chart SMT: min HTF", group=G3)
+smtMax    = input.int(20, "Max SMT on chart", minval=1, maxval=100, group=G3)
+
+const string G4 = "CISD / FVG / HIGH-LOW"
+showCisd  = input.bool(true, "CISD on HTF candles", group=G4)
+cisdBearC = input.color(#e53935, "Bear", inline="cc", group=G4)
+cisdBullC = input.color(#1e88e5, "Bull", inline="cc", group=G4)
+cisdChart = input.bool(true, "Project CISD on chart", inline="c2", group=G4)
+cisdTf    = input.timeframe("D", "", inline="c2", group=G4)
+showFvg   = input.bool(true, "HTF FVG", inline="fv", group=G4)
+fvgCol    = input.color(color.new(color.gray, 75), "", inline="fv", group=G4)
+showHL    = input.bool(true, "High/Low lines of largest HTF", inline="hl", group=G4)
+hlCol     = input.color(color.black, "", inline="hl", group=G4)
+
+const string G5 = "STYLING"
+bullBody = input.color(color.new(#81c784, 30), "Body", inline="b", group=G5)
+bearBody = input.color(color.black, "", inline="b", group=G5)
+wickCol  = input.color(color.black, "Wick / Border", group=G5)
+txtCol   = input.color(color.black, "Text", group=G5)
+cw       = input.int(3, "Candle width (bars)", minval=1, maxval=7, group=G5)
+sp       = input.int(1, "Space between candles", minval=0, maxval=5, group=G5)
+offs     = input.int(10, "Offset from last bar", minval=1, maxval=300, group=G5)
+gap      = input.int(8, "Gap between groups", minval=1, maxval=50, group=G5)
+
+// ═══════════════════════ TYPES ═══════════════════════
+type HC
+    float o
+    float h
+    float l
+    float c
+    int   t
+    int   bO
+    int   hB
+    int   lB
+    float ch1
+    float cl1
+    float ch2
+    float cl2
+    int   q = 0
+
+type Grp
+    string    tf
+    string    name
+    int       ms
+    int       n
+    bool      on
+    bool      anch
+    int       qm
+    array<HC> cs
+    int       bucket = -1
+
+// ═══════════════════════ HELPERS ═══════════════════════
+f_tfName(string tf) =>
+    int s = timeframe.in_seconds(tf)
+    string r = ""
+    if s < 60
+        r := str.tostring(s) + "s"
+    else if s < 3600
+        r := str.tostring(int(s / 60)) + "m"
+    else if s < 86400
+        r := s % 3600 == 0 ? str.tostring(int(s / 3600)) + "H" : str.tostring(int(s / 60)) + "m"
+    else if s < 604800
+        r := s == 86400 ? "D" : str.tostring(int(s / 86400)) + "D"
+    else if s < 2419200
+        r := s == 604800 ? "W" : str.tostring(int(s / 604800)) + "W"
+    else
+        r := "M"
+    r
+
+f_short(string sym) =>
+    array<string> p = str.split(sym, ":")
+    string t = p.size() > 0 ? p.last() : sym
+    t := str.replace_all(t, "1!", "")
+    t := str.replace_all(t, "2!", "")
+    t
+
+f_div(float a, float b, float ca, float cb, bool isHigh) =>
+    bool r = false
+    if not na(a) and not na(b) and not na(ca) and not na(cb)
+        r := isHigh ? ((b > a) != (cb > ca)) : ((b < a) != (cb < ca))
+    r
+
+f_hasTf(string t, string tfn) =>
+    str.contains(t, "| " + tfn) or str.contains(t, ", " + tfn)
+
+f_cisd(array<HC> cs) =>
+    float lvl   = na
+    int   idx   = -1
+    int   dir   = 0
+    float bullO = na
+    float bearO = na
+    int   bullI = -1
+    int   bearI = -1
+    bool  bullUsed = true
+    bool  bearUsed = true
+    int   sz = cs.size()
+    if sz > 0
+        for k = 0 to sz - 1
+            HC c = cs.get(k)
+            bool up  = c.c > c.o
+            bool dn  = c.c < c.o
+            bool pUp = false
+            bool pDn = false
+            if k > 0
+                HC p = cs.get(k - 1)
+                pUp := p.c > p.o
+                pDn := p.c < p.o
+            if up and not pUp
+                bullO    := c.o
+                bullI    := k
+                bullUsed := false
+            if dn and not pDn
+                bearO    := c.o
+                bearI    := k
+                bearUsed := false
+            if not bullUsed and k > bullI and c.c < bullO
+                lvl      := bullO
+                idx      := bullI
+                dir      := -1
+                bullUsed := true
+            if not bearUsed and k > bearI and c.c > bearO
+                lvl      := bearO
+                idx      := bearI
+                dir      := 1
+                bearUsed := true
+    [lvl, idx, dir]
+
+// ═══════════════════════ DATA ═══════════════════════
+chartMs  = timeframe.in_seconds() * 1000
+smtMinMs = timeframe.in_seconds(smtMinTf) * 1000
+c1Name   = f_short(comp1)
+c2Name   = f_short(comp2)
+qSize    = qSizeS == "tiny" ? size.tiny : qSizeS == "small" ? size.small : size.normal
+
+[c1h, c1l]   = request.security(comp1, timeframe.period, [high, low], ignore_invalid_symbol=true)
+[c2h0, c2l0] = request.security(comp2, timeframe.period, [high, low], ignore_invalid_symbol=true)
+float c2h = useC2 ? c2h0 : na
+float c2l = useC2 ? c2l0 : na
+
+bool dayNew = timeframe.change("D")
+var int dayStart = time
+if dayNew
+    dayStart := time
+
+// order: HTF1-4, 90m cycles, 6H cycles, HTF5, HTF6
+chg = array.from(timeframe.change(tf1), timeframe.change(tf2), timeframe.change(tf3), timeframe.change(tf4), false, false, timeframe.change(tf5), timeframe.change(tf6))
+tcl = array.from(time_close(tf1), time_close(tf2), time_close(tf3), time_close(tf4), 0, 0, time_close(tf5), time_close(tf6))
+
+f_mk(string tf, int n, bool en, bool forceAnch, int qm) =>
+    int ms = timeframe.in_seconds(tf) * 1000
+    bool anch = forceAnch or (dailyReset and ms < 86400000)
+    Grp.new(tf, f_tfName(tf), ms, n, en and ms > chartMs, anch, qm, array.new<HC>(), -1)
+
+var array<Grp> G = array.new<Grp>()
+if G.size() == 0
+    G.push(f_mk(tf1, n1, e1, false, 0))
+    G.push(f_mk(tf2, n2, e2, false, 0))
+    G.push(f_mk(tf3, n3, e3, false, 0))
+    G.push(f_mk(tf4, n4, e4, false, 0))
+    G.push(f_mk("90",  nQ90, eQ90, true, 2))
+    G.push(f_mk("360", nQD,  eQD,  true, 1))
+    G.push(f_mk(tf5, n5, e5, false, 0))
+    G.push(f_mk(tf6, n6, e6, false, 0))
+
+// ═══════════════════════ CHART SMT ═══════════════════════
+var array<string> smtKeys  = array.new<string>()
+var array<label>  smtLbls  = array.new<label>()
+var array<line>   smtLines = array.new<line>()
+
+f_drawSmt(int x1, float y1, int x2, float y2, bool isHigh, string who, string tfn) =>
+    string key = str.tostring(x1) + "_" + str.tostring(x2) + (isHigh ? "H" : "L")
+    int idx = smtKeys.indexof(key)
+    if idx >= 0
+        label lb = smtLbls.get(idx)
+        string t = lb.get_text()
+        if not f_hasTf(t, tfn)
+            lb.set_text(t + ", " + tfn)
+    else
+        line ln = line.new(x1, y1, x2, y2, color=smtChCol, width=1)
+        float ly = isHigh ? math.max(y1, y2) : math.min(y1, y2)
+        label lb = label.new(int((x1 + x2) / 2), ly, "SMT w/ " + who + " | " + tfn, style=isHigh ? label.style_label_down : label.style_label_up, color=#00000000, textcolor=smtChCol, size=size.tiny)
+        smtKeys.push(key)
+        smtLbls.push(lb)
+        smtLines.push(ln)
+        if smtKeys.size() > smtMax
+            smtKeys.shift()
+            label.delete(smtLbls.shift())
+            line.delete(smtLines.shift())
+
+f_chartSmt(Grp g) =>
+    int sz = g.cs.size()
+    HC a = g.cs.get(sz - 2)
+    HC b = g.cs.get(sz - 1)
+    bool h1 = f_div(a.h, b.h, a.ch1, b.ch1, true)
+    bool h2 = f_div(a.h, b.h, a.ch2, b.ch2, true)
+    bool l1 = f_div(a.l, b.l, a.cl1, b.cl1, false)
+    bool l2 = f_div(a.l, b.l, a.cl2, b.cl2, false)
+    if h1 or h2
+        f_drawSmt(a.hB, a.h, b.hB, b.h, true, h1 and h2 ? "2 Assets" : h1 ? c1Name : c2Name, g.name)
+    if l1 or l2
+        f_drawSmt(a.lB, a.l, b.lB, b.l, false, l1 and l2 ? "2 Assets" : l1 ? c1Name : c2Name, g.name)
+
+// ═══════════════════════ AGGREGATE HTF CANDLES ═══════════════════════
+for [i, g] in G
+    if g.on
+        bool isNew = false
+        int  st = time
+        int  q  = 0
+        if g.anch
+            int b = int(math.floor((time - dayStart) / g.ms))
+            isNew := dayNew or b != g.bucket or g.cs.size() == 0
+            st := dayStart + b * g.ms
+            g.bucket := b
+            if g.qm > 0
+                q := (b % 4) + 1
+        else
+            isNew := chg.get(i) or g.cs.size() == 0
+        if isNew
+            if smtChart and g.ms >= smtMinMs and g.cs.size() >= 2
+                f_chartSmt(g)
+            g.cs.push(HC.new(open, high, low, close, st, bar_index, bar_index, bar_index, c1h, c1l, c2h, c2l, q))
+            if g.cs.size() > g.n + 8
+                g.cs.shift()
+        else
+            HC c = g.cs.last()
+            c.c := close
+            if high > c.h
+                c.h  := high
+                c.hB := bar_index
+            if low < c.l
+                c.l  := low
+                c.lB := bar_index
+            if not na(c1h)
+                c.ch1 := na(c.ch1) ? c1h : math.max(c.ch1, c1h)
+            if not na(c1l)
+                c.cl1 := na(c.cl1) ? c1l : math.min(c.cl1, c1l)
+            if not na(c2h)
+                c.ch2 := na(c.ch2) ? c2h : math.max(c.ch2, c2h)
+            if not na(c2l)
+                c.cl2 := na(c.cl2) ? c2l : math.min(c.cl2, c2l)
+
+// ═══════════════════════ DRAW (LAST BAR) ═══════════════════════
+var array<box>   dB  = array.new<box>()
+var array<line>  dL  = array.new<line>()
+var array<label> dLb = array.new<label>()
+
+f_cd(Grp g, int i) =>
+    string r = "n/a"
+    if barstate.isrealtime and g.cs.size() > 0
+        int endT = g.anch ? g.cs.last().t + g.ms : tcl.get(i)
+        if not na(endT) and endT > 0
+            int rem = endT - timenow
+            if rem > 0
+                int s  = int(rem / 1000)
+                int d  = int(s / 86400)
+                int hh = int((s % 86400) / 3600)
+                int mm = int((s % 3600) / 60)
+                int ss = s % 60
+                r := (d > 0 ? str.tostring(d) + "d " : "") + str.format("{0,number,00}:{1,number,00}:{2,number,00}", hh, mm, ss)
+    r
+
+if barstate.islast
+    for b in dB
+        b.delete()
+    dB.clear()
+    for l in dL
+        l.delete()
+    dL.clear()
+    for lb in dLb
+        lb.delete()
+    dLb.clear()
+
+    // largest enabled normal HTF (for High/Low lines)
+    int bigIdx = -1
+    for [i, g] in G
+        if g.on and g.cs.size() > 0 and g.qm == 0
+            bigIdx := i
+
+    int x = bar_index + offs
+    int step = cw + sp
+    int half = int(cw / 2)
+
+    for [i, g] in G
+        if g.on and g.cs.size() > 0
+            int sz = g.cs.size()
+            int st = math.max(0, sz - g.n)
+            if qAlign and g.qm > 0
+                for k = st to sz - 1
+                    if g.cs.get(k).q == 1
+                        st := k
+                        break
+            int cnt  = sz - st
+            int gEnd = x + (cnt - 1) * step + cw - 1
+
+            // ---- FVG (behind candles)
+            if showFvg and cnt >= 3
+                for k = st + 2 to sz - 1
+                    HC a = g.cs.get(k - 2)
+                    HC c = g.cs.get(k)
+                    int xl = x + (k - 1 - st) * step
+                    int xr = x + (k - st) * step + cw - 1
+                    if c.l > a.h
+                        bool mit = false
+                        if k < sz - 1
+                            for j = k + 1 to sz - 1
+                                if g.cs.get(j).l <= a.h
+                                    mit := true
+                                    break
+                        if not mit
+                            dB.push(box.new(xl, c.l, xr, a.h, border_width=0, bgcolor=fvgCol))
+                    if c.h < a.l
+                        bool mit = false
+                        if k < sz - 1
+                            for j = k + 1 to sz - 1
+                                if g.cs.get(j).h >= a.l
+                                    mit := true
+                                    break
+                        if not mit
+                            dB.push(box.new(xl, a.l, xr, c.h, border_width=0, bgcolor=fvgCol))
+
+            // ---- candles
+            float gTop = na
+            float gBot = na
+            for k = st to sz - 1
+                HC c = g.cs.get(k)
+                int cx  = x + (k - st) * step
+                int mid = cx + half
+                float bt = math.max(c.o, c.c)
+                float bb = math.min(c.o, c.c)
+                bool up = c.c >= c.o
+                dL.push(line.new(mid, c.h, mid, bt, color=wickCol, width=1))
+                dL.push(line.new(mid, bb, mid, c.l, color=wickCol, width=1))
+                dB.push(box.new(cx, bt, cx + cw - 1, bb, border_color=wickCol, border_width=1, bgcolor=up ? bullBody : bearBody))
+                gTop := na(gTop) ? c.h : math.max(gTop, c.h)
+                gBot := na(gBot) ? c.l : math.min(gBot, c.l)
+                if showQ and g.qm > 0 and k >= sz - qLabN
+                    string qt = "Q" + str.tostring(c.q)
+                    if qPos == "Above"
+                        dLb.push(label.new(mid, c.h, qt, style=label.style_label_down, color=#00000000, textcolor=qCol, size=qSize))
+                    else
+                        dLb.push(label.new(mid, c.l, qt, style=label.style_label_up, color=#00000000, textcolor=qCol, size=qSize))
+
+            // ---- SMT between HTF candles
+            if smtGrp and cnt >= 2
+                for k = st + 1 to sz - 1
+                    HC a = g.cs.get(k - 1)
+                    HC b = g.cs.get(k)
+                    int xa = x + (k - 1 - st) * step + half
+                    int xb = x + (k - st) * step + half
+                    if f_div(a.h, b.h, a.ch1, b.ch1, true) or f_div(a.h, b.h, a.ch2, b.ch2, true)
+                        dL.push(line.new(xa, a.h, xb, b.h, color=smtGrpCol, width=1))
+                    if f_div(a.l, b.l, a.cl1, b.cl1, false) or f_div(a.l, b.l, a.cl2, b.cl2, false)
+                        dL.push(line.new(xa, a.l, xb, b.l, color=smtGrpCol, width=1))
+
+            // ---- CISD
+            [lvl, ci, cdir] = f_cisd(g.cs)
+            if not na(lvl) and ci >= 0
+                color cc = cdir < 0 ? cisdBearC : cisdBullC
+                if showCisd
+                    int x1 = ci >= st ? x + (ci - st) * step : x
+                    dL.push(line.new(x1, lvl, gEnd + 2, lvl, color=cc, width=1))
+                if cisdChart and g.tf == cisdTf
+                    dL.push(line.new(g.cs.get(ci).bO, lvl, bar_index, lvl, color=cc, width=1))
+
+            // ---- High / Low lines of largest HTF
+            if showHL and i == bigIdx
+                HC c = g.cs.last()
+                int lm = x + (sz - 1 - st) * step + half
+                dL.push(line.new(c.hB, c.h, lm, c.h, color=hlCol, width=1))
+                dL.push(line.new(c.lB, c.l, lm, c.l, color=hlCol, width=1))
+
+            // ---- header: TF + countdown
+            float pad = (gTop - gBot) * 0.06
+            int hx = x + int((cnt * step - sp) / 2)
+            dLb.push(label.new(hx, gTop + pad, g.name + "\n(" + f_cd(g, i) + ")", style=label.style_label_down, color=#00000000, textcolor=txtCol, size=size.tiny))
+
+            x := gEnd + 1 + gap
