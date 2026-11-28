@@ -2,6 +2,11 @@
 // MSNR × SMC + OB DAY — MAIN · แยกจาก MSNR × SMC + OB PRO (2026-11-27 MAIN) (Pine Script v6)
 // ⭐ ไฟล์หลัก · ไฟล์สำรองสำหรับแก้: indicators/msnr-smc-ob-day/msnr-smc-ob-day-dev.pine
 // ตัวเดิม (MSNR × SMC + OB PRO) ไม่แก้
+// DAY (6) 2026-11-28: ⛓ Chain = Quarter บรรจบกัน (Quarter Sequence · ต่อยอด QT) · คำนวณจากเวลา ไม่เพิ่ม request
+//   A. ตรวจ Chain (Micro · 90m · วัน อยู่ Q เดียวกัน หรือเชื่อม Q4↔Q1 เช่น 2-2-2 · 3-3-3) · Dashboard แถว ⛓ Chain (เหลือกี่นาที · Chain ถัดไปกี่โมง) · แรเงา + ป้าย ⛓ บนกราฟ
+//   B. ทิศตามเฟส Chain: Q1 ไม่เทรด (จาง) · Q2 / Q4↔Q1 = Sweep ต้องเกิดใน Chain · Q3 ตามทิศ QT · Q4 ตามกฎ Q4 → แต้ม ⛓ +1
+//   C. SSMT / qCISD ที่เกิดใน Chain → แต้ม ⛓S +1 · Score เต็มเพิ่ม 2 (ลด 'ขาดแต้มไม่เกิน' ลง 1-2 ถ้าอยากเข้มเท่าเดิม)
+//   ลด token (เกินลิมิต 100k): QT วัน/90m คำนวณที่เดียวใช้ทั้ง Score + Dashboard (แถว QT วัน/90m ไม่แสดง '→ เป้า' ของ Q4 แล้ว) · ตัดโค้ด SMT TF 3/4 ที่ปิดไว้ถาวร · หา Chain ตอนนี้/ถัดไปในลูปเดียว
 // DAY (5) 2026-11-28: ตัวคอนเฟิมเพิ่ม 2 ตัว (คำนวณบน TF กราฟ · ไม่เพิ่ม request.security)
 //   1. qCISD / tCISD: Score +1 เมื่อเกิด CISD ตรงทิศระหว่าง Sweep → MSS · เส้นสีฟ้าบนกราฟ (qCISD เส้นทึบ · tCISD เส้นประ)
 //      tCISD = ชุดแท่งสวนทาง (≥ n แท่ง) แล้วแท่งปิดทะลุ Open แท่งแรกของชุด · qCISD = tCISD ที่ขาทำ High/Low ของ Quarter และกวาด Quarter ก่อนหน้า
@@ -87,7 +92,7 @@ float  eqTol    = input.float(0.1, "EQH/EQL tolerance (x ATR)", minval=0.01, ste
 string asiaSess = input.session("1900-0200", "Asia session (เวลา NY · DST อัตโนมัติ)", group=GQ, display=display.none, tooltip="ใช้หา Asia High/Low (Key liquidity) · 19:00-02:00 NY ≈ 07:00-14:00 ไทย (ฤดูหนาว US)\nใช้เฉพาะกราฟ ≤ H1")
 string kzLon    = input.session("0200-0500", "London killzone (เวลา NY)", group=GQ, display=display.none, tooltip="02:00-05:00 NY ≈ 14:00-17:00 ไทย (ฤดูหนาว US) · ปรับตาม DST อัตโนมัติ")
 string kzNy     = input.session("0700-1000", "New York killzone (เวลา NY)", group=GQ, display=display.none, tooltip="07:00-10:00 NY ≈ 19:00-22:00 ไทย (ฤดูหนาว US) · ปรับตาม DST อัตโนมัติ")
-int    minMiss  = input.int(3, "จุดเข้าเข้ม (ไม่จาง) เมื่อขาดแต้มไม่เกิน", minval=0, maxval=8, group=GQ, display=display.none, tooltip="นับจาก Score เต็ม (ปรับตาม TF และตัวเลือกที่เปิด)\nเกรด: ขาด ≤1 = A+ · 2 = A · 3 = B · ≥4 = C\nค่าเริ่ม 3 = เข้มเฉพาะเกรด B ขึ้นไป (เช่น 10/13)\nแต้ม: Key · Disp · FVG · ทับ HTF · PD · Killzone (≤ M30) · SMT · SSMT · PO3 · OB · AMDX (QT) · PSP · CISD")
+int    minMiss  = input.int(3, "จุดเข้าเข้ม (ไม่จาง) เมื่อขาดแต้มไม่เกิน", minval=0, maxval=8, group=GQ, display=display.none, tooltip="นับจาก Score เต็ม (ปรับตาม TF และตัวเลือกที่เปิด)\nเกรด: ขาด ≤1 = A+ · 2 = A · 3 = B · ≥4 = C\nค่าเริ่ม 3 = เข้มเฉพาะเกรด B ขึ้นไป (เช่น 10/13)\nแต้ม: Key · Disp · FVG · ทับ HTF · PD · Killzone (≤ M30) · SMT · SSMT · PO3 · OB · AMDX (QT) · PSP · CISD · ⛓ Chain · ⛓S (SSMT/qCISD ใน Chain)")
 bool   useSMT   = input.bool(true, "SMT divergence (เทียบสินทรัพย์ที่วิ่งตามกัน)", display=display.none, group=GQ)
 string smtSym   = input.symbol("OANDA:XAGUSD", "สัญลักษณ์เทียบ SMT", group=GQ, display=display.none, tooltip="ทอง → เงิน (XAGUSD) · ทองกวาด Low แต่เงินไม่ทำ Low ใหม่ = Bullish SMT · ทองกวาด High แต่เงินไม่ทำ High ใหม่ = Bearish SMT")
 bool   showSMT  = input.bool(true, "วาดเส้น SMT บนกราฟ", display=display.none, group=GQ)
@@ -1880,6 +1885,121 @@ float qtLimD = f_qtSide(qcD, qtSideD * qtAtrH1)
 float qtLimS = f_qtSide(qcS, qtSideS * qtAtrH1)
 float qtLimU = f_qtSide(qcU, qtSideS * 0.5 * qtAtrH1)
 
+// ════════════════════════════════════════════════════════════════
+// ███ MODULE ⛓ CHAIN: Quarter บรรจบกัน (Quarter Sequence · LethalityTrader ต่อยอดจาก QT ของ Daye) ███
+// Chain = ระดับที่อยู่ติดกัน (Micro 22.5m · 90m · วัน) อยู่ Q เดียวกัน หรือเชื่อม Q4↔Q1 เช่น 2-2-2 · 3-3-3 · 4-1
+// A: ตรวจ Chain + Dashboard (เหลือกี่นาที · Chain ถัดไป) + แรเงา/ป้ายบนกราฟ
+// B: ทิศที่คาดตามเฟสของ Chain — Q1 ไม่เทรด · Q2 หลอก (Sweep ต้องเกิดใน Chain) · Q3 ตามทิศ QT · Q4 ตามกฎ Q4 · Q4↔Q1 คาดกลับตัว (Sweep ใน Chain)
+// C: SSMT / qCISD ที่เกิดใน Chain ได้แต้มเพิ่ม (⛓S)
+// คำนวณจากเวลาอย่างเดียว · ไม่เพิ่ม request.security
+// ════════════════════════════════════════════════════════════════
+string CHG    = "⛓ Chain: Quarter บรรจบกัน (Quarter Sequence)"
+string CH_OFF = "ปิด"
+string CH_SC  = "ให้คะแนน (⛓ +1 · ⛓S +1)"
+string chMode = input.string(CH_SC, "Chain", options=[CH_OFF, CH_SC], group=CHG, display=display.none, tooltip="⛓ +1 = Setup อยู่ใน Chain และทิศตรงเฟสของ Chain\n  Q2 หลอก / Q4↔Q1 รอยต่อ: Sweep ต้องเกิดใน Chain (เข้าสวนการกวาด)\n  Q3 วิ่งจริง: ทิศจุดเข้าต้องตรงทิศ QT (90m → วัน → Storyline)\n  Q4: ทิศตรงกฎ Q4 (แตะ Key Level แล้วกลับตัว / ยังไม่แตะ = วิ่งต่อ)\n⛓S +1 = SSMT หรือ qCISD ตรงทิศ เกิดตอนอยู่ใน Chain\nใช้กราฟ ≤ M30 (ต้องมีอย่างน้อย วัน + 90m)")
+int    chMin  = input.int(3, "Chain ขั้นต่ำ (จำนวนระดับที่ Q ตรงกัน)", minval=2, maxval=3, group=CHG, display=display.none, tooltip="ระดับ: Micro 22.5m (TF ≤ M5) · 90m (TF ≤ M30) · วัน\n3 = ทุกระดับตรงกัน (แม่น · วันละไม่กี่ช่วง ช่วงละ 22.5 นาที)\n2 = 2 ระดับที่ติดกันตรงกัน (บ่อยกว่า)\nกราฟที่มีไม่ครบ 3 ระดับ (M15 / M30) ใช้เท่าที่มี")
+bool   chBrg  = input.bool(true, "นับ Q4↔Q1 เป็น Chain (รอยต่อรอบ)", display=display.none, group=CHG, tooltip="ตาม Quarter Sequence: ระดับที่ติดกันเป็น Q4 กับ Q1 นับว่าต่อกัน (เช่น 4-1-1 · 1-1-4)\nทำให้มีช่วง Chain เพิ่มวันละหลายช่วง · ปิด = นับเฉพาะ Q เดียวกัน (2-2-2 · 3-3-3)")
+bool   chNoQ1 = input.bool(true, "Chain Q1 (สะสม) → จุดเข้าจาง (ไม่ตั้งไม้)", display=display.none, group=CHG)
+bool   chBrk  = input.bool(true, "ไม่นับ Chain ช่วงพักตลาด 17:00-18:00 NY", display=display.none, group=CHG, tooltip="ทอง / FX ปิดพัก 17:00-18:00 NY (≈ 05:00-06:00 ไทย ฤดูหนาว US) → 4-4-4 ไม่มีแท่งให้เทรด")
+bool   chBg   = input.bool(true, "แรเงาช่วง Chain บนกราฟ", display=display.none, group=CHG)
+bool   chLab  = input.bool(true, "ป้าย ⛓ ตอนเริ่ม Chain", display=display.none, group=CHG)
+
+int  chNAv  = (qtUOk ? 1 : 0) + (qt90Ok ? 1 : 0) + (qtDayOk ? 1 : 0)
+int  chMinE = math.min(chMin, chNAv)
+bool chOn   = chMode != CH_OFF and qt90Ok
+bool chSOn  = chOn and (useSMT or cisdOn)
+scMax := scMax + (chOn ? 1 : 0) + (chSOn ? 1 : 0)
+
+f_chLink(int a, int b) =>
+    a == b or (chBrg and ((a == 0 and b == 3) or (a == 3 and b == 0)))
+
+// v = Q ของแต่ละระดับ (เล็ก → ใหญ่ · -1 = ไม่มี / ไม่นับ) → [ความยาว Chain ที่ยาวสุด, ตำแหน่งเริ่ม, เฟส 0-3 = Q1-Q4 · 4 = Q4↔Q1]
+f_chain(array<int> v) =>
+    int bN = 0
+    int bS = -1
+    int cN = 0
+    int cS = -1
+    for i = 0 to v.size() - 1
+        int a = v.get(i)
+        int p = i > 0 ? v.get(i - 1) : -1
+        if a < 0
+            cN := 0
+        else if cN > 0 and p >= 0 and f_chLink(p, a)
+            cN += 1
+        else
+            cN := 1
+            cS := i
+        if cN > bN
+            bN := cN
+            bS := cS
+    int ph = -1
+    if bN >= 1
+        ph := v.get(bS)
+        for i = bS to bS + bN - 1
+            if v.get(i) != ph
+                ph := 4
+    [bN, bS, ph]
+
+// ตัวเลข Q (ใหญ่ → เล็ก) เฉพาะระดับที่คำนวณได้บนกราฟนี้ เช่น "3-3-3"
+f_chTx(array<int> v, array<bool> av) =>
+    string s = ""
+    for i = v.size() - 1 to 0
+        if av.get(i)
+            s := s + (s == "" ? "" : "-") + (v.get(i) < 0 ? "x" : str.tostring(v.get(i) + 1))
+    s
+
+f_chPh(int p) =>
+    p == 0 ? "Q1 สะสม" : p == 1 ? "Q2 หลอก" : p == 2 ? "Q3 วิ่งจริง" : p == 3 ? "Q4 ต่อ/กลับ" : p == 4 ? "Q4↔Q1 รอยต่อรอบ" : ""
+f_chQs(int p) =>
+    p == 4 ? "4↔1" : p >= 0 ? "Q" + str.tostring(p + 1) : ""
+f_chCol(int p) =>
+    p == 0 ? color.gray : p == 1 ? colR : p == 2 ? colS : p == 3 ? color.blue : color.orange
+
+// วินาทีนับจากต้นวัน Quarterly (18:00 NY)
+f_chSec(int t) =>
+    (hour(t, "America/New_York") * 3600 + minute(t, "America/New_York") * 60 + second(t, "America/New_York") + 21600) % 86400
+
+// Chain ณ เวลา t (นับละเอียดเป็นวินาที · ใช้กับ Dashboard / หา Chain ถัดไป) → [ความยาว, เริ่ม, เฟส, ข้อความ, วินาทีในวัน]
+f_chAt(int t) =>
+    int  s  = f_chSec(t)
+    bool pz = chBrk and s >= 82800
+    array<int>  v  = array.from(qtUOk and not pz ? math.floor((s % 5400) / 1350) : -1, qt90Ok and not pz ? math.floor((s % 21600) / 5400) : -1, qtDayOk and not pz ? math.floor(s / 21600) : -1)
+    array<bool> av = array.from(qtUOk, qt90Ok, qtDayOk)
+    [n, st, ph] = f_chain(v)
+    [n, st, ph, f_chTx(v, av), s]
+
+// เวลาที่เหลือของ Chain (วินาที) = ช่วงที่สั้นที่สุดใน Chain จบก่อน
+f_chRem(int s, int st, int n) =>
+    int r = 86400
+    if n > 0
+        for i = st to st + n - 1
+            int pd = i == 0 ? 1350 : i == 1 ? 5400 : 21600
+            r := math.min(r, pd - s % pd)
+    r
+
+f_dur(int sec) =>
+    sec >= 3600 ? str.tostring(math.floor(sec / 3600)) + " ชม. " + str.tostring(math.floor((sec % 3600) / 60)) + " นาที" : str.tostring(math.max(1, math.ceil(sec / 60))) + " นาที"
+
+// Chain ของแท่งนี้ (เวลาเปิดแท่ง · ใช้ช่วงเดียวกับแถบ Quarter)
+bool        chPause = chBrk and f_chSec(time) >= 82800
+array<int>  chV  = array.from(qtUOk and not chPause ? qtUQ : -1, qt90Ok and not chPause ? qtMQ : -1, qtDayOk and not chPause ? qtDQ : -1)
+array<bool> chAv = array.from(qtUOk, qt90Ok, qtDayOk)
+[chN, chS, chP] = f_chain(chV)
+bool   chAct = chOn and chMinE >= 2 and chN >= chMinE
+string chTx  = f_chTx(chV, chAv)
+string chSig = chAct ? chTx + "/" + str.tostring(chS) + "/" + str.tostring(chN) : ""
+bool   chNew = chAct and (bar_index == 0 or chSig != chSig[1])
+var int chT0 = na
+if chNew
+    chT0 := time
+
+bgcolor(chBg and chAct and time >= last_bar_time - qtDays * 86400000 ? color.new(f_chCol(chP), 88) : na, title="⛓ Chain")
+var array<label> chLbA = array.new<label>()
+if chLab and chNew and barstate.isconfirmed and inDay
+    chLbA.push(label.new(bar_index, high, "⛓ " + chTx, yloc=yloc.abovebar, style=label.style_label_down, color=cNone, textcolor=f_chCol(chP), size=txtSz, tooltip=f_chPh(chP) + " · Chain " + str.tostring(chN) + " ระดับ"))
+    while chLbA.size() > 12
+        label.delete(chLbA.shift())
+
 // ───────── CISD (Change in State of Delivery) · tCISD บน TF กราฟ · qCISD = ขาทำ High/Low ของ Quarter ─────────
 // Bullish: ชุดแท่งแดงติดกัน (≥ cdMin แท่ง) → ระดับ = Open แท่งแรกของชุด → แท่งปิดเหนือระดับ = CISD ▲ (Bearish กลับกัน)
 // คำนวณเฉพาะแท่งที่ปิดแล้ว · ใช้ตัวแปร var ไม่วนลูปย้อนหลัง → เบา
@@ -2173,6 +2293,10 @@ var bool   enWeak = false
 var string enWhy  = ""
 var string lastTxt = ""
 var int    lastDir = 0
+// ⛓ Chain ตอนเกิด Sweep (0 = ไม่อยู่ใน Chain)
+var int    swChN  = 0
+var int    swChP  = -1
+var string swChTx = ""
 var array<line>  enLs = array.new<line>()
 var array<label> enLb = array.new<label>()
 
@@ -2304,14 +2428,29 @@ if newDay and inCalc and barstate.isconfirmed
             ss  := 0
         skip := ""
 
+// ───────── QT วัน / 90m: คำนวณที่เดียว (แท่งสุดท้าย หรือระหว่างรอ MSS) → ใช้ทั้ง Score และ Dashboard (ลด token ของสคริปต์)
+var string qdTxG = ""
+var int    qdDirG = 0
+var string qdDbG = ""
+var string qsTxG = ""
+var int    qsDirG = 0
+var string qsDbG = ""
+if barstate.islast or ss == 2 or ss == 3
+    [qtA1, qtA2, qtA3] = f_qtText(qcD, qtLimD, styG, styTf, na, "", na, "")
+    [qtB1, qtB2, qtB3] = f_qtText(qcS, qtLimS, styG, styTf, na, "", na, "")
+    qdTxG  := qtA1
+    qdDirG := qtA2
+    qdDbG  := qtA3
+    qsTxG  := qtB1
+    qsDirG := qtB2
+    qsDbG  := qtB3
+
 // ───────── Engine ─────────
 if barstate.isconfirmed and inCalc
     // ── SMT หลายทามเฟรม
     if useSMT
         f_smtTF(st1, smtU1, smtTf1, sn1, g1L, g1H, g1T, x1L, x1H)
         f_smtTF(st2, smtU2, smtTf2, sn2, g2L, g2H, g2T, x2L, x2H)
-        f_smtTF(st3, smtU3, smtTf3, sn3, g3L, g3H, g3T, x3L, x3H)
-        f_smtTF(st4, smtU4, smtTf4, sn4, g4L, g4H, g4T, x4L, x4H)
     // ── Sweep ของ TF ใหญ่ (M15 / M30 / H1 / H4) → เส้นบนกราฟเล็ก
     if showHSw and inDay and hsU1 and hn1
         f_hswDraw(hsTf1, w1H, w1HT, w1WH, w1L, w1LT, w1WL, w1T)
@@ -2486,8 +2625,8 @@ if barstate.isconfirmed and inCalc
         // PRO: OB ทับ Entry · AMDX (เฉพาะ TF ที่คำนวณ QT ได้)
         string obTf  = obOn and obScore ? ob_hit(dir, ep) : ""
         bool   obOk  = obTf != ""
-        [qsT0, qsDir, qsDb0] = f_qtText(qcS, qtLimS, 0, "", na, "", na, "")
-        [qdT0, qdDir, qdDb0] = f_qtText(qcD, qtLimD, 0, "", na, "", na, "")
+        int    qsDir = qsDirG
+        int    qdDir = qdDirG
         int    qsUse = qt90Ok ? qsDir : 0
         int    qtDir = qsUse != 0 ? qsUse : qtDayOk ? qdDir : 0
         bool   ssOk  = (qt90Ok and f_ssmt(qcS) == dir) or (qtUOk and f_ssmt(qcU) == dir) or (qtDayOk and f_ssmt(qcD) == dir)
@@ -2501,8 +2640,19 @@ if barstate.isconfirmed and inCalc
             f_cdDraw(cdE)
         // SSMT แยกแต้ม (ssmtPt) · ปิด = รวมในแต้ม SMT แบบเดิม
         sc += (obOk ? 1 : 0) + (qtMode == QT_SC and amdx ? 1 : 0) + (ssmtPt ? (ssOk ? 1 : 0) : (smtOk and not smtHit ? 1 : 0)) + (psp ? 1 : 0) + (cdOk ? 1 : 0)
-        string qtWhy = qtDayOk and qtNoA and qtDQ == 0 ? "AMDX: Q1 Asia (สะสม)" : amdOn and qtMode == QT_REQ and not amdx ? "AMDX: สวนทิศ QT" : ""
-        ckTxt := (swKey ? "✓" : "✗") + "Key " + (dOk ? "✓" : "✗") + "Disp " + (fOk ? "✓" : "✗") + "FVG " + (ov ? "✓" : "✗") + "HTF " + (inPD ? "✓" : "✗") + "PD" + (kzOn ? " " + (kzOk ? "✓" : "✗") + "KZ" : "") + " " + (ssmtPt ? (smtHit ? "✓" : "✗") + "SMT " + (ssOk ? "✓" : "✗") + "SSMT" : (smtHit ? "✓" : ssOk ? "✓S" : "✗") + "SMT") + (po3On ? " " + (po3 ? "✓" : "✗") + "PO3" : "") + (obOn and obScore ? " " + (obOk ? "✓OB " + obTf : "✗OB") : "") + (amdOn ? " " + (amdx ? "✓" : "✗") + "AMDX" : "") + (pspOn and useSMT ? " " + (psp ? "✓" : "✗") + "PSP" : "") + (cisdOn ? " " + (cdOk ? "✓" + (cdE.q ? "qCISD" : "tCISD") + (cdE.key != "" ? "@" + cdE.key : "") : "✗CISD") : "")
+        // ⛓ Chain: อยู่ใน Chain ตอน Sweep หรือตอน MSS · เฟสใช้ Chain ตอน MSS ก่อน (ไม่มี → ตอน Sweep)
+        bool   chSw  = swChN > 0
+        bool   inCh  = chOn and (chAct or chSw)
+        int    chPU  = chAct ? chP : swChP
+        string chTU  = chAct ? chTx : swChTx
+        // ทิศที่คาด: Q3 = ทิศ QT (90m → วัน → Storyline) · Q4 = กฎ Q4 ของ QT วัน (→ QT 90m)
+        int    chExp = chPU == 2 ? (qtDir != 0 ? qtDir : sty) : chPU == 3 ? (qdDir != 0 ? qdDir : qtDir) : 0
+        bool   chB   = inCh and ((chPU == 1 or chPU == 4) ? chSw and swChP == chPU : (chPU == 2 or chPU == 3) ? chExp == dir : false)
+        bool   chSm  = chSOn and inCh and (ssOk or (cdOk and cdE.q))
+        sc += (chB ? 1 : 0) + (chSm ? 1 : 0)
+        string chWhy = chOn and chNoQ1 and inCh and chPU == 0 ? "Chain Q1 (สะสม)" : ""
+        string qtWhy = qtDayOk and qtNoA and qtDQ == 0 ? "AMDX: Q1 Asia (สะสม)" : amdOn and qtMode == QT_REQ and not amdx ? "AMDX: สวนทิศ QT" : chWhy
+        ckTxt := (swKey ? "✓" : "✗") + "Key " + (dOk ? "✓" : "✗") + "Disp " + (fOk ? "✓" : "✗") + "FVG " + (ov ? "✓" : "✗") + "HTF " + (inPD ? "✓" : "✗") + "PD" + (kzOn ? " " + (kzOk ? "✓" : "✗") + "KZ" : "") + " " + (ssmtPt ? (smtHit ? "✓" : "✗") + "SMT " + (ssOk ? "✓" : "✗") + "SSMT" : (smtHit ? "✓" : ssOk ? "✓S" : "✗") + "SMT") + (po3On ? " " + (po3 ? "✓" : "✗") + "PO3" : "") + (obOn and obScore ? " " + (obOk ? "✓OB " + obTf : "✗OB") : "") + (amdOn ? " " + (amdx ? "✓" : "✗") + "AMDX" : "") + (pspOn and useSMT ? " " + (psp ? "✓" : "✗") + "PSP" : "") + (cisdOn ? " " + (cdOk ? "✓" + (cdE.q ? "qCISD" : "tCISD") + (cdE.key != "" ? "@" + cdE.key : "") : "✗CISD") : "") + (chOn ? " " + (chB ? "✓" : "✗") + "⛓" + (inCh ? chTU + " " + f_chQs(chPU) : "") : "") + (chSOn ? " " + (chSm ? "✓" : "✗") + "⛓S" : "")
         tSc := sc
         if na(ep)
             skip := (dir == 1 ? "▲ " : "▼ ") + "ข้าม · ไม่มีเลเวลใน Discount/Premium"
@@ -2762,11 +2912,14 @@ if barstate.isconfirmed and inCalc
             swKey := bullSw ? uKey : dKey
             swTag := bullSw ? uTag : dTag
             kzHit := inKz
+            swChN  := chAct ? chN : 0
+            swChP  := chAct ? chP : -1
+            swChTx := chAct ? chTx : ""
             // SMT: เงินไม่ทะลุ swing เดียวกันตอนทอง sweep · หรือมี SMT แบบ swing เกิดไม่นานก่อนหน้า
             bool swSmt = useSMT and (bullSw ? (not na(uX) and not na(xLo) and xLo > uX) : (not na(dX) and not na(xHi) and xHi < dX))
             int  dd    = bullSw ? 1 : -1
-            bool htfSm = f_smtAct(st1, smtU1, smtTf1) == dd or f_smtAct(st2, smtU2, smtTf2) == dd or f_smtAct(st3, smtU3, smtTf3) == dd or f_smtAct(st4, smtU4, smtTf4) == dd
-            htfSm := htfSm or f_smtNow(st1, smtU1, smtTf1) == dd or f_smtNow(st2, smtU2, smtTf2) == dd or f_smtNow(st3, smtU3, smtTf3) == dd or f_smtNow(st4, smtU4, smtTf4) == dd
+            bool htfSm = f_smtAct(st1, smtU1, smtTf1) == dd or f_smtAct(st2, smtU2, smtTf2) == dd
+            htfSm := htfSm or f_smtNow(st1, smtU1, smtTf1) == dd or f_smtNow(st2, smtU2, smtTf2) == dd
             smtHit := swSmt or htfSm or (bullSw ? bar_index - smtUBar <= liqAge : bar_index - smtDBar <= liqAge)
             if bullSw and hitPDL
                 usedPDL := pdl
@@ -2784,16 +2937,12 @@ if barstate.isconfirmed and inCalc
 // ───────── SMT เรียลไทม์ (ทุก tick · ไม่รอแท่งปิด) ─────────
 bool on1 = inCalc and useSMT and smtU1 and timeframe.in_seconds(smtTf1) > chSec
 bool on2 = inCalc and useSMT and smtU2 and timeframe.in_seconds(smtTf2) > chSec
-bool on3 = inCalc and useSMT and smtU3 and timeframe.in_seconds(smtTf3) > chSec
-bool on4 = inCalc and useSMT and smtU4 and timeframe.in_seconds(smtTf4) > chSec
 [lu0, ld0] = f_smtLive(st0, inCalc and useSMT, pGL, pGT, pXL, pGH, pHT, pXH, false)
 [lu1, ld1] = f_smtLive(st1, on1, st1.gl, st1.glt, st1.xl, st1.gh, st1.ght, st1.xh, true)
 [lu2, ld2] = f_smtLive(st2, on2, st2.gl, st2.glt, st2.xl, st2.gh, st2.ght, st2.xh, true)
-[lu3, ld3] = f_smtLive(st3, on3, st3.gl, st3.glt, st3.xl, st3.gh, st3.ght, st3.xh, true)
-[lu4, ld4] = f_smtLive(st4, on4, st4.gl, st4.glt, st4.xl, st4.gh, st4.ght, st4.xh, true)
 // ป้ายเดียวต่อฝั่ง รวมชื่อ TF (ไม่ซ้อนกัน) · วางห่างจากไส้ 0.6 ATR ไม่ให้ทับป้าย Sweep / SMT จริง
-string lvUt = (lu0 ? " " + f_tfTxt(timeframe.period) : "") + (lu1 ? " " + f_tfTxt(smtTf1) : "") + (lu2 ? " " + f_tfTxt(smtTf2) : "") + (lu3 ? " " + f_tfTxt(smtTf3) : "") + (lu4 ? " " + f_tfTxt(smtTf4) : "")
-string lvDt = (ld0 ? " " + f_tfTxt(timeframe.period) : "") + (ld1 ? " " + f_tfTxt(smtTf1) : "") + (ld2 ? " " + f_tfTxt(smtTf2) : "") + (ld3 ? " " + f_tfTxt(smtTf3) : "") + (ld4 ? " " + f_tfTxt(smtTf4) : "")
+string lvUt = (lu0 ? " " + f_tfTxt(timeframe.period) : "") + (lu1 ? " " + f_tfTxt(smtTf1) : "") + (lu2 ? " " + f_tfTxt(smtTf2) : "")
+string lvDt = (ld0 ? " " + f_tfTxt(timeframe.period) : "") + (ld1 ? " " + f_tfTxt(smtTf1) : "") + (ld2 ? " " + f_tfTxt(smtTf2) : "")
 float lpU = na
 int   ltU = na
 float lpD = na
@@ -2801,13 +2950,13 @@ int   ltD = na
 [pu0, tu0] = f_pk(lu0, st0.rgl, st0.rglt, lpU, ltU, true)
 [pu1, tu1] = f_pk(lu1, st1.rgl, st1.rglt, pu0, tu0, true)
 [pu2, tu2] = f_pk(lu2, st2.rgl, st2.rglt, pu1, tu1, true)
-[pu3, tu3] = f_pk(lu3, st3.rgl, st3.rglt, pu2, tu2, true)
-[pu4, tu4] = f_pk(lu4, st4.rgl, st4.rglt, pu3, tu3, true)
+pu4 = pu2
+tu4 = tu2
 [pd0, td0] = f_pk(ld0, st0.rgh, st0.rght, lpD, ltD, false)
 [pd1, td1] = f_pk(ld1, st1.rgh, st1.rght, pd0, td0, false)
 [pd2, td2] = f_pk(ld2, st2.rgh, st2.rght, pd1, td1, false)
-[pd3, td3] = f_pk(ld3, st3.rgh, st3.rght, pd2, td2, false)
-[pd4, td4] = f_pk(ld4, st4.rgh, st4.rght, pd3, td3, false)
+pd4 = pd2
+td4 = td2
 var label lvU = na
 var label lvD = na
 color lvC = color.new(colSMT, 25)
@@ -2845,7 +2994,7 @@ f_smD(bool on, string tf, int a, bool lu, bool ld) =>
 string dPos = dashPos == "บนขวา" ? position.top_right : dashPos == "ล่างซ้าย" ? position.bottom_left : dashPos == "บนซ้าย" ? position.top_left : position.bottom_right
 var array<line>  hvLn = array.new<line>()
 var array<label> hvLb = array.new<label>()
-var table dash = table.new(dPos, 2, 12, bgcolor=color.new(chart.bg_color, 0), frame_color=color.new(chart.fg_color, 85), frame_width=1, border_width=0)
+var table dash = table.new(dPos, 2, 13, bgcolor=color.new(chart.bg_color, 0), frame_color=color.new(chart.fg_color, 85), frame_width=1, border_width=0)
 
 if barstate.islast
     array<float> vp = array.new<float>()
@@ -2992,9 +3141,7 @@ if barstate.islast
         string sm0  = useSMT ? f_tfTxt(timeframe.period) + (cS == 1 ? " ▲" : cS == -1 ? " ▼" : lu0 ? " ▲?" : ld0 ? " ▼?" : " ·") : "ปิด"
         int    a1   = f_smtAct(st1, smtU1, smtTf1)
         int    a2   = f_smtAct(st2, smtU2, smtTf2)
-        int    a3   = f_smtAct(st3, smtU3, smtTf3)
-        int    a4   = f_smtAct(st4, smtU4, smtTf4)
-        string smR  = sm0 + f_smD(smtU1, smtTf1, a1, lu1, ld1) + f_smD(smtU2, smtTf2, a2, lu2, ld2) + f_smD(smtU3, smtTf3, a3, lu3, ld3) + f_smD(smtU4, smtTf4, a4, lu4, ld4)
+        string smR  = sm0 + f_smD(smtU1, smtTf1, a1, lu1, ld1) + f_smD(smtU2, smtTf2, a2, lu2, ld2)
         table.cell(dash, 0, 6, "SMT", text_color=dim, text_size=size.tiny, text_halign=text.align_left)
         table.cell(dash, 1, 6, smR, text_color=colSMT, text_size=size.tiny, text_halign=text.align_right)
         // PRO: OB ใกล้ราคา + Quarter
@@ -3015,8 +3162,12 @@ if barstate.islast
         // QT แบบรอบ: วัน · 90 นาที · Micro 22.5 นาที
         array<string> qnm = array.from("Q1 Asia", "Q2 London", "Q3 NY AM", "Q4 NY PM")
         // แตะที่แถว QT = ดูเหตุผลที่ตัดสิน Q1 (ER · กรอบ · ความลึกที่กวาด)
-        [qD, qDd, qDb] = f_qtText(qcD, qtLimD, sty, sSrc, nR, tR, nS, tS)
-        [qS, qSd, qSb] = f_qtText(qcS, qtLimS, sty, sSrc, nR, tR, nS, tS)
+        string qD  = qdTxG
+        int    qDd = qdDirG
+        string qDb = qdDbG
+        string qS  = qsTxG
+        int    qSd = qsDirG
+        string qSb = qsDbG
         [qU, qUd, qUb] = f_qtText(qcU, qtLimU, sty, sSrc, nR, tR, nS, tS)
         // ช่วงปัจจุบัน: TF ที่คำนวณได้ใช้เวลาแท่ง · TF ที่คำนวณไม่ได้ใช้เวลาจริง (แท่งใหญ่คร่อมหลายช่วง)
         int    qmN = (hour(timenow, "America/New_York") * 60 + minute(timenow, "America/New_York") + 360) % 1440
@@ -3041,6 +3192,58 @@ if barstate.islast
                 cdTx := (cdUp ? "▲ " : "▼ ") + (cdN.q ? "qCISD " : "tCISD ") + str.tostring(cdN.lv, format.mintick) + (cdN.key != "" ? " @ " + cdN.key : "") + " · " + cdA
         table.cell(dash, 0, 11, "CISD ล่าสุด", text_color=dim, text_size=size.tiny, text_halign=text.align_left)
         table.cell(dash, 1, 11, cdTx, text_color=not cisdOn or cdN.bar < 0 ? dim : cdUp ? colS : colR, text_size=size.tiny, text_halign=text.align_right)
+        // ⛓ Chain ตอนนี้ (เวลาจริง) + Chain ถัดไป
+        string chD  = chMode == CH_OFF ? "ปิด" : not qt90Ok ? "ใช้ TF ≤ M30" : chMinE < 2 ? "—" : ""
+        color  chDc = dim
+        string chTp = ""
+        if chD == ""
+            int    cN0  = 0
+            int    cS0  = 0
+            int    cP0  = -1
+            string cTx0 = ""
+            int    cSec0 = f_chSec(timenow)
+            bool   cl0  = false
+            bool   cA0  = false
+            // ไล่ทีละช่วงของระดับเล็กสุด (k = 0 = ตอนนี้ · ข้ามเสาร์-อาทิตย์) → Chain ตอนนี้ + Chain ถัดไป
+            int    stp  = qtUOk ? 1350 : 5400
+            int    tB   = timenow - (cSec0 % stp) * 1000
+            string pSg  = ""
+            int    nxT  = na
+            string nxTx = ""
+            int    nxP  = -1
+            for k = 0 to (qtUOk ? 192 : 48)
+                int tk = k == 0 ? timenow : tB + k * stp * 1000
+                int dw = dayofweek(tk + 21600000, "America/New_York")
+                if dw == dayofweek.saturday or dw == dayofweek.sunday
+                    cl0 := k == 0 ? true : cl0
+                    pSg := ""
+                    continue
+                [nK, sK, pK, txK, sxK] = f_chAt(tk)
+                string sg = nK >= chMinE ? txK + "/" + str.tostring(sK) + "/" + str.tostring(nK) : ""
+                if k == 0
+                    cN0  := nK
+                    cS0  := sK
+                    cP0  := pK
+                    cTx0 := txK
+                    cA0  := sg != ""
+                else if sg != "" and sg != pSg
+                    nxT  := tk
+                    nxTx := txK
+                    nxP  := pK
+                    break
+                pSg := sg
+            if cA0
+                int    qx  = qt90Ok and qSd != 0 ? qSd : qDd != 0 ? qDd : sty
+                int    q4x = qDd != 0 ? qDd : qSd
+                string gd  = cP0 == 0 ? "ไม่เทรด" : cP0 == 1 ? "รอ Sweep แล้วเข้าสวน" : cP0 == 2 ? "ตามทิศ " + (qx == 0 ? "(รอทิศ)" : f_arw(qx)) : cP0 == 3 ? "กฎ Q4 " + (q4x == 0 ? "(รอทิศ)" : f_arw(q4x)) : "คาดกลับตัว (รอ Sweep)"
+                chD  := "⛓ " + cTx0 + " · " + f_chPh(cP0) + " → " + gd + " · เหลือ " + f_dur(f_chRem(cSec0, cS0, cN0))
+                chDc := f_chCol(cP0)
+            string nx = na(nxT) ? "" : "ถัดไป ⛓ " + nxTx + " " + f_chQs(nxP) + " " + str.format_time(nxT, "HH:mm", "Asia/Bangkok") + " (อีก " + f_dur(int((nxT - timenow) / 1000)) + ")"
+            if not cA0
+                chD := (cl0 ? "ตลาดปิด" : cTx0 + " ไม่บรรจบ") + (nx != "" ? " · " + nx : "")
+            chTp := (cA0 and nx != "" ? nx + "\n" : "") + "Chain ขั้นต่ำ " + str.tostring(chMinE) + " ระดับ (วัน-90m" + (qtUOk ? "-Micro" : "") + ") · เวลาไทย"
+        table.cell(dash, 0, 12, "⛓ Chain", text_color=dim, text_size=size.tiny, text_halign=text.align_left)
+        table.cell(dash, 1, 12, chD, text_color=chDc, text_size=size.tiny, text_halign=text.align_right, tooltip=chTp)
 
 // ════════════════════════════════════════════════════════════════
 // ███ QT: เส้น True Open / Q1 + แถบ Quarter ใต้กราฟ (วาดตอนแท่งสุดท้าย) ███
