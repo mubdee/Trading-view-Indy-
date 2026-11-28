@@ -12,6 +12,7 @@
 //   A. ตรวจ Chain (Micro · 90m · วัน อยู่ Q เดียวกัน หรือเชื่อม Q4↔Q1 เช่น 2-2-2 · 3-3-3) · Dashboard แถว ⛓ Chain (เหลือกี่นาที · Chain ถัดไปกี่โมง) · แรเงา + ป้าย ⛓ บนกราฟ
 //   B. ทิศตามเฟส Chain: Q1 ไม่เทรด (จาง) · Q2 / Q4↔Q1 = Sweep ต้องเกิดใน Chain · Q3 ตามทิศ QT · Q4 ตามกฎ Q4 → แต้ม ⛓ +1
 //   C. SSMT / qCISD ที่เกิดใน Chain → แต้ม ⛓S +1 · Score เต็มเพิ่ม 2 (ลด 'ขาดแต้มไม่เกิน' ลง 1-2 ถ้าอยากเข้มเท่าเดิม)
+//   ลด token (เกินลิมิต 100k): QT วัน/90m คำนวณที่เดียวใช้ทั้ง Score + Dashboard (แถว QT วัน/90m ไม่แสดง '→ เป้า' ของ Q4 แล้ว) · ตัดโค้ด SMT TF 3/4 ที่ปิดไว้ถาวร · หา Chain ตอนนี้/ถัดไปในลูปเดียว
 // DAY (5) 2026-11-28: ตัวคอนเฟิมเพิ่ม 2 ตัว (คำนวณบน TF กราฟ · ไม่เพิ่ม request.security)
 //   1. qCISD / tCISD: Score +1 เมื่อเกิด CISD ตรงทิศระหว่าง Sweep → MSS · เส้นสีฟ้าบนกราฟ (qCISD เส้นทึบ · tCISD เส้นประ)
 //      tCISD = ชุดแท่งสวนทาง (≥ n แท่ง) แล้วแท่งปิดทะลุ Open แท่งแรกของชุด · qCISD = tCISD ที่ขาทำ High/Low ของ Quarter และกวาด Quarter ก่อนหน้า
@@ -2459,14 +2460,29 @@ if newDay and inCalc and barstate.isconfirmed
             ss  := 0
         skip := ""
 
+// ───────── QT วัน / 90m: คำนวณที่เดียว (แท่งสุดท้าย หรือระหว่างรอ MSS) → ใช้ทั้ง Score และ Dashboard (ลด token ของสคริปต์)
+var string qdTxG = ""
+var int    qdDirG = 0
+var string qdDbG = ""
+var string qsTxG = ""
+var int    qsDirG = 0
+var string qsDbG = ""
+if barstate.islast or ss == 2 or ss == 3
+    [qtA1, qtA2, qtA3] = f_qtText(qcD, qtLimD, styG, styTf, na, "", na, "")
+    [qtB1, qtB2, qtB3] = f_qtText(qcS, qtLimS, styG, styTf, na, "", na, "")
+    qdTxG  := qtA1
+    qdDirG := qtA2
+    qdDbG  := qtA3
+    qsTxG  := qtB1
+    qsDirG := qtB2
+    qsDbG  := qtB3
+
 // ───────── Engine ─────────
 if barstate.isconfirmed and inCalc
     // ── SMT หลายทามเฟรม
     if useSMT
         f_smtTF(st1, smtU1, smtTf1, sn1, g1L, g1H, g1T, x1L, x1H)
         f_smtTF(st2, smtU2, smtTf2, sn2, g2L, g2H, g2T, x2L, x2H)
-        f_smtTF(st3, smtU3, smtTf3, sn3, g3L, g3H, g3T, x3L, x3H)
-        f_smtTF(st4, smtU4, smtTf4, sn4, g4L, g4H, g4T, x4L, x4H)
     // ── Sweep ของ TF ใหญ่ (M15 / M30 / H1 / H4) → เส้นบนกราฟเล็ก
     if showHSw and inDay and hsU1 and hn1
         f_hswDraw(hsTf1, w1H, w1HT, w1WH, w1L, w1LT, w1WL, w1T)
@@ -2647,8 +2663,8 @@ if barstate.isconfirmed and inCalc
         // PRO: OB ทับ Entry · AMDX (เฉพาะ TF ที่คำนวณ QT ได้)
         string obTf  = obOn and obScore ? ob_hit(dir, ep) : ""
         bool   obOk  = obTf != ""
-        [qsT0, qsDir, qsDb0] = f_qtText(qcS, qtLimS, 0, "", na, "", na, "")
-        [qdT0, qdDir, qdDb0] = f_qtText(qcD, qtLimD, 0, "", na, "", na, "")
+        int    qsDir = qsDirG
+        int    qdDir = qdDirG
         int    qsUse = qt90Ok ? qsDir : 0
         int    qtDir = qsUse != 0 ? qsUse : qtDayOk ? qdDir : 0
         bool   ssOk  = (qt90Ok and f_ssmt(qcS) == dir) or (qtUOk and f_ssmt(qcU) == dir) or (qtDayOk and f_ssmt(qcD) == dir)
@@ -2943,8 +2959,8 @@ if barstate.isconfirmed and inCalc
             // SMT: เงินไม่ทะลุ swing เดียวกันตอนทอง sweep · หรือมี SMT แบบ swing เกิดไม่นานก่อนหน้า
             bool swSmt = useSMT and (bullSw ? (not na(uX) and not na(xLo) and xLo > uX) : (not na(dX) and not na(xHi) and xHi < dX))
             int  dd    = bullSw ? 1 : -1
-            bool htfSm = f_smtAct(st1, smtU1, smtTf1) == dd or f_smtAct(st2, smtU2, smtTf2) == dd or f_smtAct(st3, smtU3, smtTf3) == dd or f_smtAct(st4, smtU4, smtTf4) == dd
-            htfSm := htfSm or f_smtNow(st1, smtU1, smtTf1) == dd or f_smtNow(st2, smtU2, smtTf2) == dd or f_smtNow(st3, smtU3, smtTf3) == dd or f_smtNow(st4, smtU4, smtTf4) == dd
+            bool htfSm = f_smtAct(st1, smtU1, smtTf1) == dd or f_smtAct(st2, smtU2, smtTf2) == dd
+            htfSm := htfSm or f_smtNow(st1, smtU1, smtTf1) == dd or f_smtNow(st2, smtU2, smtTf2) == dd
             smtHit := swSmt or htfSm or (bullSw ? bar_index - smtUBar <= liqAge : bar_index - smtDBar <= liqAge)
             if bullSw and hitPDL
                 usedPDL := pdl
@@ -2962,16 +2978,12 @@ if barstate.isconfirmed and inCalc
 // ───────── SMT เรียลไทม์ (ทุก tick · ไม่รอแท่งปิด) ─────────
 bool on1 = inCalc and useSMT and smtU1 and timeframe.in_seconds(smtTf1) > chSec
 bool on2 = inCalc and useSMT and smtU2 and timeframe.in_seconds(smtTf2) > chSec
-bool on3 = inCalc and useSMT and smtU3 and timeframe.in_seconds(smtTf3) > chSec
-bool on4 = inCalc and useSMT and smtU4 and timeframe.in_seconds(smtTf4) > chSec
 [lu0, ld0] = f_smtLive(st0, inCalc and useSMT, pGL, pGT, pXL, pGH, pHT, pXH, false)
 [lu1, ld1] = f_smtLive(st1, on1, st1.gl, st1.glt, st1.xl, st1.gh, st1.ght, st1.xh, true)
 [lu2, ld2] = f_smtLive(st2, on2, st2.gl, st2.glt, st2.xl, st2.gh, st2.ght, st2.xh, true)
-[lu3, ld3] = f_smtLive(st3, on3, st3.gl, st3.glt, st3.xl, st3.gh, st3.ght, st3.xh, true)
-[lu4, ld4] = f_smtLive(st4, on4, st4.gl, st4.glt, st4.xl, st4.gh, st4.ght, st4.xh, true)
 // ป้ายเดียวต่อฝั่ง รวมชื่อ TF (ไม่ซ้อนกัน) · วางห่างจากไส้ 0.6 ATR ไม่ให้ทับป้าย Sweep / SMT จริง
-string lvUt = (lu0 ? " " + f_tfTxt(timeframe.period) : "") + (lu1 ? " " + f_tfTxt(smtTf1) : "") + (lu2 ? " " + f_tfTxt(smtTf2) : "") + (lu3 ? " " + f_tfTxt(smtTf3) : "") + (lu4 ? " " + f_tfTxt(smtTf4) : "")
-string lvDt = (ld0 ? " " + f_tfTxt(timeframe.period) : "") + (ld1 ? " " + f_tfTxt(smtTf1) : "") + (ld2 ? " " + f_tfTxt(smtTf2) : "") + (ld3 ? " " + f_tfTxt(smtTf3) : "") + (ld4 ? " " + f_tfTxt(smtTf4) : "")
+string lvUt = (lu0 ? " " + f_tfTxt(timeframe.period) : "") + (lu1 ? " " + f_tfTxt(smtTf1) : "") + (lu2 ? " " + f_tfTxt(smtTf2) : "")
+string lvDt = (ld0 ? " " + f_tfTxt(timeframe.period) : "") + (ld1 ? " " + f_tfTxt(smtTf1) : "") + (ld2 ? " " + f_tfTxt(smtTf2) : "")
 float lpU = na
 int   ltU = na
 float lpD = na
@@ -2979,13 +2991,13 @@ int   ltD = na
 [pu0, tu0] = f_pk(lu0, st0.rgl, st0.rglt, lpU, ltU, true)
 [pu1, tu1] = f_pk(lu1, st1.rgl, st1.rglt, pu0, tu0, true)
 [pu2, tu2] = f_pk(lu2, st2.rgl, st2.rglt, pu1, tu1, true)
-[pu3, tu3] = f_pk(lu3, st3.rgl, st3.rglt, pu2, tu2, true)
-[pu4, tu4] = f_pk(lu4, st4.rgl, st4.rglt, pu3, tu3, true)
+pu4 = pu2
+tu4 = tu2
 [pd0, td0] = f_pk(ld0, st0.rgh, st0.rght, lpD, ltD, false)
 [pd1, td1] = f_pk(ld1, st1.rgh, st1.rght, pd0, td0, false)
 [pd2, td2] = f_pk(ld2, st2.rgh, st2.rght, pd1, td1, false)
-[pd3, td3] = f_pk(ld3, st3.rgh, st3.rght, pd2, td2, false)
-[pd4, td4] = f_pk(ld4, st4.rgh, st4.rght, pd3, td3, false)
+pd4 = pd2
+td4 = td2
 var label lvU = na
 var label lvD = na
 color lvC = color.new(colSMT, 25)
@@ -3170,9 +3182,7 @@ if barstate.islast
         string sm0  = useSMT ? f_tfTxt(timeframe.period) + (cS == 1 ? " ▲" : cS == -1 ? " ▼" : lu0 ? " ▲?" : ld0 ? " ▼?" : " ·") : "ปิด"
         int    a1   = f_smtAct(st1, smtU1, smtTf1)
         int    a2   = f_smtAct(st2, smtU2, smtTf2)
-        int    a3   = f_smtAct(st3, smtU3, smtTf3)
-        int    a4   = f_smtAct(st4, smtU4, smtTf4)
-        string smR  = sm0 + f_smD(smtU1, smtTf1, a1, lu1, ld1) + f_smD(smtU2, smtTf2, a2, lu2, ld2) + f_smD(smtU3, smtTf3, a3, lu3, ld3) + f_smD(smtU4, smtTf4, a4, lu4, ld4)
+        string smR  = sm0 + f_smD(smtU1, smtTf1, a1, lu1, ld1) + f_smD(smtU2, smtTf2, a2, lu2, ld2)
         table.cell(dash, 0, 6, "SMT", text_color=dim, text_size=size.tiny, text_halign=text.align_left)
         table.cell(dash, 1, 6, smR, text_color=colSMT, text_size=size.tiny, text_halign=text.align_right)
         // PRO: OB ใกล้ราคา + Quarter
@@ -3193,8 +3203,12 @@ if barstate.islast
         // QT แบบรอบ: วัน · 90 นาที · Micro 22.5 นาที
         array<string> qnm = array.from("Q1 Asia", "Q2 London", "Q3 NY AM", "Q4 NY PM")
         // แตะที่แถว QT = ดูเหตุผลที่ตัดสิน Q1 (ER · กรอบ · ความลึกที่กวาด)
-        [qD, qDd, qDb] = f_qtText(qcD, qtLimD, sty, sSrc, nR, tR, nS, tS)
-        [qS, qSd, qSb] = f_qtText(qcS, qtLimS, sty, sSrc, nR, tR, nS, tS)
+        string qD  = qdTxG
+        int    qDd = qdDirG
+        string qDb = qdDbG
+        string qS  = qsTxG
+        int    qSd = qsDirG
+        string qSb = qsDbG
         [qU, qUd, qUb] = f_qtText(qcU, qtLimU, sty, sSrc, nR, tR, nS, tS)
         // ช่วงปัจจุบัน: TF ที่คำนวณได้ใช้เวลาแท่ง · TF ที่คำนวณไม่ได้ใช้เวลาจริง (แท่งใหญ่คร่อมหลายช่วง)
         int    qmN = (hour(timenow, "America/New_York") * 60 + minute(timenow, "America/New_York") + 360) % 1440
@@ -3224,37 +3238,47 @@ if barstate.islast
         color  chDc = dim
         string chTp = ""
         if chD == ""
-            [cN0, cS0, cP0, cTx0, cSec0] = f_chAt(timenow)
-            int  dw0 = dayofweek(timenow + 21600000, "America/New_York")
-            bool cl0 = dw0 == dayofweek.saturday or dw0 == dayofweek.sunday
-            bool cA0 = cN0 >= chMinE and not cl0
+            int    cN0  = 0
+            int    cS0  = 0
+            int    cP0  = -1
+            string cTx0 = ""
+            int    cSec0 = f_chSec(timenow)
+            bool   cl0  = false
+            bool   cA0  = false
+            // ไล่ทีละช่วงของระดับเล็กสุด (k = 0 = ตอนนี้ · ข้ามเสาร์-อาทิตย์) → Chain ตอนนี้ + Chain ถัดไป
+            int    stp  = qtUOk ? 1350 : 5400
+            int    tB   = timenow - (cSec0 % stp) * 1000
+            string pSg  = ""
+            int    nxT  = na
+            string nxTx = ""
+            int    nxP  = -1
+            for k = 0 to (qtUOk ? 192 : 48)
+                int tk = k == 0 ? timenow : tB + k * stp * 1000
+                int dw = dayofweek(tk + 21600000, "America/New_York")
+                if dw == dayofweek.saturday or dw == dayofweek.sunday
+                    cl0 := k == 0 ? true : cl0
+                    pSg := ""
+                    continue
+                [nK, sK, pK, txK, sxK] = f_chAt(tk)
+                string sg = nK >= chMinE ? txK + "/" + str.tostring(sK) + "/" + str.tostring(nK) : ""
+                if k == 0
+                    cN0  := nK
+                    cS0  := sK
+                    cP0  := pK
+                    cTx0 := txK
+                    cA0  := sg != ""
+                else if sg != "" and sg != pSg
+                    nxT  := tk
+                    nxTx := txK
+                    nxP  := pK
+                    break
+                pSg := sg
             if cA0
                 int    qx  = qt90Ok and qSd != 0 ? qSd : qDd != 0 ? qDd : sty
                 int    q4x = qDd != 0 ? qDd : qSd
                 string gd  = cP0 == 0 ? "ไม่เทรด" : cP0 == 1 ? "รอ Sweep แล้วเข้าสวน" : cP0 == 2 ? "ตามทิศ " + (qx == 0 ? "(รอทิศ)" : f_arw(qx)) : cP0 == 3 ? "กฎ Q4 " + (q4x == 0 ? "(รอทิศ)" : f_arw(q4x)) : "คาดกลับตัว (รอ Sweep)"
                 chD  := "⛓ " + cTx0 + " · " + f_chPh(cP0) + " → " + gd + " · เหลือ " + f_dur(f_chRem(cSec0, cS0, cN0))
                 chDc := f_chCol(cP0)
-            // หา Chain ถัดไป: ไล่ทีละช่วงของระดับเล็กสุด (ข้ามเสาร์-อาทิตย์)
-            int    stp  = qtUOk ? 1350 : 5400
-            int    tB   = timenow - (cSec0 % stp) * 1000
-            string pSg  = cA0 ? cTx0 + "/" + str.tostring(cS0) + "/" + str.tostring(cN0) : ""
-            int    nxT  = na
-            string nxTx = ""
-            int    nxP  = -1
-            for k = 1 to (qtUOk ? 192 : 48)
-                int tk = tB + k * stp * 1000
-                int dw = dayofweek(tk + 21600000, "America/New_York")
-                if dw == dayofweek.saturday or dw == dayofweek.sunday
-                    pSg := ""
-                    continue
-                [nK, sK, pK, txK, sxK] = f_chAt(tk)
-                string sg = nK >= chMinE ? txK + "/" + str.tostring(sK) + "/" + str.tostring(nK) : ""
-                if sg != "" and sg != pSg
-                    nxT  := tk
-                    nxTx := txK
-                    nxP  := pK
-                    break
-                pSg := sg
             string nx = na(nxT) ? "" : "ถัดไป ⛓ " + nxTx + " " + f_chQs(nxP) + " " + str.format_time(nxT, "HH:mm", "Asia/Bangkok") + " (อีก " + f_dur(int((nxT - timenow) / 1000)) + ")"
             if not cA0
                 chD := (cl0 ? "ตลาดปิด" : cTx0 + " ไม่บรรจบ") + (nx != "" ? " · " + nx : "")
