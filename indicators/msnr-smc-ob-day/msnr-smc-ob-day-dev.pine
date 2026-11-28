@@ -2,6 +2,13 @@
 // MSNR × SMC + OB DAY — DEV · แยกจาก MSNR × SMC + OB PRO (2026-11-27 MAIN) (Pine Script v6)
 // ✏️ ไฟล์สำรองสำหรับแก้/ทดลอง · ไฟล์หลัก: indicators/msnr-smc-ob-day/main/msnr-smc-ob-day-main.pine
 // ตัวเดิม (MSNR × SMC + OB PRO) ไม่แก้
+// DAY (5) 2026-11-28: ตัวคอนเฟิมเพิ่ม 2 ตัว (คำนวณบน TF กราฟ · ไม่เพิ่ม request.security)
+//   1. qCISD / tCISD: Score +1 เมื่อเกิด CISD ตรงทิศระหว่าง Sweep → MSS · เส้นสีฟ้าบนกราฟ (qCISD เส้นทึบ · tCISD เส้นประ)
+//      tCISD = ชุดแท่งสวนทาง (≥ n แท่ง) แล้วแท่งปิดทะลุ Open แท่งแรกของชุด · qCISD = tCISD ที่ขาทำ High/Low ของ Quarter และกวาด Quarter ก่อนหน้า
+//   2. SSMT (Sequential SMT ตาม Quarter วัน / 90m / Micro): แยกเป็นแต้มของตัวเอง (เดิมรวมอยู่ในแต้ม SMT)
+//   3. Dashboard แถว CISD ล่าสุด
+//   4. CISD เกิดเฉพาะที่จุดสำคัญ (ติ๊กเลือกได้): OB · FVG TF ใหญ่ (TF A / B) · เลเวล MSNR HTF · Liquidity ที่ถูกกวาด (PDH/PDL · Asia H/L · EQH/EQL · swing)
+//   5. qCISD ต้องมี SSMT ตรงทิศ (แบบสาย Quarterly Theory · ปิดได้) · เส้น CISD เป็นสีฟ้า
 // DAY (4) 2026-11-27: QT Micro บนกราฟ — แถบ Quarter แถวที่ 3 (22.5 นาที × 4 ของ 90 นาทีปัจจุบัน · TF ≤ M5) + เส้น TO Micro (เปิด/ปิดได้)
 // DAY (3) 2026-11-27: QT แม่นขึ้น (ทั้ง วัน · 90m · Micro)
 //   1. Efficiency Ratio (Kaufman) ของ Q1: กรอบแคบ หรือ ER < 0.3 = ไซด์เวย์ (A ↔) · Q1 วิ่งแรง (D) ต้อง ER ≥ 0.5
@@ -80,7 +87,7 @@ float  eqTol    = input.float(0.1, "EQH/EQL tolerance (x ATR)", minval=0.01, ste
 string asiaSess = input.session("1900-0200", "Asia session (เวลา NY · DST อัตโนมัติ)", group=GQ, display=display.none, tooltip="ใช้หา Asia High/Low (Key liquidity) · 19:00-02:00 NY ≈ 07:00-14:00 ไทย (ฤดูหนาว US)\nใช้เฉพาะกราฟ ≤ H1")
 string kzLon    = input.session("0200-0500", "London killzone (เวลา NY)", group=GQ, display=display.none, tooltip="02:00-05:00 NY ≈ 14:00-17:00 ไทย (ฤดูหนาว US) · ปรับตาม DST อัตโนมัติ")
 string kzNy     = input.session("0700-1000", "New York killzone (เวลา NY)", group=GQ, display=display.none, tooltip="07:00-10:00 NY ≈ 19:00-22:00 ไทย (ฤดูหนาว US) · ปรับตาม DST อัตโนมัติ")
-int    minMiss  = input.int(3, "จุดเข้าเข้ม (ไม่จาง) เมื่อขาดแต้มไม่เกิน", minval=0, maxval=8, group=GQ, display=display.none, tooltip="นับจาก Score เต็ม (ปรับตาม TF และตัวเลือกที่เปิด)\nเกรด: ขาด ≤1 = A+ · 2 = A · 3 = B · ≥4 = C\nค่าเริ่ม 3 = เข้มเฉพาะเกรด B ขึ้นไป (เช่น 8/11)\nแต้ม: Key · Disp · FVG · ทับ HTF · PD · Killzone (≤ M30) · SMT · PO3 · OB · AMDX (QT) · PSP")
+int    minMiss  = input.int(3, "จุดเข้าเข้ม (ไม่จาง) เมื่อขาดแต้มไม่เกิน", minval=0, maxval=8, group=GQ, display=display.none, tooltip="นับจาก Score เต็ม (ปรับตาม TF และตัวเลือกที่เปิด)\nเกรด: ขาด ≤1 = A+ · 2 = A · 3 = B · ≥4 = C\nค่าเริ่ม 3 = เข้มเฉพาะเกรด B ขึ้นไป (เช่น 10/13)\nแต้ม: Key · Disp · FVG · ทับ HTF · PD · Killzone (≤ M30) · SMT · SSMT · PO3 · OB · AMDX (QT) · PSP · CISD")
 bool   useSMT   = input.bool(true, "SMT divergence (เทียบสินทรัพย์ที่วิ่งตามกัน)", display=display.none, group=GQ)
 string smtSym   = input.symbol("OANDA:XAGUSD", "สัญลักษณ์เทียบ SMT", group=GQ, display=display.none, tooltip="ทอง → เงิน (XAGUSD) · ทองกวาด Low แต่เงินไม่ทำ Low ใหม่ = Bullish SMT · ทองกวาด High แต่เงินไม่ทำ High ใหม่ = Bearish SMT")
 bool   showSMT  = input.bool(true, "วาดเส้น SMT บนกราฟ", display=display.none, group=GQ)
@@ -95,6 +102,18 @@ bool   smtRT    = input.bool(true, "SMT เรียลไทม์ (ขึ้�
 int    smtLenH  = input.int(2, "SMT TF ใหญ่: Swing length (แท่งของ TF นั้น)", minval=1, group=GQ, display=display.none)
 int    smtLive  = input.int(3, "SMT TF ใหญ่ยังนับ (แท่งของ TF นั้น)", minval=1, group=GQ, display=display.none, tooltip="SMT ของ TF ใหญ่ที่เกิดไม่เกินกี่แท่ง (ของ TF นั้น) ยังนับเป็นแต้ม SMT และขึ้น ▲/▼ ใน Dashboard")
 bool   reqPD    = input.bool(false, "บังคับ Entry อยู่ Discount (Buy) / Premium (Sell)", display=display.none, group=GQ)
+bool   ssmtOn   = input.bool(true, "SSMT: Score +1 แยกจาก SMT (Sequential SMT ตาม Quarter)", display=display.none, group=GQ, tooltip="Quarter ปัจจุบัน (วัน · 90m · Micro) ทองทะลุ High/Low ของ Quarter ก่อน แต่เงินไม่ทะลุของตัวเอง\nใช้ข้อมูลเงินชุดเดียวกับ SMT (ไม่เพิ่ม request)\nปิด = SSMT นับรวมในแต้ม SMT แบบเดิม")
+bool   cisdOn   = input.bool(true, "qCISD / tCISD: Score +1 เมื่อเกิด CISD ตรงทิศหลัง Sweep (ก่อน/ที่แท่ง MSS)", display=display.none, group=GQ, tooltip="CISD (Change in State of Delivery) บน TF กราฟ\nBullish: ชุดแท่งแดงติดกัน แล้วแท่งปิดเหนือ Open ของแท่งแรกในชุด · Bearish กลับกัน\nqCISD = ขาของ CISD ทำ High/Low ของ Quarter (QT 90m · กราฟ > M30 ใช้ QT วัน) และกวาด Quarter ก่อนหน้า (+ ต้องมี SSMT ถ้าเปิด)\ntCISD = CISD บน TF กราฟที่เกิด ณ จุดสำคัญ")
+int    cdMin    = input.int(1, "CISD: ชุดแท่งสวนทางอย่างน้อย (แท่ง)", minval=1, maxval=5, group=GQ, display=display.none)
+bool   cdKeyOn  = input.bool(true, "CISD เกิดเฉพาะที่จุดสำคัญ (ติ๊กชนิดด้านล่าง)", display=display.none, group=GQ, tooltip="ขาของ CISD (ไส้ต่ำสุด/สูงสุดก่อนกลับตัว) ต้องแตะ/กวาดจุดสำคัญก่อน ถึงจะนับเป็น qCISD / tCISD\nCISD ▲ ใช้ฝั่งล่าง (Demand · แนวรับ · Sell-side liquidity) · CISD ▼ ใช้ฝั่งบน\nโซน / เลเวล: ทะลุลงไปได้ไม่เกินระยะ 'Sweep ต้องเกิดใกล้เลเวล HTF' (x ATR H1)\nปิด = ไม่กรอง (ทุกที่)")
+bool   cdKOB    = input.bool(true, "จุดสำคัญ: OB (ทุก TF ในกราฟ)", inline="ck1", display=display.none, group=GQ)
+bool   cdKFvg   = input.bool(true, "FVG TF ใหญ่ (TF A / B)", inline="ck1", display=display.none, group=GQ, tooltip="FVG ของแท่ง TF A / TF B (ค่าเริ่ม H4 / H1 · ตั้งในกลุ่ม 'แท่งเทียน TF ใหญ่') ที่ยังไม่ถูกปิดทะลุ · ดูย้อนหลัง 25 แท่งของ TF นั้น")
+bool   cdKLvl   = input.bool(true, "จุดสำคัญ: เลเวล MSNR HTF", inline="ck2", display=display.none, group=GQ)
+bool   cdKLiq   = input.bool(true, "Liquidity ที่ถูกกวาด", inline="ck2", display=display.none, group=GQ, tooltip="ไส้กวาดแล้วปิดกลับ: PDH/PDL · Asia H/L · EQH/EQL · swing ล่าสุด (ชุดเดียวกับที่ Engine ใช้หา Sweep)\nจุดที่กวาดต้องเป็นจุดสุดของขา CISD (หลังกวาดไม่ทำจุดใหม่ที่ลึกกว่า)")
+bool   cdQSs    = input.bool(true, "qCISD ต้องมี SSMT ตรงทิศ (Quarter วัน / 90m / Micro)", display=display.none, group=GQ, tooltip="แบบที่เครื่องมือสาย Quarterly Theory ใช้: เกิด SSMT ก่อน แล้ว CISD ที่ Quarter นั้นจึงเป็น qCISD\nไม่มี SSMT = นับเป็น tCISD")
+bool   showCD   = input.bool(true, "วาดเส้น CISD บนกราฟ (สีฟ้า)", display=display.none, group=GQ, tooltip="qCISD = เส้นทึบ (วาดทุกครั้งที่เกิด) · tCISD = เส้นประ (วาดเฉพาะตัวที่ใช้ใน Setup)")
+bool   cdAll    = input.bool(false, "วาด tCISD ทุกตัว (ไม่ใช่เฉพาะใน Setup)", display=display.none, group=GQ, tooltip="กราฟเล็ก (M1 / M5) จะมี tCISD ถี่มาก → ค่าเริ่มปิด")
+int    cdKeep   = input.int(12, "จำนวนเส้น CISD ที่แสดง", minval=1, maxval=40, group=GQ, display=display.none)
 
 string G3 = "Entry (MSNR)"
 bool   needStory = input.bool(true, "เทรดเฉพาะทิศ Storyline", display=display.none, group=G3)
@@ -154,6 +173,7 @@ color colQM  = input.color(#ff9800, "QM", display=display.none, group=G5)
 color colOCL = input.color(#ab47bc, "OCL", display=display.none, group=G5)
 color colSw  = input.color(#9598a1, "Sweep", display=display.none, group=G5)
 color colSMT = input.color(#7e57c2, "SMT", display=display.none, group=G5)
+color colCD  = input.color(#29b6f6, "CISD (qCISD / tCISD)", display=display.none, group=G5)
 
 // ───────── Types ─────────
 type Lvl
@@ -1492,7 +1512,8 @@ f_qtOk(int d, float e) =>
 // ───────── Score เต็ม: 6 ข้อหลัก + KZ + PO3 + OB + AMDX + PSP (ข้อที่ใช้ไม่ได้บน TF นี้ไม่นับ) ─────────
 bool po3On = timeframe.in_seconds(cTfA) > chSec               // PO3: Open ของแท่ง TF A ต้องใหญ่กว่ากราฟ
 bool amdOn = qtMode != QT_OFF and qtDayOk                      // AMDX: ต้องคำนวณ QT วันได้
-int scMax = 6 + (kzOn ? 1 : 0) + (po3On ? 1 : 0) + (obOn and obScore ? 1 : 0) + (qtMode == QT_SC and qtDayOk ? 1 : 0) + (pspOn and useSMT ? 1 : 0)
+bool ssmtPt = ssmtOn and useSMT and (qtDayOk or qt90Ok or qtUOk)   // SSMT แยกแต้ม: ต้องคำนวณ QT ได้อย่างน้อย 1 ระดับ
+int scMax = 6 + (kzOn ? 1 : 0) + (po3On ? 1 : 0) + (obOn and obScore ? 1 : 0) + (qtMode == QT_SC and qtDayOk ? 1 : 0) + (pspOn and useSMT ? 1 : 0) + (ssmtPt ? 1 : 0) + (cisdOn ? 1 : 0)
 
 // ───────── QT แบบรอบ (Dashboard + ทิศ AMDX ใน Score): AMDX · XAMD · AAMD · MDAX · XXMD · DMDX ─────────
 // ระดับ: วัน (6 ชม./ช่วง) · 90 นาที · Micro 22.5 นาที · ตัดสินแบบจาก Q1 (เทียบกรอบ Q4 รอบก่อน) + Q2
@@ -1859,6 +1880,254 @@ float qtLimD = f_qtSide(qcD, qtSideD * qtAtrH1)
 float qtLimS = f_qtSide(qcS, qtSideS * qtAtrH1)
 float qtLimU = f_qtSide(qcU, qtSideS * 0.5 * qtAtrH1)
 
+// ───────── CISD (Change in State of Delivery) · tCISD บน TF กราฟ · qCISD = ขาทำ High/Low ของ Quarter ─────────
+// Bullish: ชุดแท่งแดงติดกัน (≥ cdMin แท่ง) → ระดับ = Open แท่งแรกของชุด → แท่งปิดเหนือระดับ = CISD ▲ (Bearish กลับกัน)
+// คำนวณเฉพาะแท่งที่ปิดแล้ว · ใช้ตัวแปร var ไม่วนลูปย้อนหลัง → เบา
+type CisdEv
+    int   bar   = -100000
+    bool  q     = false
+    float lv
+    int   t0
+    int   t1
+    bool  drawn = false
+    string key  = ""     // จุดสำคัญที่ขาแตะ (เช่น "OB H1" · "H4 RBS")
+
+var CisdEv cdU  = CisdEv.new()   // CISD ▲ ล่าสุด
+var CisdEv cdD  = CisdEv.new()   // CISD ▼ ล่าสุด
+var float  cdBuR  = na           // ระดับ CISD ▲ ที่รอยืนยัน (Open แท่งแรกของชุดแท่งแดง)
+var int    cdBuRT = na
+var float  cdBuX  = na           // Low สุดของขา (ใช้เช็ก qCISD)
+var float  cdBeR  = na
+var int    cdBeRT = na
+var float  cdBeX  = na
+var int    cdDnN  = 0
+var float  cdDnO  = na
+var int    cdDnT  = na
+var float  cdDnL  = na
+var int    cdUpN  = 0
+var float  cdUpO  = na
+var int    cdUpT  = na
+var float  cdUpH  = na
+var int    cdDnI  = na           // bar_index แท่งแรกของชุด
+var int    cdUpI  = na
+var int    cdBuB  = na           // แท่งเริ่มขาของ CISD ▲ (ใช้เช็กว่ากวาด Liquidity ภายในขานี้)
+var int    cdBeB  = na
+// Liquidity ที่ถูกกวาดล่าสุด (บันทึกจาก Engine: ไส้ทะลุแล้วปิดกลับ)
+var int    lqUBar = -100000      // Sell-side (Low) ถูกกวาด → ใช้กับ CISD ▲
+var float  lqULo  = na
+var string lqUTag = ""
+var int    lqDBar = -100000      // Buy-side (High) ถูกกวาด → ใช้กับ CISD ▼
+var float  lqDHi  = na
+var string lqDTag = ""
+var array<line>  cdL  = array.new<line>()
+var array<label> cdLb = array.new<label>()
+var array<int>   cdTm = array.new<int>()
+
+// qCISD: จุดสุดของขาเป็น High/Low ของ Quarter ปัจจุบัน (หรือ Quarter ก่อน ถ้าขาเกิดคาบรอยต่อ) และกวาด Quarter ก่อนหน้ามัน
+f_cdQ(float x, bool lo) =>
+    bool ok = false
+    if (qt90Ok or qtDayOk) and not na(x)
+        QtC c = qt90Ok ? qcS : qcD
+        if c.valid and c.q >= 0
+            float a0 = lo ? c.ql.get(c.q) : c.qh.get(c.q)
+            float a1 = c.q > 0 ? (lo ? c.ql.get(c.q - 1) : c.qh.get(c.q - 1)) : (lo ? c.pL : c.pH)
+            float a2 = c.q > 1 ? (lo ? c.ql.get(c.q - 2) : c.qh.get(c.q - 2)) : c.q == 1 ? (lo ? c.pL : c.pH) : na
+            bool  m0 = not na(a0) and (lo ? x <= a0 + tol : x >= a0 - tol)
+            bool  m1 = not na(a1) and (lo ? x <= a1 + tol : x >= a1 - tol)
+            bool  s1 = not na(a1) and (lo ? x < a1 - tol : x > a1 + tol)
+            bool  s2 = not na(a2) and (lo ? x < a2 - tol : x > a2 + tol)
+            ok := (m0 and s1) or (m1 and s2)
+            // แบบสาย QT: ต้องมี SSMT ตรงทิศใน Quarter (วัน / 90m / Micro)
+            if ok and cdQSs
+                int sd = lo ? 1 : -1
+                ok := (qt90Ok and f_ssmt(qcS) == sd) or (qtUOk and f_ssmt(qcU) == sd) or (qtDayOk and f_ssmt(qcD) == sd)
+    ok
+
+// FVG ของแท่ง TF ใหญ่ (จากแท่งที่สร้างบนกราฟ · 25 แท่งล่าสุด) ที่ยังไม่ถูกปิดทะลุ และไส้ x แตะ
+f_cdFvg(array<float> H, array<float> L, array<float> C, float x, bool lo, float dp) =>
+    bool hit = false
+    int  n   = H.size()
+    if n >= 4 and not na(x)
+        for i = 2 to n - 2
+            // ▲ ใช้ Bullish FVG (Low แท่ง 3 > High แท่ง 1) · ▼ ใช้ Bearish FVG (High แท่ง 3 < Low แท่ง 1)
+            float top = lo ? L.get(i) : L.get(i - 2)
+            float bot = lo ? H.get(i - 2) : H.get(i)
+            if top > bot and (lo ? (x <= top + tol and x >= bot - dp) : (x >= bot - tol and x <= top + dp))
+                bool alive = true
+                if i + 1 <= n - 2
+                    for k = i + 1 to n - 2
+                        if lo ? C.get(k) < bot : C.get(k) > top
+                            alive := false
+                            break
+                if alive
+                    hit := true
+    hit
+
+// Liquidity ที่แท่งนี้กวาด (ไส้ทะลุแล้วปิดกลับ) · ตรวจก่อน Engine ลบ swing ที่ถูกกวาด
+f_cdLiqNow(bool lo) =>
+    string r = ""
+    if lo
+        if useKey and pdhOn and not na(pdl) and low < pdl and close > pdl
+            r := "PDL"
+        else if useKey and asiaOn and not na(aL) and not inAsia and low < aL and close > aL
+            r := "Asia L"
+        else if sLP.size() > 0
+            for i = 0 to sLP.size() - 1
+                int ag = bar_index - sLB.get(i)
+                if low < sLP.get(i) and close > sLP.get(i) and ag - 1 >= sGap and ag <= liqAge
+                    r := sLE.get(i) ? "EQL" : "Swing L"
+                    break
+    else
+        if useKey and pdhOn and not na(pdh) and high > pdh and close < pdh
+            r := "PDH"
+        else if useKey and asiaOn and not na(aH) and not inAsia and high > aH and close < aH
+            r := "Asia H"
+        else if sHP.size() > 0
+            for i = 0 to sHP.size() - 1
+                int ag = bar_index - sHB.get(i)
+                if high > sHP.get(i) and close < sHP.get(i) and ag - 1 >= sGap and ag <= liqAge
+                    r := sHE.get(i) ? "EQH" : "Swing H"
+                    break
+    r
+
+// จุดสำคัญที่ขาของ CISD แตะ / กวาด (x = ไส้สุดของขา · legB = แท่งเริ่มขา) → ชื่อจุด (หลายชนิดต่อด้วย +) · "" = ไม่ได้แตะ
+// lo = CISD ▲ (ฝั่งล่าง) · โซน / เลเวลทะลุลึกได้ไม่เกิน zoneSw x ATR H1
+f_cdKey(float x, bool lo, int legB) =>
+    string r  = ""
+    float  dp = zoneSw * zAtr
+    if not na(x)
+        // OB (Demand ▲ / Supply ▼)
+        if cdKOB
+            string ob = ""
+            float  bd = na
+            for z in obZones
+                if z.isSup != lo
+                    bool  hit = lo ? (x <= z.top + tol and x >= z.bot - dp) : (x >= z.bot - tol and x <= z.top + dp)
+                    float d   = lo ? math.abs(x - z.top) : math.abs(x - z.bot)
+                    if hit and (na(bd) or d < bd)
+                        bd := d
+                        ob := "OB " + z.tfTxt
+            r := ob
+        // FVG TF ใหญ่ (TF A / TF B ที่ใหญ่กว่ากราฟ)
+        if cdKFvg
+            string fv = ""
+            if timeframe.in_seconds(cTfB) > chSec and f_cdFvg(cBH, cBL, cBC, x, lo, dp)
+                fv := "FVG " + f_tfTxt(cTfB)
+            else if timeframe.in_seconds(cTfA) > chSec and f_cdFvg(cAH, cAL, cAC, x, lo, dp)
+                fv := "FVG " + f_tfTxt(cTfA)
+            if fv != ""
+                r := r == "" ? fv : r + "+" + fv
+        // เลเวล MSNR HTF (แนวรับ ▲ / แนวต้าน ▼)
+        if cdKLvl
+            string lv = ""
+            float  bd = na
+            for l in lvH
+                if l.kind == (lo ? 1 : -1)
+                    float d = math.abs(x - l.price)
+                    if d <= dp + tol and (na(bd) or d < bd)
+                        bd := d
+                        lv := l.tf + " " + l.tag
+            if lv != ""
+                r := r == "" ? lv : r + "+" + lv
+        // Liquidity: กวาดภายในขานี้ (ก่อนแท่งนี้ = บันทึกจาก Engine · แท่งนี้ = ตรวจตรง) และจุดที่กวาดคือจุดสุดของขา
+        if cdKLiq
+            string lq = ""
+            if lo
+                if not na(legB) and lqUBar >= legB and not na(lqULo) and x >= lqULo - tol
+                    lq := lqUTag
+                else if low <= x + tol
+                    lq := f_cdLiqNow(true)
+            else
+                if not na(legB) and lqDBar >= legB and not na(lqDHi) and x <= lqDHi + tol
+                    lq := lqDTag
+                else if high >= x - tol
+                    lq := f_cdLiqNow(false)
+            if lq != ""
+                r := r == "" ? lq : r + "+" + lq
+    r
+
+// เส้นสีฟ้า: qCISD ทึบ · tCISD ประ · จาก Open แท่งแรกของชุด → แท่งที่ปิดทะลุ
+f_cdDraw(CisdEv e) =>
+    if showCD and not e.drawn and not na(e.lv) and not na(e.t0)
+        color c = color.new(colCD, e.q ? 0 : 20)
+        cdL.push(line.new(e.t0, e.lv, e.t1, e.lv, xloc=xloc.bar_time, color=c, width=lw, style=e.q ? line.style_solid : line.style_dashed))
+        cdLb.push(label.new(e.t1, e.lv, (e.q ? "qCISD" : "tCISD") + (e.key != "" ? " · " + e.key : ""), xloc=xloc.bar_time, style=label.style_label_left, color=cNone, textcolor=c, size=txtSz))
+        cdTm.push(e.t1)
+        while cdL.size() > cdKeep
+            line.delete(cdL.shift())
+            label.delete(cdLb.shift())
+            cdTm.shift()
+        e.drawn := true
+
+if cisdOn and barstate.isconfirmed and inCalc
+    // ยืนยัน (ใช้ระดับจากแท่งก่อนหน้า)
+    if not na(cdBuR)
+        cdBuX := na(cdBuX) ? low : math.min(cdBuX, low)
+        if close > cdBuR
+            // ต้องแตะจุดสำคัญก่อนกลับตัว (ไม่แตะ = ไม่นับ · ล้างระดับนี้ทิ้ง)
+            string ky = f_cdKey(cdBuX, true, cdBuB)
+            if not cdKeyOn or ky != ""
+                cdU.bar   := bar_index
+                cdU.lv    := cdBuR
+                cdU.t0    := cdBuRT
+                cdU.t1    := time
+                cdU.q     := f_cdQ(cdBuX, true)
+                cdU.key   := ky
+                cdU.drawn := false
+                if inDay and (cdU.q or cdAll)
+                    f_cdDraw(cdU)
+            cdBuR := na
+            cdBuX := na
+            cdBuB := na
+    if not na(cdBeR)
+        cdBeX := na(cdBeX) ? high : math.max(cdBeX, high)
+        if close < cdBeR
+            string ky = f_cdKey(cdBeX, false, cdBeB)
+            if not cdKeyOn or ky != ""
+                cdD.bar   := bar_index
+                cdD.lv    := cdBeR
+                cdD.t0    := cdBeRT
+                cdD.t1    := time
+                cdD.q     := f_cdQ(cdBeX, false)
+                cdD.key   := ky
+                cdD.drawn := false
+                if inDay and (cdD.q or cdAll)
+                    f_cdDraw(cdD)
+            cdBeR := na
+            cdBeX := na
+            cdBeB := na
+    // ชุดแท่งต่อเนื่อง (doji ไม่ตัดชุด)
+    if close < open
+        if cdDnN == 0
+            cdDnO := open
+            cdDnT := time
+            cdDnL := low
+            cdDnI := bar_index
+        cdDnN += 1
+        cdDnL := math.min(cdDnL, low)
+        cdUpN := 0
+        if cdDnN >= cdMin
+            cdBuR  := cdDnO
+            cdBuRT := cdDnT
+            if na(cdBuX)
+                cdBuB := cdDnI
+            cdBuX  := na(cdBuX) ? cdDnL : math.min(cdBuX, cdDnL)
+    else if close > open
+        if cdUpN == 0
+            cdUpO := open
+            cdUpT := time
+            cdUpH := high
+            cdUpI := bar_index
+        cdUpN += 1
+        cdUpH := math.max(cdUpH, high)
+        cdDnN := 0
+        if cdUpN >= cdMin
+            cdBeR  := cdUpO
+            cdBeRT := cdUpT
+            if na(cdBeX)
+                cdBeB := cdUpI
+            cdBeX  := na(cdBeX) ? cdUpH : math.max(cdBeX, cdUpH)
+
 // PSP: แท่งเดียวกัน (±1 แท่งรอบจุด Sweep) ทองกับเงินปิดคนละสี
 f_psp(int off) =>
     bool r = false
@@ -2019,6 +2288,15 @@ if newDay and inCalc and barstate.isconfirmed
                 if label.get_x(hB.get(i)) < cT
                     label.delete(hB.get(i))
                     hB.remove(i)
+        // เส้น / ป้าย CISD
+        if cdL.size() > 0
+            for i = cdL.size() - 1 to 0
+                if cdTm.get(i) < cT
+                    line.delete(cdL.get(i))
+                    label.delete(cdLb.get(i))
+                    cdL.remove(i)
+                    cdLb.remove(i)
+                    cdTm.remove(i)
         // โซน / Setup ที่ค้างจากวันก่อน
         if ss != 0 and not na(zTime) and zTime < cT
             line.delete(msL)
@@ -2216,9 +2494,15 @@ if barstate.isconfirmed and inCalc
         bool   smtOk = smtHit or ssOk
         bool   psp   = pspOn and useSMT and f_psp(bar_index - swBar)
         bool   amdx  = amdOn and not na(ep) and qtDir == dir
-        sc += (obOk ? 1 : 0) + (qtMode == QT_SC and amdx ? 1 : 0) + (smtOk and not smtHit ? 1 : 0) + (psp ? 1 : 0)
+        // CISD ตรงทิศ เกิดตั้งแต่แท่ง Sweep ถึงแท่ง MSS นี้
+        CisdEv cdE   = dir == 1 ? cdU : cdD
+        bool   cdOk  = cisdOn and cdE.bar >= swBar and cdE.bar <= bar_index
+        if cdOk and inDay
+            f_cdDraw(cdE)
+        // SSMT แยกแต้ม (ssmtPt) · ปิด = รวมในแต้ม SMT แบบเดิม
+        sc += (obOk ? 1 : 0) + (qtMode == QT_SC and amdx ? 1 : 0) + (ssmtPt ? (ssOk ? 1 : 0) : (smtOk and not smtHit ? 1 : 0)) + (psp ? 1 : 0) + (cdOk ? 1 : 0)
         string qtWhy = qtDayOk and qtNoA and qtDQ == 0 ? "AMDX: Q1 Asia (สะสม)" : amdOn and qtMode == QT_REQ and not amdx ? "AMDX: สวนทิศ QT" : ""
-        ckTxt := (swKey ? "✓" : "✗") + "Key " + (dOk ? "✓" : "✗") + "Disp " + (fOk ? "✓" : "✗") + "FVG " + (ov ? "✓" : "✗") + "HTF " + (inPD ? "✓" : "✗") + "PD" + (kzOn ? " " + (kzOk ? "✓" : "✗") + "KZ" : "") + " " + (smtHit ? "✓" : ssOk ? "✓S" : "✗") + "SMT" + (po3On ? " " + (po3 ? "✓" : "✗") + "PO3" : "") + (obOn and obScore ? " " + (obOk ? "✓OB " + obTf : "✗OB") : "") + (amdOn ? " " + (amdx ? "✓" : "✗") + "AMDX" : "") + (pspOn and useSMT ? " " + (psp ? "✓" : "✗") + "PSP" : "")
+        ckTxt := (swKey ? "✓" : "✗") + "Key " + (dOk ? "✓" : "✗") + "Disp " + (fOk ? "✓" : "✗") + "FVG " + (ov ? "✓" : "✗") + "HTF " + (inPD ? "✓" : "✗") + "PD" + (kzOn ? " " + (kzOk ? "✓" : "✗") + "KZ" : "") + " " + (ssmtPt ? (smtHit ? "✓" : "✗") + "SMT " + (ssOk ? "✓" : "✗") + "SSMT" : (smtHit ? "✓" : ssOk ? "✓S" : "✗") + "SMT") + (po3On ? " " + (po3 ? "✓" : "✗") + "PO3" : "") + (obOn and obScore ? " " + (obOk ? "✓OB " + obTf : "✗OB") : "") + (amdOn ? " " + (amdx ? "✓" : "✗") + "AMDX" : "") + (pspOn and useSMT ? " " + (psp ? "✓" : "✗") + "PSP" : "") + (cisdOn ? " " + (cdOk ? "✓" + (cdE.q ? "qCISD" : "tCISD") + (cdE.key != "" ? "@" + cdE.key : "") : "✗CISD") : "")
         tSc := sc
         if na(ep)
             skip := (dir == 1 ? "▲ " : "▼ ") + "ข้าม · ไม่มีเลเวลใน Discount/Premium"
@@ -2439,6 +2723,15 @@ if barstate.isconfirmed and inCalc
         if na(dSwT)
             dSwT := na(lsLT) ? time[math.min(bar_index, 20)] : lsLT
 
+    // บันทึก Liquidity ที่ถูกกวาดล่าสุด (จุดสำคัญของ CISD) · ทุกแท่ง ไม่ขึ้นกับสถานะ Setup
+    if not na(uSwP) or hitPDL or hitAL
+        lqUBar := bar_index
+        lqULo  := low
+        lqUTag := hitPDL ? "PDL" : hitAL ? "Asia L" : uTag == "EQL" ? "EQL" : "Swing L"
+    if not na(dSwP) or hitPDH or hitAH
+        lqDBar := bar_index
+        lqDHi  := high
+        lqDTag := hitPDH ? "PDH" : hitAH ? "Asia H" : dTag == "EQH" ? "EQH" : "Swing H"
     // Sweep นับเฉพาะในโซน HTF และตรงทิศ · ระดับ MSS = high/low สุดของขาที่ส่งราคาไป sweep
     bool bullSw = ss == 1 and dir == 1 and not na(uSwP) and low <= zP + zoneSw * zAtr
     bool bearSw = ss == 1 and dir == -1 and not na(dSwP) and high >= zP - zoneSw * zAtr
@@ -2552,7 +2845,7 @@ f_smD(bool on, string tf, int a, bool lu, bool ld) =>
 string dPos = dashPos == "บนขวา" ? position.top_right : dashPos == "ล่างซ้าย" ? position.bottom_left : dashPos == "บนซ้าย" ? position.top_left : position.bottom_right
 var array<line>  hvLn = array.new<line>()
 var array<label> hvLb = array.new<label>()
-var table dash = table.new(dPos, 2, 11, bgcolor=color.new(chart.bg_color, 0), frame_color=color.new(chart.fg_color, 85), frame_width=1, border_width=0)
+var table dash = table.new(dPos, 2, 12, bgcolor=color.new(chart.bg_color, 0), frame_color=color.new(chart.fg_color, 85), frame_width=1, border_width=0)
 
 if barstate.islast
     array<float> vp = array.new<float>()
@@ -2736,6 +3029,18 @@ if barstate.islast
         table.cell(dash, 1, 9, qt90Ok ? qS : "ใช้ TF ≤ M30", text_color=qt90Ok and qSd == 1 ? colS : qt90Ok and qSd == -1 ? colR : qt90Ok ? fg : dim, text_size=size.tiny, text_halign=text.align_right, tooltip=qt90Ok ? qSb : "")
         table.cell(dash, 0, 10, "QT Micro · Q" + str.tostring(qU0 + 1), text_color=dim, text_size=size.tiny, text_halign=text.align_left)
         table.cell(dash, 1, 10, qtUOk ? qU : "ใช้ TF ≤ M5", text_color=qtUOk and qUd == 1 ? colS : qtUOk and qUd == -1 ? colR : dim, text_size=size.tiny, text_halign=text.align_right, tooltip=qtUOk ? qUb : "")
+        // CISD ล่าสุด (▲ / ▼ ที่เกิดหลังสุด)
+        bool   cdUp = cdU.bar >= cdD.bar
+        CisdEv cdN  = cdUp ? cdU : cdD
+        string cdTx = "ปิด"
+        if cisdOn
+            cdTx := "—"
+            if cdN.bar >= 0 and not na(cdN.lv)
+                float cdAg = (bar_index - cdN.bar) * chSec / 3600.0
+                string cdA = cdAg >= 24 ? str.tostring(cdAg / 24, "#.#") + " วัน" : cdAg >= 1 ? str.tostring(cdAg, "#.#") + " ชม." : str.tostring(math.round(cdAg * 60)) + " นาที"
+                cdTx := (cdUp ? "▲ " : "▼ ") + (cdN.q ? "qCISD " : "tCISD ") + str.tostring(cdN.lv, format.mintick) + (cdN.key != "" ? " @ " + cdN.key : "") + " · " + cdA
+        table.cell(dash, 0, 11, "CISD ล่าสุด", text_color=dim, text_size=size.tiny, text_halign=text.align_left)
+        table.cell(dash, 1, 11, cdTx, text_color=not cisdOn or cdN.bar < 0 ? dim : cdUp ? colS : colR, text_size=size.tiny, text_halign=text.align_right)
 
 // ════════════════════════════════════════════════════════════════
 // ███ QT: เส้น True Open / Q1 + แถบ Quarter ใต้กราฟ (วาดตอนแท่งสุดท้าย) ███
